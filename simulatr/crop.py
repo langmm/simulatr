@@ -19,13 +19,11 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def crop2fname(cls, crop_name: str,
-                   model_dir: Optional[str] = None) -> str:
+    def crop2fname(cls, crop_name: str) -> str:
         r"""Locate an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
 
         Returns:
             str: Model input file for the specified crop.
@@ -35,11 +33,8 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def available_crops(cls, model_dir: Optional[str] = None) -> List[str]:
+    def available_crops(cls) -> List[str]:
         r"""Get the crops that can be simulated via this model.
-
-        Args:
-            model_dir: Directory containing the model.
 
         Returns:
             list: Available crop names.
@@ -49,14 +44,12 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def available_cultivars(cls, crop_name: str,
-                            model_dir: Optional[str] = None) -> List[str]:
+    def available_cultivars(cls, crop_name: str) -> List[str]:
         r"""Get the cultivars for a given crop that can be simulated
         via this model.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
 
         Returns:
             list: Available crop cultivar names.
@@ -65,19 +58,18 @@ class CropModelFile(BaseModelFile):
         raise NotImplementedError  # pragma: no cover
 
     @classmethod
-    def validate_crop_name(cls, crop_name: str,
-                           model_dir: Optional[str] = None) -> str:
+    def validate_crop_name(cls, crop_name: str) -> str:
         r"""Ensure the crop name is one of those that can be simulated,
         normalizing it if necessary.
+
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
 
         Returns:
             str: Normalized crop name.
 
         """
-        available_crops = cls.available_crops(model_dir=model_dir)
+        available_crops = cls.available_crops()
         for alias in [crop_name, crop_name.lower(), crop_name.title()]:
             if alias in available_crops:
                 return alias
@@ -88,13 +80,11 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def from_crop_name(cls, crop_name: str,
-                       model_dir: Optional[str] = None) -> "CropModelFile":
+    def from_crop_name(cls, crop_name: str) -> "CropModelFile":
         r"""Create an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory where the generated model should be saved.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -617,8 +607,7 @@ class CropModelEngine(BaseModelEngine):
             if not self.crop_name:
                 raise ValueError("Either a model file or crop name must "
                                  "be provided")
-            model_file = self.INPUT_FILE_TYPE.crop2fname(
-                self.crop_name, model_dir=kwargs.get("model_dir", None))
+            model_file = self.INPUT_FILE_TYPE.crop2fname(self.crop_name)
         super().__init__(model_file, **kwargs)
 
     def update_model_file(self) -> None:

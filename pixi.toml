@@ -1,0 +1,75 @@
+[workspace]
+name = "simulatr"
+version = "0.0.1"
+description = "Gym environment for reinforcement learning using process-based simulators like crop growth models"
+authors = ["Meagan Lang <langmm.astro@gmail.com>"]
+channels = ["conda-forge"]
+platforms = ["osx-64", "osx-arm64", "linux-64", "win-64"]
+
+[dependencies]
+python = ">=3.10,<3.15"
+gymnasium = "*"
+msgpack-python = "*"
+numpy = ">=1.13.0"
+pandas = "*"
+pyzmq = "*"
+requests = "*"
+
+[pypi-dependencies]
+simulatr = { path = ".", editable = true }
+
+[feature.dev.dependencies]
+flake8 = "*"
+myst-parser = "*"
+pytest = "*"
+pytest-cov = "*"
+sphinx = "*"
+tox = "*"
+
+[feature.dev.tasks]
+test = { cmd = "pytest", description = "Run the test suite" }
+lint = { cmd = "flake8 simulatr tests", description = "Lint the codebase" }
+docs = { cmd = "sphinx-build docs docs/_build", description = "Build the documentation" }
+
+[feature.apsimx.dependencies]
+dotnet = ">=8.0.0,<9.0.0"
+gtk3 = "*"
+
+[feature.apsimx.tasks]
+install-apsimx = {
+    cmd = "python -m simulatr install apsimx --directory {{ directory }}",
+    args = [{ arg = "directory", default = "./models/ApsimX" }],
+    description = "Install ApsimX from a local copy of the source code",
+}
+run-apsimx = {
+    cmd = "python -m simulatr run apsimx --crop-name {{ crop }}",
+    args = [
+        { arg = "crop", default = "Wheat" },
+    ],
+    description = "Run a simulation against a local ApsimX build",
+}
+
+[feature.py310.dependencies]
+python = "3.10.*"
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[feature.py313.dependencies]
+python = "3.13.*"
+
+[feature.py314.dependencies]
+python = "3.14.*"
+
+[environments]
+default = []
+dev = ["dev"]
+apsimx = ["dev", "apsimx"]
+py310 = ["dev", "py310", "apsimx"]
+py311 = ["dev", "py311", "apsimx"]
+py312 = ["dev", "py312", "apsimx"]
+py313 = ["dev", "py313", "apsimx"]
+py314 = ["dev", "py314", "apsimx"]

@@ -14,6 +14,7 @@ from functools import cached_property
 import numpy as np
 import gymnasium as gym
 from . import logger
+from .utils import promptuser
 
 
 class NoDefault:
@@ -1722,27 +1723,9 @@ class BaseModelFile(CachedPropertyMixin, ABC):
 
 
 class BaseModelEngine(ABC):
-    r"""Base class for exposing a model as an environment engine.
+    r"""Base class for exposing a model as an environment engine."""
 
-    Args:
-        model_file: Path to one or more model input files.
-        model_dir: Path to the directory containing the model.
-        model_suffix: Additional suffix to add to a copy of the provided
-            model file to ensure that it is unique.
-        output_dir: Path to the directory where output should be saved.
-        start_time: Simulation start time.
-        end_time: Simulation end time.
-        duration: Simulation duration. Only used if either start_time or
-            end_time is not provided.
-        param: Model parameters to update at the beginning of the
-            simulation.
-        actions: Names of actions to include. Only used if action_map
-            not provided.
-        action_map: Description of actions available via the act method.
-        action_param: Action parameters to use keyed to action names.
-
-    """
-
+    _MODEL_NAME = None
     INPUT_FILE_TYPE = None
     AVAILABLE_ACTION_MAP = {}
     EXPLICIT_PARAM = ["start_time", "end_time", "duration"]
@@ -1752,7 +1735,6 @@ class BaseModelEngine(ABC):
     def __init__(
             self,
             model_file: Union[str, List[str], BaseModelFile],
-            model_dir: Optional[str] = None,
             model_suffix: Optional[str] = None,
             output_dir: Optional[str] = None,
             start_time: Optional[datetime.datetime] = None,
@@ -1767,7 +1749,6 @@ class BaseModelEngine(ABC):
 
         Args:
             model_file: Path to one or more model input files.
-            model_dir: Path to the directory containing the model.
             model_suffix: Additional suffix to add to a copy of the
                 provided model file to ensure that it is unique.
             output_dir: Path to the directory where output should be
@@ -1786,7 +1767,6 @@ class BaseModelEngine(ABC):
 
         """
         self.model_file = model_file
-        self.model_dir = model_dir
         self.model_suffix = model_suffix
         self.output_dir = output_dir
         self.start_time = start_time
@@ -1802,13 +1782,13 @@ class BaseModelEngine(ABC):
             self.model = self.model_file
             self.model_file = self.model.fname
         else:
-            if ((self.model_file and self.model_dir
+            if ((self.model_file and self.model_dir()
                  and (not os.path.isfile(self.model_file))
                  and (not os.path.isabs(self.model_file))
                  and os.path.isfile(
-                     os.path.join(self.model_dir, self.model_file)))):
+                     os.path.join(self.model_dir(), self.model_file)))):
                 self.model_file = os.path.join(
-                    self.model_dir, self.model_file)
+                    self.model_dir(), self.model_file)
             self.model = self.INPUT_FILE_TYPE(self.model_file)
         self.action_map = ModelActionSet.create(
             action_map or self.select_actions(actions),
@@ -1817,6 +1797,82 @@ class BaseModelEngine(ABC):
             for k, v in action_param.items():
                 self.action_map.set_param(v, action=k)
         self.update_model_file()
+        if not self.is_installed():
+            self.install()
+
+    @classmethod
+    def model_dir(cls) -> str:
+        r"""Get the directory containing the model.
+
+        Returns:
+            str: The directory containing the model.
+
+        """
+        from .utils import cfg
+        out = cfg["directories"].get(cls._MODEL_NAME, None)
+        if out is None:
+            out = os.path.join(cfg["directories"]["models"],
+                               cls._MODEL_NAME)
+        return out
+
+    @classmethod
+    def is_installed(cls) -> bool:
+        r"""Check if the model is installed in the specified directory.
+
+        Returns:
+            bool: True if the model is installed, False otherwise.
+
+        """
+        model_dir = cls.model_dir()
+        return isinstance(model_dir, str) and os.path.isdir(model_dir)
+
+    @classmethod
+    def install(cls) -> None:
+        r"""Install the model if it is not installed."""
+        from .utils import cfg
+        model_dir = cls.model_dir()
+        if cls.is_installed():
+            if model_dir != cfg["directories"].get(cls._MODEL_NAME, None):
+                cfg.set("directories", cls._MODEL_NAME, model_dir)
+                cfg.write()
+            return
+        prefix = ""
+        if cfg["directories"].get(cls._MODEL_NAME, None) is not None:
+            prefix = (
+                f"The {cls._MODEL_NAME} model is not installed in the "
+                f"specified directory. "
+            )
+        ans = ""
+        while True:
+            ans = promptuser(
+                f"{prefix}Install the {cls._MODEL_NAME} model into "
+                f"\"{model_dir}\"? [Y/n]",
+                _gha_default="Y")
+            if ans.upper() in ["N", "Y"]:
+                break
+            print(f"Invalid answer \"{ans}\". Please answer Y or N...")
+        if ans.upper() == "N":
+            raise RuntimeError(
+                f"{cls._MODEL_NAME} model required to proceed")
+        cls._install(model_dir)
+        cfg.set("directories", cls._MODEL_NAME, model_dir)
+        if not cls.is_installed():
+            raise RuntimeError(
+                f"{cls._MODEL_NAME} model installation failed")
+        cfg.write()
+        return
+
+    @classmethod
+    @abstractmethod
+    def _install(cls, model_dir: str) -> None:
+        r"""Install the model.
+
+        Args:
+            model_dir: Path to the directory where the model should
+                be installed.
+
+        """
+        raise NotImplementedError  # pragma: no cover
 
     def has_param(self, name: str,
                   skip_file: Optional[bool] = False) -> bool:

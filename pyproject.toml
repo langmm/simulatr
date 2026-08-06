@@ -9,7 +9,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "apsimx_gym"
+name = "simulatr"
 dynamic = [
   "version",
   "readme",
@@ -27,7 +27,7 @@ description = "Gym environment for reinforcement learning using ApsimX"
 license-files = ["LICEN[CS]E*"]
 license = "BSD-3-Clause"
 keywords = [
-  "apsim", "apsimx", "apsimx_gym",
+  "apsim", "apsimx", "simulatr",
   "reinforcement leanring", "machine learning",
 ]
 authors = [
@@ -51,7 +51,7 @@ requires-python = ">= 3.10"
 
 # [project.scripts]
 [project.entry-points]
-console_scripts = { apsimx_gym="apsimx_gym.cli:main" }
+console_scripts = { simulatr="simulatr.cli:main" }
 
 [project.urls]
 Homepage = "https://github.com/langmm/ApsimX"
@@ -63,6 +63,7 @@ Changelog = "https://github.com/langmm/ApsimX/blob/main/ApsimXGym/HISTORY.rst"
 [project.optional-dependencies]
 dev = [
   'flake8',
+  'myst-parser',
   'pytest',
   'pytest-cov',
   'sphinx',
@@ -71,10 +72,10 @@ dev = [
 
 [tool.setuptools]
 include-package-data = true
-packages = ["apsimx_gym"]
+packages = ["simulatr"]
 
 [tool.setuptools.package-data]
-apsimx_gym = ["data/*.apsimx"]
+simulatr = ["data/*.apsimx"]
 
 [tool.setuptools_scm]
 root = ".."
@@ -83,10 +84,13 @@ tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)$"
 # version_scheme = "only-version"
 fallback_version = "0.0.1"
 scm.git.describe_command = ["git", "describe", "--tags", "--long", "--match", "v*"]
-version_file = "apsimx_gym/_version.py"
+version_file = "simulatr/_version.py"
 
 [tool.setuptools.dynamic]
 readme = {file = ["README.md", "HISTORY.rst"]}
+
+[tool.flake8]
+max-line-length = 88
 
 [tool.pytest.ini_options]
 minversion = "6.0"

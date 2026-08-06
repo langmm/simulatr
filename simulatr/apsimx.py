@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, Union, Any, List, Callable, Iterator
 from . import logger
-from .utils import _apsimxdir, _datadir, LogPipe
+from .utils import cfg, LogPipe
 from .base import (
     readonly_cached_property,
     RecoverableError, ModelEngineError, InvalidActionError,
@@ -26,7 +26,8 @@ from .crop import (
 )
 
 
-_syncfile = os.path.join(_datadir, "Synchroniser.json")
+_apsimxdir = cfg['directories'].get('apsimx', None)
+_syncfile = os.path.join(cfg['directories']['data'], "Synchroniser.json")
 
 
 def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
@@ -235,7 +236,7 @@ class ApsimXFileNode:
     """
 
     def __init__(self, contents: dict,
-                 parent: Optional["ApsimXFileNode" | None] = None,
+                 parent: Optional["ApsimXFileNode"] = None,
                  **kwargs: Any) -> None:
         r"""Initialize a new node.
 
@@ -311,7 +312,7 @@ class ApsimXFileNode:
             ApsimXFileNode: New node.
 
         """
-        fname = os.path.join(_datadir, f"{name}.json")
+        fname = os.path.join(cfg['directories']['data'], f"{name}.json")
         return cls.from_file(fname, **kwargs)
 
     def __str__(self) -> str:
@@ -703,7 +704,8 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Irrigation"},
             "required": True,
-            # "default": os.path.join(_datadir, "Irrigate.json"),
+            # "default":
+            # os.path.join(cfg['directories']['data'], "Irrigate.json"),
             "default": {
                 "$type": "Models.Irrigation, Models",
                 "Name": "Irrigation",
@@ -718,7 +720,8 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Fertiliser"},
             "required": True,
-            # "default": os.path.join(_datadir, "Fertilize.json"),
+            # "default":
+            # os.path.join(cfg['directories']['data'], "Fertilize.json"),
             "default": {
                 "$type": "Models.Fertiliser, Models",
                 "Name": "Fertiliser",
@@ -827,7 +830,8 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "SowingDate",
-            "default": os.path.join(_datadir, "SowOrHarvestByDate.json"),
+            "default": os.path.join(
+                cfg['directories']['data'], "SowOrHarvestByDate.json"),
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -844,7 +848,8 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "HarvestDate",
-            "default": os.path.join(_datadir, "SowOrHarvestByDate.json"),
+            "default": os.path.join(
+                cfg['directories']['data'], "SowOrHarvestByDate.json"),
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -867,38 +872,32 @@ class ApsimXFile(CropModelFile):
     # TODO: Set default from_example to False after it is debugged
     @classmethod
     def crop2fname(cls, crop_name: str,
-                   model_dir: Optional[str] = None,
                    from_example: bool | str = True) -> str:
         r"""Locate an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
             from_example: If True, create the file from an example.
 
         Returns:
             str: Model input file for the specified crop.
 
         """
-        node = cls.from_crop_name(crop_name, model_dir=model_dir,
+        node = cls.from_crop_name(crop_name,
                                   from_example=from_example)
         node.write()
         return node
 
     @classmethod
-    def available_crops(cls, model_dir: Optional[str] = None) -> List[str]:
+    def available_crops(cls) -> List[str]:
         r"""Get the crops that can be simulated via this model.
-
-        Args:
-            model_dir: Directory containing the model.
 
         Returns:
             list: Available crop names.
 
         """
-        if model_dir is None:
-            model_dir = _apsimxdir
-        resources_dir = os.path.join(model_dir, "Models", "Resources")
+        resources_dir = os.path.join(
+            ApsimXEngine.model_dir(), "Models", "Resources")
         files = glob.glob(os.path.join(resources_dir, "*.json"))
         exclude = [
             "CLEM",
@@ -922,26 +921,22 @@ class ApsimXFile(CropModelFile):
         return out
 
     @classmethod
-    def available_cultivars(cls, crop_name: str,
-                            model_dir: Optional[str] = None) -> List[str]:
+    def available_cultivars(cls, crop_name: str) -> List[str]:
         r"""Get the cultivars for a given crop that can be simulated
         via this model.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
 
         Returns:
             list: Available crop cultivar names.
 
         """
-        if model_dir is None:
-            model_dir = _apsimxdir
-        crop_name = cls.validate_crop_name(
-            crop_name, model_dir=model_dir)
+        crop_name = cls.validate_crop_name(crop_name)
         resources_file = ApsimXFileNode.from_file(
             os.path.join(
-                model_dir, "Models", "Resources", f"{crop_name}.json"))
+                ApsimXEngine.model_dir(), "Models", "Resources",
+                f"{crop_name}.json"))
         out = []
         for x in resources_file.findall(
                 requirements={
@@ -952,21 +947,17 @@ class ApsimXFile(CropModelFile):
         return out
 
     @classmethod
-    def find_example(cls, crop_name: str,
-                     model_dir: Optional[str] = None) -> str:
+    def find_example(cls, crop_name: str) -> str:
         r"""Locate an example model file for a given crop name.
 
         Args:
             crop_name: Crop name.
-            model_dir: Directory containing the model.
 
         Returns:
             str: Model input file for the specified crop.
 
         """
-        if model_dir is None:
-            model_dir = _apsimxdir
-        examples_dir = os.path.join(model_dir, "Examples")
+        examples_dir = os.path.join(ApsimXEngine.model_dir(), "Examples")
         for x in [crop_name, crop_name.title()]:
             fname = os.path.join(examples_dir, f"{x}.apsimx")
             if os.path.isfile(fname):
@@ -975,7 +966,7 @@ class ApsimXFile(CropModelFile):
                          f"\"{crop_name}\".")
 
     @classmethod
-    def from_example(cls, src: str | "ApsimXFile",
+    def from_example(cls, src: Union[str, "ApsimXFile"],
                      dst: str | None = None,
                      interactive: bool = False,
                      actions: List[str] | None = None) -> CropModelFile:
@@ -1005,8 +996,7 @@ class ApsimXFile(CropModelFile):
     def from_crop_name(cls, crop_name: str, dst: str | None = None,
                        from_example: bool | str = False,
                        interactive: bool = False,
-                       actions: List[str] | None = None,
-                       model_dir: Optional[str] = None) -> CropModelFile:
+                       actions: List[str] | None = None) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
         Args:
@@ -1016,7 +1006,6 @@ class ApsimXFile(CropModelFile):
             from_example: If True, create the file from an example.
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
-            model_dir: Directory containing the model.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -1026,12 +1015,11 @@ class ApsimXFile(CropModelFile):
             if isinstance(from_example, str):
                 src = from_example
             else:
-                src = cls.find_example(crop_name, model_dir=model_dir)
+                src = cls.find_example(crop_name)
             return cls.from_example(src, dst=dst,
                                     interactive=interactive,
                                     actions=actions)
-        crop_name = cls.validate_crop_name(
-            crop_name, model_dir=model_dir)
+        crop_name = cls.validate_crop_name(crop_name)
         if dst is None:
             if interactive or actions:
                 dst = f"{crop_name}-Generated-Interactive.apsimx"
@@ -1973,16 +1961,9 @@ def _fertilizer_action(name: Optional[str] = None,
 # finished -> ok
 class ApsimXEngine(CropModelEngine):
     r"""Class for managing communication with an APSIMX server running
-    in another process.
+    in another process."""
 
-    Args:
-        model_file: Path to a .apsimx model input file.
-        model_dir: Path to the directory containing APSIMX installation.
-        **kwargs: Additional keyword arguments are passed to the
-            CropModelEngine constructor.
-
-    """
-
+    _MODEL_NAME = "apsimx"
     STATUS_MESSAGES = [
         "connect", "finished", "error", "recoverable_error",
     ]
@@ -2082,23 +2063,16 @@ class ApsimXEngine(CropModelEngine):
     def __init__(
             self,
             model_file: Optional[str] = None,
-            model_dir: Optional[str] = None,
             **kwargs: Any
     ) -> None:
         r"""Initialize the engine.
 
         Args:
             model_file: Path to a .apsimx model input file.
-            model_dir: Path to the directory containing APSIMX
-                installation.
             **kwargs: Additional keyword arguments are passed to the
                 CropModelEngine constructor.
 
         """
-        if model_dir is None:
-            model_dir = _apsimxdir
-        self.apsim_srv = os.path.join(
-            model_dir, "bin", "Debug", "net8.0", "ApsimZMQServer.dll")
         self.context = None
         self.socket = None
         self.port = None
@@ -2107,17 +2081,10 @@ class ApsimXEngine(CropModelEngine):
         self.stderr_pipe = None
         self._status = None
         self._current_time = None
-        if not (isinstance(model_dir, str) and os.path.isdir(model_dir)):
-            raise RuntimeError(f"APSIMX directory does not "
-                               f"exist: \"{model_dir}\"")
-        if not os.path.isfile(self.apsim_srv):
-            raise RuntimeError(f"APSIMX server executable does not "
-                               f"exist: \"{self.apsim_srv}\"")
         if model_file and not (os.path.isfile(model_file)
                                or os.path.dirname(model_file)):
             model_file = os.path.join("Examples", model_file)
-        super().__init__(model_file=model_file, model_dir=model_dir,
-                         **kwargs)
+        super().__init__(model_file=model_file, **kwargs)
         if not self.output_dir:
             # ApsimX saves output to the directory containing the
             # model input file
@@ -2127,6 +2094,45 @@ class ApsimXEngine(CropModelEngine):
             f"{self.output_file}-shm",
             f"{self.output_file}-wal"
         ]
+
+    @classmethod
+    def apsim_srv(cls) -> str:
+        r"""Path to the apsimx server."""
+        return os.path.join(
+            cls.model_dir(), "bin", "Debug", "net8.0",
+            "ApsimZMQServer.dll")
+
+    @classmethod
+    def is_installed(cls) -> bool:
+        r"""Check if the model is installed in the specified directory.
+
+        Returns:
+            bool: True if the model is installed, False otherwise.
+
+        """
+        if not super().is_installed():
+            return False
+        return os.path.isfile(cls.apsim_srv())
+
+    @classmethod
+    def _install(cls, model_dir: str) -> None:
+        r"""Install APSIMX by building it from source.
+
+        Args:
+            model_dir: Path to the root directory of the APSIMX source
+                checkout. Defaults to the auto-detected directory.
+
+        """
+        repourl = "git@github.com:APSIMInitiative/ApsimX.git"
+        subprocess.run(
+            ["git", "clone", repourl, model_dir], check=True)
+        sln_file = os.path.join(model_dir, "ApsimX.sln")
+        if not os.path.isfile(sln_file):
+            raise RuntimeError(f"APSIMX solution does not "
+                               f"exist: \"{sln_file}\"")
+        logger.info(f"Building APSIMX from \"{sln_file}\"")
+        subprocess.run(
+            ["dotnet", "build", sln_file], check=True)
 
     @property
     def is_running(self) -> bool:
@@ -2198,7 +2204,7 @@ class ApsimXEngine(CropModelEngine):
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
         self.process = subprocess.Popen([
-            "dotnet", self.apsim_srv,
+            "dotnet", self.apsim_srv(),
             "-p", self.port,
             "-P", "interactive",
             "-f", self.model.fname,

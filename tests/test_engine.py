@@ -3,34 +3,32 @@ import datetime
 import logging
 import contextlib
 import pytest
-from apsimx_gym import logger
-from apsimx_gym.base import (
+from simulatr import logger
+from simulatr.base import (
     InvalidActionError, RecoverableError,
     RecoverableModelEngineError,
 )
-from apsimx_gym.engine import ApsimXFile, ApsimXEngine, ApsimXEnv
+from simulatr.apsimx import ApsimXFile, ApsimXEngine, ApsimXEnv
 logger.setLevel(logging.INFO)
 
 
 class TestApsimXFile:
 
-    def test_available_crops(self, apsimx_dir):
-        assert ApsimXFile.available_crops(model_dir=apsimx_dir)
+    def test_available_crops(self):
+        assert ApsimXFile.available_crops()
 
-    def test_available_cultivars(self, apsimx_dir):
-        assert ApsimXFile.available_cultivars(
-            "wheat", model_dir=apsimx_dir)
+    def test_available_cultivars(self):
+        assert ApsimXFile.available_cultivars("wheat")
 
 
 class TestApsimXEngine:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def default_instance_kwargs(cls, apsimx_dir):
+    def default_instance_kwargs(cls):
         return {
             "crop_name": "Wheat",
             "actions": ["nitrogen", "irrigate"],
-            "model_dir": apsimx_dir,
             "start_time": datetime.datetime(year=1981, month=1, day=1),
             "end_time": datetime.datetime(year=1981, month=11, day=5),
         }
@@ -221,9 +219,8 @@ class TestApsimXEnv:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def default_instance_kwargs(cls, apsimx_dir):
+    def default_instance_kwargs(cls):
         return {
-            "model_dir": apsimx_dir,
             "start_time": datetime.datetime(year=1981, month=1, day=1),
             "end_time": datetime.datetime(year=1981, month=12, day=31),
         }
@@ -323,9 +320,8 @@ class TestApsimXEnvContinuous(TestApsimXEnv):
 
     @pytest.fixture(scope="class")
     @classmethod
-    def default_instance_kwargs(cls, apsimx_dir):
+    def default_instance_kwargs(cls):
         return {
-            "model_dir": apsimx_dir,
             "start_time": datetime.datetime(year=1981, month=1, day=1),
             "end_time": datetime.datetime(year=1981, month=12, day=31),
             "num_levels": 0,
@@ -356,9 +352,8 @@ class TestApsimXEnvSimultaneous(TestApsimXEnv):
 
     @pytest.fixture(scope="class")
     @classmethod
-    def default_instance_kwargs(cls, apsimx_dir):
+    def default_instance_kwargs(cls):
         return {
-            "model_dir": apsimx_dir,
             "start_time": datetime.datetime(year=1981, month=1, day=1),
             "end_time": datetime.datetime(year=1981, month=12, day=31),
             "exclusive": False,

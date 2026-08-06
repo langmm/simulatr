@@ -4,13 +4,49 @@ import logging
 from typing import Optional, Union, Any
 from io import BufferedReader
 from . import logger
+from .config import PackageConfig
 
 
 _gymdir = os.path.dirname(__file__)
-_apsimxdir = os.path.dirname(os.path.dirname(_gymdir))
-if os.path.basename(_apsimxdir) != 'ApsimX':
-    _apsimxdir = None
-_datadir = os.path.join(_gymdir, "data")
+
+
+cfg = PackageConfig(
+    'simulatr',
+    defaults={
+        'directories': {
+            'output': os.path.join(os.getcwd(), 'output'),
+            'models': os.path.join(os.getcwd(), 'models'),
+            'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
+        },
+    },
+)
+cfg.setdefaults(
+    directories={
+        'source': _gymdir,
+        'data': os.path.join(_gymdir, 'data'),
+    },
+    # files={
+    #     # 'locations': os.path.join(_gymdir, 'data', 'locations.csv'),
+    #     # 'testdata': [],
+    # },
+)
+
+
+def promptuser(prompt: str, _gha_default: str = "INVALID"):
+    r"""Prompt for input from the user. Set to default if GITHUB_ACTIONS
+    environment variable is set.
+
+    Args:
+        prompt: Prompt to provide the user with.
+        _gha_default: Default when GITHUB_ACTIONS set.
+
+    Returns:
+        str: User response.
+
+    """
+    if os.environ.get("GITHUB_ACTIONS", None):
+        return _gha_default
+    return input(prompt)
 
 
 class LogPipe(threading.Thread):

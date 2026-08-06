@@ -1,6 +1,15 @@
 # Generated version
+simulatr/_version.py
 
-apsimx_gym/_version.py
+# Generated directories
+nasa_power_weather_data
+models
+output
+
+# Local config file
+.simulatr.ini
+
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -87,6 +96,9 @@ celerybeat-schedule
 
 # dotenv
 .env
+
+# Pixi
+.pixi/
 
 # virtualenv
 .venv

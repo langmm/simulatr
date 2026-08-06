@@ -2948,31 +2948,7 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
 
 
 class BaseModelEnv(gym.Env, metaclass=ABCMeta):
-    r"""ApsimX environment.
-
-    Args:
-        model_file: Path to one or more model input files.
-        start_time: Simulation start time.
-        end_time: Simulation end time.
-        intervention_interval: Time between decisions. If an integer is
-            provided, the units will be assumed to be days.
-        output_vars: List of observation variable names.
-        num_levels: Number of levels per action if not specified in
-            action_map (0 for continuous, -1 for boolean).
-        actions: Names of actions to include. Only used if action_map
-            not provided.
-        action_map: Custom description mapping for actions.
-        revenue_var: Description of how profit should be calculated from
-            an output variable.
-        model_param: Initial model parameters to set in the model file
-            and/or when the simulation begins.
-        action_param: Action parameters to use keyed to action names.
-        allow_donothing: Include non-action as a possible action.
-        exclusive: Don't allow more than one action per step.
-        **kwargs: Additional keyword arguments are passed to the model
-            engine constructor.
-
-    """
+    r"""Base model environment."""
 
     MODEL_ENGINE_CLASS = None
     LLM_PROMPT_GENERATOR_CLASS = None

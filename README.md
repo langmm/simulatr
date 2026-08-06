@@ -54,9 +54,9 @@ The basic steps for installing ApsimX are:
 1. Install the depenedencies above
 1. Clone the ApsimX repository from [here](https://github.com/APSIMInitiative/ApsimX).
 
-   ```
-   git clone git@github.com:APSIMInitiative/ApsimX.git
-   ```
+    ```
+    git clone git@github.com:APSIMInitiative/ApsimX.git
+    ```
 
 1. Build the ApsimX.sln solution file
 

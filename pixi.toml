@@ -31,6 +31,7 @@ tox = "*"
 test = { cmd = "pytest", description = "Run the test suite" }
 lint = { cmd = "flake8 simulatr tests", description = "Lint the codebase" }
 docs = { cmd = "sphinx-build docs docs/_build", description = "Build the documentation" }
+build-conda = { cmd = "pixi publish --path recipe --target-dir build", description = "Build the conda package with pixi publish" }
 
 [feature.apsimx.dependencies]
 dotnet = ">=8.0.0,<9.0.0"

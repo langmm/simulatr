@@ -1,0 +1,56 @@
+name: Build and test conda recipe
+
+on:
+  release:
+    types: [created]
+  push:
+    branches-ignore:
+      - gh-pages
+    tags:
+      - '*'
+  schedule:
+    - cron: 0 10 * * 1  # 3AM PST
+  workflow_dispatch:
+
+jobs:
+  build-conda:
+    name: Build and test conda recipe on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash -l {0}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: prefix-dev/setup-pixi@v0.10.0
+        with:
+          environments: dev
+
+      - name: Build the conda package
+        run: pixi run -e dev build-conda
+
+      - name: Create a local channel from the built package
+        run: |
+          mkdir -p build/noarch
+          mv build/*.conda build/noarch/
+          pixi run -e dev python -m pip install conda-index
+          pixi run -e dev conda-index build/
+
+      - name: Create an environment with the built package
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          environment-name: simulatr-test
+          create-args: >-
+            -c conda-forge
+            -c ${{ github.workspace }}/build
+            simulatr
+
+      - name: Test the installed package
+        run: |
+          cd $RUNNER_TEMP
+          python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
+          simulatr --help

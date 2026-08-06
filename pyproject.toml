@@ -62,6 +62,7 @@ Changelog = "https://github.com/langmm/ApsimX/blob/main/ApsimXGym/HISTORY.rst"
 
 [project.optional-dependencies]
 dev = [
+  'build',
   'flake8',
   'myst-parser',
   'pytest',
@@ -75,7 +76,7 @@ include-package-data = true
 packages = ["simulatr"]
 
 [tool.setuptools.package-data]
-simulatr = ["data/*.apsimx"]
+simulatr = ["data/*"]
 
 [tool.setuptools_scm]
 root = ".."

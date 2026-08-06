@@ -72,3 +72,13 @@ The basic steps for installing ApsimX are:
 
 
 See instructions [here](https://docs.apsim.info/docs/development/compile) if you encounter errors when installing ApsimX.
+
+
+## To do list
+
+- [ ] Switch to pydantic
+- [ ] Publish to PyPI
+- [ ] Publish to conda-forge
+- [ ] Move n8n server into this repo or its own?
+- [ ] Update n8n tool to use this repo
+- [ ] Redeploy

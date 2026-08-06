@@ -19,6 +19,7 @@ requests = "*"
 simulatr = { path = ".", editable = true }
 
 [feature.dev.dependencies]
+python-build = "*"
 flake8 = "*"
 myst-parser = "*"
 pytest = "*"

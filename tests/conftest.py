@@ -1,14 +1,5 @@
-import os
 import numpy as np
 import pytest
-from simulatr.apsimx import ApsimXEngine
-
-
-@pytest.fixture(scope="session")
-def example_model():
-    r"""str: Path to example model input file."""
-    return os.path.join(ApsimXEngine.model_dir(),
-                        "Examples", "Wheat.apsimx")
 
 
 class NestedAssertionError(AssertionError):

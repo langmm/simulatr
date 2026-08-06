@@ -5,7 +5,7 @@ import argparse
 import datetime
 import logging
 from typing import Any, Optional, List
-from . import logger, get_engine
+from . import logger, get_simulator_class
 from .utils import cfg
 from .apsimx import ApsimXFile
 
@@ -26,7 +26,7 @@ def run(simulator: str, timestep: int = 0,
     """
     # TODO: Ask for user input on the action that should be taken
     # using the LLM prompt generation
-    engine_cls = get_engine(simulator)
+    engine_cls = get_simulator_class(simulator)
     engine = engine_cls(**kwargs)
     engine.start()
     data = []
@@ -162,7 +162,7 @@ def main() -> None:
     if args.action == "install":
         if args.directory:
             cfg.set("directories", args.simulator, args.directory)
-        engine_cls = get_engine(args.simulator)
+        engine_cls = get_simulator_class(args.simulator)
         engine_cls.install()
     elif args.action == "set-apsimx-dir":
         args.apsimx_dir = os.path.abspath(

@@ -5,7 +5,8 @@ import numpy as np
 import pandas as pd
 import datetime
 from abc import abstractmethod
-from typing import Optional, Union, List, Any
+from typing import Optional, Union, List, Any, ClassVar
+from pydantic import ConfigDict
 from .base import (
     readonly_cached_property, NoDefault,
     BaseModelFile, BaseModelEngine,
@@ -540,36 +541,35 @@ class CropModelEngine(BaseModelEngine):
 
     """
 
-    EXPLICIT_PARAM = BaseModelEngine.EXPLICIT_PARAM + [
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    EXPLICIT_PARAM: ClassVar[list] = BaseModelEngine.EXPLICIT_PARAM + [
         "crop_name", "crop_variety",
         "sow_date", "harvest_date", "season_length",
         "latitude", "longitude", "year",
         "weather_file",
     ]
-    WEATHER_FILE_TYPE = None
-    DATE_PARAM = BaseModelEngine.DATE_PARAM + [
+    WEATHER_FILE_TYPE: ClassVar[Any] = None
+    DATE_PARAM: ClassVar[list] = BaseModelEngine.DATE_PARAM + [
         ("sow_date", "harvest_date", "season_length"),
     ]
-    DEFAULT_PARAM = {
+    DEFAULT_PARAM: ClassVar[dict] = {
         "duration": datetime.timedelta(365),
     }
 
-    def __init__(
-            self,
-            model_file: Optional[Union[str, List[str],
-                                       BaseModelFile]] = None,
-            crop_name: Optional[str] = None,
-            crop_variety: Optional[str] = None,
-            sow_date: Optional[datetime.date] = None,
-            harvest_date: Optional[datetime.date] = None,
-            season_length: Optional[Union[int, datetime.timedelta]] = None,
-            year: Optional[int] = None,
-            latitude: Optional[float] = None,
-            longitude: Optional[float] = None,
-            weather_file: Optional[str] = None,
-            nasa_power_cache_dir: Optional[str] = None,
-            **kwargs: Any
-    ) -> None:
+    model_file: Optional[Union[str, List[str], BaseModelFile]] = None
+    crop_name: Optional[str] = None
+    crop_variety: Optional[str] = None
+    sow_date: Optional[datetime.date] = None
+    harvest_date: Optional[datetime.date] = None
+    season_length: Optional[Union[int, datetime.timedelta]] = None
+    year: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    weather_file: Optional[str] = None
+    nasa_power_cache_dir: Optional[str] = None
+
+    def model_post_init(self, __context: Any) -> None:
         r"""Initialize the crop model engine.
 
         Args:
@@ -591,24 +591,14 @@ class CropModelEngine(BaseModelEngine):
                 BaseModelEngine.__init__.
 
         """
-        if isinstance(season_length, int):
-            season_length = datetime.timedelta(season_length)
-        self.crop_name = crop_name
-        self.crop_variety = crop_variety
-        self.sow_date = sow_date
-        self.harvest_date = harvest_date
-        self.season_length = season_length
-        self.year = year
-        self.latitude = latitude
-        self.longitude = longitude
-        self.weather_file = weather_file
-        self.nasa_power_cache_dir = nasa_power_cache_dir
-        if model_file is None:
+        if isinstance(self.season_length, int):
+            self.season_length = datetime.timedelta(self.season_length)
+        if self.model_file is None:
             if not self.crop_name:
                 raise ValueError("Either a model file or crop name must "
                                  "be provided")
-            model_file = self.INPUT_FILE_TYPE.crop2fname(self.crop_name)
-        super().__init__(model_file, **kwargs)
+            self.model_file = self.INPUT_FILE_TYPE.crop2fname(self.crop_name)
+        super().model_post_init(__context)
 
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the

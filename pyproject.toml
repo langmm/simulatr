@@ -19,6 +19,7 @@ dependencies = [
     "msgpack",
     "numpy>=1.13.0",
     "pandas",
+    "pydantic",
     "pyzmq",
     "requests",
 ]

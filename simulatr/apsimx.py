@@ -12,7 +12,7 @@ import datetime
 from functools import cached_property
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Any, List, Callable, Iterator
+from typing import Optional, Union, Any, List, Callable, Iterator, ClassVar
 from . import logger
 from .utils import cfg, LogPipe
 from .base import (
@@ -683,6 +683,7 @@ class ApsimXFile(CropModelFile):
 
     """
 
+    EXAMPLE = os.path.join("Examples", "Wheat.apsimx")
     ACTION_NODES = dict({
         "sow": {
             "conflicts": [
@@ -1963,16 +1964,16 @@ class ApsimXEngine(CropModelEngine):
     r"""Class for managing communication with an APSIMX server running
     in another process."""
 
-    _MODEL_NAME = "apsimx"
-    STATUS_MESSAGES = [
+    _MODEL_NAME: ClassVar[str] = "apsimx"
+    STATUS_MESSAGES: ClassVar[list] = [
         "connect", "finished", "error", "recoverable_error",
     ]
-    ERROR_MESSAGES = [
+    ERROR_MESSAGES: ClassVar[list] = [
         "error", "recoverable_error",
     ]
-    INPUT_FILE_TYPE = ApsimXFile
-    WEATHER_FILE_TYPE = ApsimXWeatherFile
-    AVAILABLE_ACTION_MAP = {
+    INPUT_FILE_TYPE: ClassVar[Any] = ApsimXFile
+    WEATHER_FILE_TYPE: ClassVar[Any] = ApsimXWeatherFile
+    AVAILABLE_ACTION_MAP: ClassVar[dict] = {
         "sow": {
             "description": (
                 "Sow a {crop_variety} {crop_name} crop at a density "
@@ -2060,11 +2061,7 @@ class ApsimXEngine(CropModelEngine):
         },
     }
 
-    def __init__(
-            self,
-            model_file: Optional[str] = None,
-            **kwargs: Any
-    ) -> None:
+    def model_post_init(self, __context: Any) -> None:
         r"""Initialize the engine.
 
         Args:
@@ -2081,10 +2078,11 @@ class ApsimXEngine(CropModelEngine):
         self.stderr_pipe = None
         self._status = None
         self._current_time = None
-        if model_file and not (os.path.isfile(model_file)
-                               or os.path.dirname(model_file)):
-            model_file = os.path.join("Examples", model_file)
-        super().__init__(model_file=model_file, **kwargs)
+        if (isinstance(self.model_file, str)
+                and not (os.path.isfile(self.model_file)
+                         or os.path.dirname(self.model_file))):
+            self.model_file = os.path.join("Examples", self.model_file)
+        super().model_post_init(__context)
         if not self.output_dir:
             # ApsimX saves output to the directory containing the
             # model input file

@@ -8,11 +8,12 @@ import contextlib
 from collections import defaultdict
 from abc import ABC, ABCMeta, abstractmethod
 from typing import (
-    Optional, Union, Dict, List, Tuple, Any, Callable, Iterator,
+    Optional, Union, Dict, List, Tuple, Any, Callable, Iterator, ClassVar,
 )
 from functools import cached_property
 import numpy as np
 import gymnasium as gym
+from pydantic import BaseModel, ConfigDict
 from . import logger
 from .utils import promptuser
 
@@ -1440,6 +1441,7 @@ class BaseModelFile(CachedPropertyMixin, ABC):
     """
 
     CACHED = False
+    EXAMPLE = None
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -1722,29 +1724,30 @@ class BaseModelFile(CachedPropertyMixin, ABC):
         raise NotImplementedError  # pragma: no cover
 
 
-class BaseModelEngine(ABC):
+class BaseModelEngine(BaseModel, ABC):
     r"""Base class for exposing a model as an environment engine."""
 
-    _MODEL_NAME = None
-    INPUT_FILE_TYPE = None
-    AVAILABLE_ACTION_MAP = {}
-    EXPLICIT_PARAM = ["start_time", "end_time", "duration"]
-    DATE_PARAM = [("start_time", "end_time", "duration")]
-    DEFAULT_PARAM = {}
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    def __init__(
-            self,
-            model_file: Union[str, List[str], BaseModelFile],
-            model_suffix: Optional[str] = None,
-            output_dir: Optional[str] = None,
-            start_time: Optional[datetime.datetime] = None,
-            end_time: Optional[datetime.datetime] = None,
-            duration: Optional[datetime.timedelta] = None,
-            param: Optional[dict] = None,
-            actions: Optional[List[str]] = None,
-            action_map: Optional[Union[dict, ModelActionSet]] = None,
-            action_param: Optional[dict] = None,
-    ) -> None:
+    _MODEL_NAME: ClassVar[Optional[str]] = None
+    INPUT_FILE_TYPE: ClassVar[Any] = None
+    AVAILABLE_ACTION_MAP: ClassVar[dict] = {}
+    EXPLICIT_PARAM: ClassVar[list] = ["start_time", "end_time", "duration"]
+    DATE_PARAM: ClassVar[list] = [("start_time", "end_time", "duration")]
+    DEFAULT_PARAM: ClassVar[dict] = {}
+
+    model_file: Union[str, List[str], BaseModelFile]
+    model_suffix: Optional[str] = None
+    output_dir: Optional[str] = None
+    start_time: Optional[datetime.datetime] = None
+    end_time: Optional[datetime.datetime] = None
+    duration: Optional[datetime.timedelta] = None
+    param: Optional[dict] = None
+    actions: Optional[List[str]] = None
+    action_map: Optional[Union[dict, ModelActionSet]] = None
+    action_param: Optional[dict] = None
+
+    def model_post_init(self, __context: Any) -> None:
         r"""Initialize the model engine.
 
         Args:
@@ -1766,14 +1769,9 @@ class BaseModelEngine(ABC):
             action_param: Action parameters to use keyed to action names.
 
         """
-        self.model_file = model_file
-        self.model_suffix = model_suffix
-        self.output_dir = output_dir
-        self.start_time = start_time
-        self.end_time = end_time
-        self.duration = duration
         self.products = []
-        self.initial_param = param.copy() if param is not None else {}
+        self.initial_param = (self.param.copy()
+                              if self.param is not None else {})
         self.initial_param_static = {}
         self.initial_param_dynamic = {}
         self.initial_param_src = {}
@@ -1791,10 +1789,10 @@ class BaseModelEngine(ABC):
                     self.model_dir(), self.model_file)
             self.model = self.INPUT_FILE_TYPE(self.model_file)
         self.action_map = ModelActionSet.create(
-            action_map or self.select_actions(actions),
+            self.action_map or self.select_actions(self.actions),
         )
-        if action_param:
-            for k, v in action_param.items():
+        if self.action_param:
+            for k, v in self.action_param.items():
                 self.action_map.set_param(v, action=k)
         self.update_model_file()
         if not self.is_installed():

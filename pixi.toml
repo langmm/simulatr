@@ -12,6 +12,7 @@ gymnasium = "*"
 msgpack-python = "*"
 numpy = ">=1.13.0"
 pandas = "*"
+pydantic = "*"
 pyzmq = "*"
 requests = "*"
 
@@ -40,7 +41,7 @@ gtk3 = "*"
 [feature.apsimx.tasks]
 install-apsimx = {
     cmd = "python -m simulatr install apsimx --directory {{ directory }}",
-    args = [{ arg = "directory", default = "./models/ApsimX" }],
+    args = [{ arg = "directory", default = "./models/apsimx" }],
     description = "Install ApsimX from a local copy of the source code",
 }
 run-apsimx = {

@@ -18,7 +18,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        shell: bash -l {0}
+        shell: bash -leo pipefail {0}
     strategy:
       fail-fast: false
       matrix:
@@ -37,11 +37,12 @@ jobs:
         run: |
           mkdir -p build/noarch
           mv build/*.conda build/noarch/
-          pixi run -e dev python -m pip install conda-index
-          pixi run -e dev conda-index build/
+          pixi run -e dev conda index build/
+          # pixi run -e dev python -m pip install conda-index
+          # pixi run -e dev conda-index build/
 
       - name: Create an environment with the built package
-        uses: mamba-org/setup-micromamba@v2
+        uses: mamba-org/setup-micromamba@v3
         with:
           environment-name: simulatr-test
           create-args: >-

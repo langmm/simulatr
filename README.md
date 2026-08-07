@@ -78,10 +78,11 @@ See instructions [here](https://docs.apsim.info/docs/development/compile) if you
 
 ## To do list
 
-- [ ] Verify that tests pass
+- [ ] Verify that tests pass on CI
 - [ ] Publish to PyPI
 - [ ] Publish to conda-forge
 - [ ] Switch to pydantic in Env
+- [ ] Update run CLI to use env
 - [ ] Add soil file parsing
 - [ ] Add human readable prompt for CLI
 - [ ] Add engine methods that can serve as decorators to add endpoints to a fastapi application

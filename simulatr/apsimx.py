@@ -2210,7 +2210,7 @@ class ApsimXEngine(CropModelEngine):
             self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
         tstart = time.time()
-        while time.time() - tstart < 5 and self.is_running:
+        while time.time() - tstart < 10 and self.is_running:
             try:
                 self._status = self.socket.recv_string(
                     flags=zmq.NOBLOCK)
@@ -2498,10 +2498,10 @@ class ApsimXLLMPromptGenerator(CropModelLLMPromptGenerator):
 class ApsimXEnv(CropModelEnv):
     r"""ApsimX environment."""
 
-    MODEL_ENGINE_CLASS = ApsimXEngine
-    LLM_PROMPT_GENERATOR_CLASS = ApsimXLLMPromptGenerator
-    DEFAULT_ACTIONS = ["nitrogen", "irrigate"]
-    DEFAULT_REVENUE_VAR = {
+    MODEL_ENGINE_CLASS: ClassVar[Any] = ApsimXEngine
+    LLM_PROMPT_GENERATOR_CLASS: ClassVar[Any] = ApsimXLLMPromptGenerator
+    DEFAULT_ACTIONS: ClassVar[list] = ["nitrogen", "irrigate"]
+    DEFAULT_REVENUE_VAR: ClassVar[dict] = {
         "name": "[CROP].Grain.Total.Wt",
         # "name": "Yield",  # Only includes harvested weight
         # "cost": ??,  # $/kg/ha

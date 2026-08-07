@@ -6,7 +6,7 @@ import pprint
 import datetime
 import contextlib
 from collections import defaultdict
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from typing import (
     Optional, Union, Dict, List, Tuple, Any, Callable, Iterator, ClassVar,
 )
@@ -2961,10 +2961,10 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
         )
 
 
-class _ModelEnvMeta(ABCMeta):
+class _ModelEnvMeta(type(BaseModel)):
     r"""Metaclass that registers env subclasses by model name.
 
-    Subclasses of ``BaseModelEnv`` that set the ``_MODEL_NAME``
+    Subclasses of ``BaseModelEnv`` that set the ``MODEL_ENGINE_CLASS``
     class variable are automatically registered so that they can be
     looked up by name via the ``get_model_env`` method.
 
@@ -3011,33 +3011,42 @@ class _ModelEnvMeta(ABCMeta):
         return sorted(mcs._registry)
 
 
-class BaseModelEnv(gym.Env, metaclass=_ModelEnvMeta):
+class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
     r"""Base model environment."""
 
-    MODEL_ENGINE_CLASS = None
-    LLM_PROMPT_GENERATOR_CLASS = None
-    DEFAULT_ACTIONS = []
-    DEFAULT_REVENUE_VAR = {}
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    def __init__(
-            self,
-            model_file: Optional[str] = None,
-            start_time: Optional[datetime.datetime] = None,
-            end_time: Optional[datetime.datetime] = None,
-            intervention_interval: Optional[
-                Union[int, datetime.timedelta]] = 7,
-            output_vars: Optional[List[str]] = None,
-            num_levels: Optional[int] = 4,
-            actions: Optional[List[str]] = None,
-            action_map: Optional[Union[dict, ModelActionSet]] = None,
-            revenue_var: Optional[Dict[str, Union[str, float]]] = None,
-            model_param: Optional[dict] = None,
-            action_param: Optional[dict] = None,
-            allow_donothing: Optional[bool] = True,
-            exclusive: Optional[bool] = True,
-            scale_action_amounts_by_interval: Optional[bool] = False,
-            **kwargs: Any
-    ) -> None:
+    # gym.Env class attributes (not model fields)
+    metadata: ClassVar[dict] = {"render_modes": []}
+    render_mode: ClassVar[Optional[str]] = None
+    spec: ClassVar[Any] = None
+    action_space: Any = None
+    observation_space: Any = None
+
+    # Class attributes
+    MODEL_ENGINE_CLASS: ClassVar[Any] = None
+    LLM_PROMPT_GENERATOR_CLASS: ClassVar[Any] = None
+    DEFAULT_ACTIONS: ClassVar[list] = []
+    DEFAULT_REVENUE_VAR: ClassVar[dict] = {}
+
+    # Model fields
+    model_file: Optional[Union[str, List[str], BaseModelFile]] = None
+    start_time: Optional[datetime.datetime] = None
+    end_time: Optional[datetime.datetime] = None
+    intervention_interval: Optional[
+        Union[int, datetime.timedelta]] = 7
+    output_vars: Optional[List[str]] = None
+    num_levels: Optional[int] = 4
+    actions: Optional[List[str]] = None
+    action_map: Optional[Union[dict, ModelActionSet]] = None
+    revenue_var: Optional[Dict[str, Union[str, float]]] = None
+    model_param: Optional[dict] = None
+    action_param: Optional[dict] = None
+    allow_donothing: Optional[bool] = True
+    exclusive: Optional[bool] = True
+    scale_action_amounts_by_interval: Optional[bool] = False
+
+    def model_post_init(self, __context: Any) -> None:
         r"""Initialize the environment.
 
         Args:
@@ -3065,25 +3074,18 @@ class BaseModelEnv(gym.Env, metaclass=_ModelEnvMeta):
                 model engine constructor.
 
         """
-        self.model_file = model_file
-        self.start_time = start_time
-        self.end_time = end_time
+        self.model_kwargs = dict(self.model_extra or {})
         self.intervention_interval = (
-            datetime.timedelta(intervention_interval)
-            if isinstance(intervention_interval, int)
-            else intervention_interval
+            datetime.timedelta(self.intervention_interval)
+            if isinstance(self.intervention_interval, int)
+            else self.intervention_interval
         )
-        self.output_vars = output_vars or []
-        self.num_levels = num_levels
-        self.revenue_var = revenue_var or copy.deepcopy(
+        self.output_vars = self.output_vars or []
+        self.revenue_var = self.revenue_var or copy.deepcopy(
             self.DEFAULT_REVENUE_VAR)
-        self.model_param = model_param
-        self.allow_donothing = allow_donothing
-        self.exclusive = exclusive
-        self.model_kwargs = kwargs
-        action_map = action_map or {}
+        action_map = self.action_map or {}
         actions = (
-            actions or list(action_map.keys())
+            self.actions or list(action_map.keys())
             or self.DEFAULT_ACTIONS
         )
         self.action_map = ModelActionSet.create(
@@ -3093,10 +3095,10 @@ class BaseModelEnv(gym.Env, metaclass=_ModelEnvMeta):
             exclusive=self.exclusive,
             default_action_map=self.MODEL_ENGINE_CLASS.AVAILABLE_ACTION_MAP,
         )
-        if action_param:
-            for k, v in action_param.items():
+        if self.action_param:
+            for k, v in self.action_param.items():
                 self.action_map.set_param(v, action=k)
-        if scale_action_amounts_by_interval:
+        if self.scale_action_amounts_by_interval:
             self.action_map.scale_action_amounts(
                 float(self.intervention_interval.days)
             )

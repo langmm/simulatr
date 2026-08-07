@@ -1,12 +1,10 @@
-# Simulatr
-
 Simulatr provides a [gymnasium](https://gymnasium.farama.org/) environment for reinforcement learning using different simulators including:
 
 - [ApsimX](https://docs.apsim.info/)
 
 Additional documentation can be found [here](https://langmm.github.io/simulatr/),
 
-## Installation
+# Installation
 
 Simulatr can be installed via pip or pixi can be utilized
 
@@ -16,7 +14,7 @@ pip install -e .
 
 In addition to installing the gym, you will also need to install the models you wish to run (instructions below).
 
-## Model installation
+# Model installation
 
 Simulatr will install the required models automatically, but you can also install the models yourself (steps for each model included below). The simulatr CLI includes a utility for performing these steps before runtime
 
@@ -24,32 +22,32 @@ Simulatr will install the required models automatically, but you can also instal
 python -m simulatr install apsimx
 ```
 
-## Command line interface
+# Command line interface
 
-### Running a simulator engine to model completion
+## Running a simulator engine to model completion
 
 ```
 python -m simulatr run apsimx --crop-name wheat
 ```
 
-### Running a simulator engine interactively
+## Running a simulator engine interactively
 
 ```
 python -m simulatr run apsimx --crop-name wheat --timestep=10  # days
 ```
 
-## Model installation details
+# Model installation details
 
-### ApsimX
+## ApsimX
 
-#### Requirements
+### Requirements
 
 - .NET 8.0 SDK library
 - Gtk3 and GtkSourceView
 
 A conda environment file is provided to make it easier to install these dependencies.
 
-#### Installation from source
+### Installation from source
 
 The basic steps for installing ApsimX are:
 
@@ -76,7 +74,9 @@ The basic steps for installing ApsimX are:
 See instructions [here](https://docs.apsim.info/docs/development/compile) if you encounter errors when installing ApsimX.
 
 
-## To do list
+# Development
+
+## To do
 
 - [ ] Verify that tests pass on CI
 - [ ] Publish to PyPI

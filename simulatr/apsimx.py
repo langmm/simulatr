@@ -2237,6 +2237,7 @@ class ApsimXEngine(CropModelEngine):
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""
+        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable})")
         if self.is_operable:
             try:
                 self.act("terminate")
@@ -2246,20 +2247,23 @@ class ApsimXEngine(CropModelEngine):
                 self._status = "terminated"
             except ModelEngineError:
                 pass
+        logger.debug("Closing socket")
         if self.socket is not None:
             self.socket.close()
+        logger.debug("Terminating process")
         if self.process is not None:
             if self.process.poll() is None:
-                logger.info("Calling kill")
+                logger.debug("Calling kill")
                 self.process.kill()
                 self.process.wait(timeout=1)
-                logger.info("Kill returned")
-                logger.info(f"Poll = {self.process.poll()}")
+                logger.debug("Kill returned")
+                logger.debug(f"Poll = {self.process.poll()}")
                 assert self.process.poll() is not None
             # process = psutil.Process(self.process.pid)
             # for proc in process.children(recursive=True):
             #     proc.kill()
             # process.kill()
+        logger.debug("Process closed")
         if self.stderr_pipe is not None:
             self.stderr_pipe.close()
         if self.stderr_pipe is not None:
@@ -2273,6 +2277,7 @@ class ApsimXEngine(CropModelEngine):
             self.process = None
             self.stdout_pipe = None
             self.stderr_pipe = None
+        logger.debug("ApsimX _stop finished")
 
     def send_command(self, command: str, args: Optional[list] = None) -> None:
         r"""Send a command to the server process, e.g. resume/set/get.

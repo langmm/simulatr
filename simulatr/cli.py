@@ -1,4 +1,4 @@
-# python -m simulatr.cli run apsimx Examples/Wheat.apsimx
+# python -m simulatr run apsimx Examples/Wheat.apsimx
 import os
 import argparse
 import datetime

@@ -2121,7 +2121,7 @@ class ApsimXEngine(CropModelEngine):
                 checkout. Defaults to the auto-detected directory.
 
         """
-        repourl = "git@github.com:APSIMInitiative/ApsimX.git"
+        repourl = "https://github.com/APSIMInitiative/ApsimX.git"
         subprocess.run(
             ["git", "clone", repourl, model_dir], check=True)
         sln_file = os.path.join(model_dir, "ApsimX.sln")

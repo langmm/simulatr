@@ -51,8 +51,8 @@ classifiers = [
 requires-python = ">= 3.10"
 
 # [project.scripts]
-[project.entry-points]
-console_scripts = { simulatr="simulatr.cli:main" }
+[project.entry-points.console_scripts]
+simulatr = "simulatr.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/langmm/ApsimX"
@@ -102,6 +102,10 @@ norecursedirs = [
 testpaths = "tests" 
 filterwarnings = [
   "error",
+  # Error from pandas use of tzinfo
+  "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:pytz.*",
+  "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:pandas.*",
+  "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:dateutil.*",
 ]
 markers = [
   "slow: marks tests as slow (deselect with '-m \"not slow\"')",

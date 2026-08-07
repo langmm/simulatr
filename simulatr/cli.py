@@ -1,6 +1,5 @@
 # python -m simulatr.cli run apsimx Examples/Wheat.apsimx
 import os
-import sys
 import argparse
 import datetime
 import logging
@@ -212,7 +211,3 @@ def main() -> None:
         out.write(overwrite=args.overwrite)
         out.generated = False  # Prevent cleanup
         print(f"Created input file \"{out.fname}\"")
-
-
-if __name__ == "__main__":
-    sys.exit(main())  # pragma: no cover

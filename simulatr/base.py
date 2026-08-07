@@ -3135,7 +3135,7 @@ class BaseModelEnv(gym.Env, metaclass=ABCMeta):
             BaseModelLLMPromptGenerator: LLM prompt generator.
 
         """
-        return self.LLM_PROMPT_GENERATOR_CLASS.from_env(self)
+        return self.LLM_PROMPT_GENERATOR_CLASS.from_env(self, **kwargs)
 
     def _get_cost(self, action: dict) -> float:
         r"""Calculate the cost of the current action.

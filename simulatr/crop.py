@@ -612,9 +612,8 @@ class CropModelEngine(BaseModelEngine):
         download_weather_file = False
         if ((self.weather_file and not os.path.isfile(self.weather_file)
              and os.path.basename(self.weather_file) == "Dalby.met")):
-            self.weather_file = os.path.join(
-                os.path.dirname(self.weather_file),
-                "AU_Dalby.met")
+            self.weather_file = self.weather_file.replace(
+                "Dalby.met", "AU_Dalby.met")
         if self.weather_file and not os.path.isfile(self.weather_file):
             logger.info(
                 f"The specified weather file (\"{self.weather_file}\") "

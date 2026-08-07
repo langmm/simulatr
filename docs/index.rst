@@ -4,7 +4,10 @@
 
    intro
    usage
+   cli
    api
+   dev
+   models
 
 Indices and tables
 ==================

@@ -59,6 +59,7 @@ jobs:
         run: pixi run -e ${{ matrix.pixi-environment }} install-apsimx
       - name: Run tests
         run: pixi run -e ${{ matrix.pixi-environment }} test
+        timeout-minutes: 2
 
   docs:
     name: Build the docs

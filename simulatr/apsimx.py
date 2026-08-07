@@ -870,25 +870,6 @@ class ApsimXFile(CropModelFile):
         r"""dict: Previously loaded parameter nodes."""
         return {}
 
-    # TODO: Set default from_example to False after it is debugged
-    @classmethod
-    def crop2fname(cls, crop_name: str,
-                   from_example: bool | str = True) -> str:
-        r"""Locate an input model file for a given crop name.
-
-        Args:
-            crop_name: Crop name.
-            from_example: If True, create the file from an example.
-
-        Returns:
-            str: Model input file for the specified crop.
-
-        """
-        node = cls.from_crop_name(crop_name,
-                                  from_example=from_example)
-        node.write()
-        return node
-
     @classmethod
     def available_crops(cls) -> List[str]:
         r"""Get the crops that can be simulated via this model.
@@ -995,16 +976,14 @@ class ApsimXFile(CropModelFile):
 
     @classmethod
     def from_crop_name(cls, crop_name: str, dst: str | None = None,
-                       from_example: bool | str = False,
                        interactive: bool = False,
                        actions: List[str] | None = None) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
-            dst (str, optional): Path to the location where the generated
-                .apsimx model should be saved.
-            from_example: If True, create the file from an example.
+            dst: Path to the location where the generated file should
+                be saved.
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
 
@@ -1012,14 +991,6 @@ class ApsimXFile(CropModelFile):
             CropModelFile: Constructed model input file.
 
         """
-        if from_example:
-            if isinstance(from_example, str):
-                src = from_example
-            else:
-                src = cls.find_example(crop_name)
-            return cls.from_example(src, dst=dst,
-                                    interactive=interactive,
-                                    actions=actions)
         crop_name = cls.validate_crop_name(crop_name)
         if dst is None:
             if interactive or actions:
@@ -2061,6 +2032,8 @@ class ApsimXEngine(CropModelEngine):
         },
     }
 
+    from_example: Optional[Union[bool, str]] = True  # TODO: Update this
+
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the engine.
 
@@ -2131,6 +2104,30 @@ class ApsimXEngine(CropModelEngine):
         logger.info(f"Building APSIMX from \"{sln_file}\"")
         subprocess.run(
             ["dotnet", "build", sln_file], check=True)
+
+    def create_model_file(self) -> CropModelFile:
+        r"""Create a model input file.
+
+        Returns:
+            CropModelFile: Constructed model input file.
+
+        """
+        if self.from_example:
+            if isinstance(self.from_example, str):
+                src = self.from_example
+            else:
+                if not self.crop_name:
+                    raise ValueError(
+                        "Either model_file or crop_name must "
+                        "be provided"
+                    )
+                src = self.INPUT_FILE_TYPE.find_example(self.crop_name)
+            return self.INPUT_FILE_TYPE.from_example(
+                src, dst=self.model_file,
+                interactive=True,
+                actions=list(self.action_map.keys()),
+            )
+        return super().create_model_file()
 
     @property
     def is_running(self) -> bool:

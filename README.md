@@ -4,6 +4,8 @@ Simulatr provides a [gymnasium](https://gymnasium.farama.org/) environment for r
 
 - [ApsimX](https://docs.apsim.info/)
 
+Additional documentation can be found [here](https://langmm.github.io/simulatr/),
+
 ## Installation
 
 Simulatr can be installed via pip or pixi can be utilized
@@ -67,7 +69,7 @@ The basic steps for installing ApsimX are:
 1. Point simulatr at the installation
 
     ```
-    python -m simulatr config apsimx --directory path/to/ApsimX
+    python -m simulatr config directories apsimx path/to/ApsimX
     ```
 
 
@@ -76,11 +78,12 @@ See instructions [here](https://docs.apsim.info/docs/development/compile) if you
 
 ## To do list
 
-- [ ] Switch to pydantic (on separate branch)
 - [ ] Verify that tests pass
-- [ ] Set publish-docs workflow for github pages once actions work again
 - [ ] Publish to PyPI
 - [ ] Publish to conda-forge
+- [ ] Switch to pydantic in Env
+- [ ] Add soil file parsing
+- [ ] Add human readable prompt for CLI
 - [ ] Add engine methods that can serve as decorators to add endpoints to a fastapi application
 - [ ] Move n8n server into this repo or its own?
 - [ ] Update n8n tool to use this repo

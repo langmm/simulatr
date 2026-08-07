@@ -13,24 +13,11 @@ from .base import (
     BaseModelLLMPromptGenerator, BaseModelEnv,
 )
 from . import logger
+from .utils import cfg
 
 
 class CropModelFile(BaseModelFile):
     r"""Base class for managing crop model input files."""
-
-    @classmethod
-    @abstractmethod
-    def crop2fname(cls, crop_name: str) -> str:
-        r"""Locate an input model file for a given crop name.
-
-        Args:
-            crop_name: Crop name.
-
-        Returns:
-            str: Model input file for the specified crop.
-
-        """
-        raise NotImplementedError  # pragma: no cover
 
     @classmethod
     @abstractmethod
@@ -81,11 +68,17 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def from_crop_name(cls, crop_name: str) -> "CropModelFile":
+    def from_crop_name(cls, crop_name: str, dst: str | None = None,
+                       interactive: bool = False,
+                       actions: List[str] | None = None) -> "CropModelFile":
         r"""Create an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
+            dst: Path to the location where the generated file should
+                be saved.
+            interactive: If True, make the file interactive.
+            actions: Interactive actions that should be added.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -135,8 +128,7 @@ class BaseWeatherFile(BaseModelFile):
     _default_ext = ".json"
     _default_start_date = datetime.date(1981, 1, 1)
     _default_end_date = datetime.date(2026, 5, 8)
-    _default_cache_dir = os.path.join(
-        os.getcwd(), "nasa_power_weather_data")
+    _default_cache_dir = cfg["directories"]["nasa_power_weather_data"]
     _min_start_date = datetime.date(1981, 1, 1)
     _max_start_date = datetime.date.today()
     _make_interactive = None
@@ -534,8 +526,6 @@ class CropModelEngine(BaseModelEngine):
         latitude: Field latitude to use to get weather data.
         longitude: Field longitude to use to get weather data.
         weather_file: Path to a file containing NASA power weather data.
-        nasa_power_cache_dir: Directory where NASA POWER weather files
-            should be cached.
         **kwargs: Additional keywords arguments are passed along to
             BaseModelEngine.__init__.
 
@@ -567,7 +557,6 @@ class CropModelEngine(BaseModelEngine):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     weather_file: Optional[str] = None
-    nasa_power_cache_dir: Optional[str] = None
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the crop model engine.
@@ -585,20 +574,30 @@ class CropModelEngine(BaseModelEngine):
             longitude: Field longitude to use to get weather data.
             weather_file: Path to a file containing NASA power weather
                 data.
-            nasa_power_cache_dir: Directory where NASA POWER weather
-                files should be cached.
             **kwargs: Additional keywords arguments are passed along to
                 BaseModelEngine.__init__.
 
         """
         if isinstance(self.season_length, int):
             self.season_length = datetime.timedelta(self.season_length)
-        if self.model_file is None:
-            if not self.crop_name:
-                raise ValueError("Either a model file or crop name must "
-                                 "be provided")
-            self.model_file = self.INPUT_FILE_TYPE.crop2fname(self.crop_name)
         super().model_post_init(__context)
+
+    def create_model_file(self) -> CropModelFile:
+        r"""Create a model input file.
+
+        Returns:
+            CropModelFile: Constructed model input file.
+
+        """
+        if not self.crop_name:
+            raise ValueError("Either model_file or crop_name must "
+                             "be provided")
+        return self.INPUT_FILE_TYPE.from_crop_name(
+            self.crop_name,
+            dst=self.model_file,
+            interactive=True,
+            actions=list(self.action_map.keys()),
+        )
 
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the
@@ -611,6 +610,11 @@ class CropModelEngine(BaseModelEngine):
                         dont_update=True, required=True)
         self.sync_param("weather_file", dont_update=True)
         download_weather_file = False
+        if ((self.weather_file and not os.path.isfile(self.weather_file)
+             and os.path.basename(self.weather_file) == "Dalby.met")):
+            self.weather_file = os.path.join(
+                os.path.dirname(self.weather_file),
+                "AU_Dalby.met")
         if self.weather_file and not os.path.isfile(self.weather_file):
             logger.info(
                 f"The specified weather file (\"{self.weather_file}\") "
@@ -649,7 +653,6 @@ class CropModelEngine(BaseModelEngine):
             self.weather_file = self.WEATHER_FILE_TYPE.fetch_data(
                 self.latitude, self.longitude,
                 self.start_time, self.end_time,
-                cache_dir=self.nasa_power_cache_dir,
             )
             logger.info(
                 f"Downloaded weather data: \"{self.weather_file}\"")

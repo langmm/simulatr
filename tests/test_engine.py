@@ -46,7 +46,15 @@ class TestBase:
     def simulator_cls(cls):
         if cls._name is None or cls._file_type is None:
             pytest.skip("Simulator/file type not defined (base class)")
-        return get_simulator_class(cls._name, file_type=cls._file_type)
+        out = get_simulator_class(cls._name, file_type=cls._file_type)
+        if cls._file_type == "engine":
+            is_installed = out.is_installed()
+        else:
+            is_installed = get_simulator_class(
+                cls._name, "engine").is_installed()
+        if not is_installed:
+            pytest.skip(f"Simulator \"{cls._name}\" is not installed")
+        return out
 
     @pytest.fixture(scope="class")
     @classmethod

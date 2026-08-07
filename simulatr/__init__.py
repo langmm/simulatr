@@ -1,6 +1,7 @@
 import logging
 from typing import Optional
 logger = logging.getLogger(__name__)
+from .base import _ModelEnvMeta  # noqa: E402
 from .apsimx import ApsimXFile, ApsimXEngine, ApsimXEnv  # noqa: E402
 from ._version import __version__, __version_tuple__  # noqa: F401, E402
 
@@ -18,9 +19,7 @@ def get_simulator_class(simulator: str,
 
     """
     if file_type == "env":
-        if simulator == "apsimx":
-            return ApsimXEnv
-        raise ValueError(f"Unsupported simulator \"{simulator}\"")
+        return _ModelEnvMeta.get_model_env(simulator)
     env_cls = get_simulator_class(simulator, "env")
     if file_type == "engine":
         return env_cls.MODEL_ENGINE_CLASS

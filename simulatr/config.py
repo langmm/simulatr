@@ -1,7 +1,27 @@
 import os
+import sys
 import json
 from collections import OrderedDict
 from configparser import ConfigParser
+
+
+_pkgdir = os.path.abspath(os.path.dirname(
+    os.path.expanduser(__file__)))
+
+
+def current_environment_dir() -> str | None:
+    r"""Check the current environments.
+
+    Returns:
+        str: Current environment directory.
+
+    """
+    if sys.prefix != getattr(sys, 'base_prefix', sys.prefix):
+        return sys.prefix
+    if (('CONDA_PREFIX' in os.environ
+         and _pkgdir.startswith(os.environ["CONDA_PREFIX"]))):
+        return _pkgdir
+    return None
 
 
 class PackageConfig(ConfigParser, object):
@@ -23,21 +43,21 @@ class PackageConfig(ConfigParser, object):
         self.defaults = defaults
         self.fbase = f'.{package}{ext}'
         self.directories = OrderedDict([
-            ('package', os.path.dirname(__file__)),
+            ('package', _pkgdir),
             ('user', os.path.expanduser('~')),
+            ('env', current_environment_dir()),
             ('local', os.getcwd()),
         ])
         self.files = OrderedDict([
             (k, os.path.join(v, self.fbase))
             for k, v in self.directories.items()
+            if v is not None
         ])
         super(PackageConfig, self).__init__(
             allow_no_value=True,
             converters={'json': json.loads},
         )
         self.read()
-        if not os.path.isfile(self.files['user']):
-            self.write(self.files['user'])
 
     @property
     def json(self):
@@ -70,19 +90,33 @@ class PackageConfig(ConfigParser, object):
         if self.schema is not None:
             json.validate(self.json, self.schema)
 
-    def write(self, fname=None):
+    def write(self, fname=None, level=None):
         r"""Write the config options to a file.
 
         Args:
             fname (str, optional): Path to the file that the values should
                 be written to. If not provided, the local file will be
                 used.
+            level: Level of the config file that the values should be
+                written to.
+
+        Returns:
+            str: The name of the file written to.
 
         """
         if fname is None:
-            fname = self.files['local']
+            if level is None:
+                # Default to the most local copy of the file
+                fname = list(self.files.values())[-1]
+            else:
+                if level not in self.files:
+                    raise ValueError(
+                        f"There is no configuration file for the "
+                        f"specified level \"{level}\"")
+                fname = self.files[level]
         with open(fname, 'w') as fd:
             super(PackageConfig, self).write(fd)
+        return fname
 
     def set(self, section, option, value=None):
         r"""Set an option in a section.

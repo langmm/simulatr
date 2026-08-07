@@ -1776,24 +1776,30 @@ class BaseModelEngine(BaseModel, ABC):
         self.initial_param_dynamic = {}
         self.initial_param_src = {}
         self.history = defaultdict(lambda: [])
+        self.model = None
         if isinstance(self.model_file, BaseModelFile):
             self.model = self.model_file
             self.model_file = self.model.fname
-        else:
-            if ((self.model_file and self.model_dir()
+        elif self.model_file:
+            if ((self.model_dir()
                  and (not os.path.isfile(self.model_file))
                  and (not os.path.isabs(self.model_file))
                  and os.path.isfile(
                      os.path.join(self.model_dir(), self.model_file)))):
                 self.model_file = os.path.join(
                     self.model_dir(), self.model_file)
-            self.model = self.INPUT_FILE_TYPE(self.model_file)
+            if os.path.isfile(self.model_file):
+                self.model = self.INPUT_FILE_TYPE(self.model_file)
         self.action_map = ModelActionSet.create(
             self.action_map or self.select_actions(self.actions),
         )
         if self.action_param:
             for k, v in self.action_param.items():
                 self.action_map.set_param(v, action=k)
+        if self.model is None:
+            self.model = self.create_model_file()
+            if self.model_file is None:
+                self.model_file = self.model.fname
         self.update_model_file()
         if not self.is_installed():
             self.install()
@@ -2192,6 +2198,16 @@ class BaseModelEngine(BaseModel, ABC):
                            dont_update=True)
         if not dont_update:
             self.update_param_in_file(names, required=required)
+
+    @abstractmethod
+    def create_model_file(self) -> BaseModelFile:
+        r"""Create the model input file.
+
+        Returns:
+            BaseModelFile: Constructed model input file.
+
+        """
+        raise NotImplementedError  # pragma: no cover
 
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the
@@ -2945,7 +2961,57 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
         )
 
 
-class BaseModelEnv(gym.Env, metaclass=ABCMeta):
+class _ModelEnvMeta(ABCMeta):
+    r"""Metaclass that registers env subclasses by model name.
+
+    Subclasses of ``BaseModelEnv`` that set the ``_MODEL_NAME``
+    class variable are automatically registered so that they can be
+    looked up by name via the ``get_model_env`` method.
+
+    """
+
+    _registry: Dict[str, type] = {}
+
+    def __new__(mcs, name: str, bases: Tuple[type, ...],
+                namespace: Dict[str, Any], **kwargs: Any):
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        model_engine = namespace.get('MODEL_ENGINE_CLASS', None)
+        model_name = None
+        if model_engine is not None:
+            model_name = model_engine._MODEL_NAME
+        if isinstance(model_name, str) and model_name:
+            mcs._registry[model_name] = cls
+        return cls
+
+    @classmethod
+    def get_model_env(mcs, model_name: str) -> type:
+        r"""Get the env class registered for a model name.
+
+        Args:
+            model_name: Name of the model to get the env class for.
+
+        Returns:
+            type: Env class registered for the model name.
+
+        """
+        try:
+            return mcs._registry[model_name]
+        except KeyError:
+            raise ValueError(f"Unsupported simulator \"{model_name}\"") \
+                from None
+
+    @classmethod
+    def registered_models(mcs) -> List[str]:
+        r"""Get the names of all registered models.
+
+        Returns:
+            List[str]: Names of the registered models.
+
+        """
+        return sorted(mcs._registry)
+
+
+class BaseModelEnv(gym.Env, metaclass=_ModelEnvMeta):
     r"""Base model environment."""
 
     MODEL_ENGINE_CLASS = None

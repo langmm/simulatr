@@ -4,10 +4,7 @@ import logging
 from typing import Optional, Union, Any
 from io import BufferedReader
 from . import logger
-from .config import PackageConfig
-
-
-_gymdir = os.path.dirname(__file__)
+from .config import PackageConfig, _pkgdir
 
 
 cfg = PackageConfig(
@@ -17,18 +14,16 @@ cfg = PackageConfig(
             'output': os.path.join(os.getcwd(), 'output'),
             'models': os.path.join(os.getcwd(), 'models'),
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
+            'nasa_power_weather_data': os.path.join(
+                os.getcwd(), 'nasa_power_weather_data'),
         },
     },
 )
 cfg.setdefaults(
     directories={
-        'source': _gymdir,
-        'data': os.path.join(_gymdir, 'data'),
+        'source': _pkgdir,
+        'data': os.path.join(_pkgdir, 'data'),
     },
-    # files={
-    #     # 'locations': os.path.join(_gymdir, 'data', 'locations.csv'),
-    #     # 'testdata': [],
-    # },
 )
 
 

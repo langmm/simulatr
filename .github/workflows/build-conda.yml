@@ -1,13 +1,9 @@
 name: Build and test conda recipe
 
 on:
-  release:
-    types: [created]
   push:
     branches-ignore:
       - gh-pages
-    tags:
-      - '*'
   schedule:
     - cron: 0 10 * * 1  # 3AM PST
   workflow_dispatch:

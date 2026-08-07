@@ -1,3 +1,13 @@
+# Simulatr
+
+[![PyPI version](https://img.shields.io/pypi/v/simulatr.svg)](https://pypi.org/project/simulatr/)
+[![Python versions](https://img.shields.io/pypi/pyversions/simulatr.svg)](https://pypi.org/project/simulatr/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/simulatr.svg)](https://pypi.org/project/simulatr/)
+[![License](https://img.shields.io/pypi/l/simulatr.svg)](https://github.com/langmm/simulatr/blob/main/LICENSE.txt)
+[![Tests](https://github.com/langmm/simulatr/actions/workflows/runtests.yml/badge.svg)](https://github.com/langmm/simulatr/actions/workflows/runtests.yml)
+[![Conda build](https://github.com/langmm/simulatr/actions/workflows/build-conda.yml/badge.svg)](https://github.com/langmm/simulatr/actions/workflows/build-conda.yml)
+[![Docs](https://github.com/langmm/simulatr/actions/workflows/publish-docs.yml/badge.svg)](https://langmm.github.io/simulatr/)
+
 Simulatr provides a [gymnasium](https://gymnasium.farama.org/) environment for reinforcement learning using different simulators including:
 
 - [ApsimX](https://docs.apsim.info/)

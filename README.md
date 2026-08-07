@@ -27,13 +27,13 @@ python -m simulatr install apsimx
 ## Running a simulator engine to model completion
 
 ```
-python -m simulatr run apsimx --crop-name wheat
+python -m simulatr run apsimx --crop-name wheat --from-example
 ```
 
 ## Running a simulator engine interactively
 
 ```
-python -m simulatr run apsimx --crop-name wheat --timestep=10  # days
+python -m simulatr run apsimx --crop-name wheat --from-example --timestep=10  # days
 ```
 
 # Model installation details

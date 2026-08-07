@@ -1,4 +1,4 @@
-# python -m simulatr run apsimx Examples/Wheat.apsimx
+# python -m simulatr run apsimx --crop-name wheat --from-example
 import os
 import argparse
 import datetime
@@ -141,6 +141,13 @@ def main() -> None:
         ],
         help="Name of crop to simulate",
     )
+    parser_run_apsimx.add_argument(
+        "--from-example", type=str, nargs="?", const=True, default=False,
+        help=(
+            "Create a new .apsimx model by copying an example. "
+            "The path to the example can be passed."
+        ),
+    )
     run_parsers = [parser_run_apsimx]
     for parser_x in run_parsers:
         parser_x.add_argument(
@@ -223,6 +230,7 @@ def main() -> None:
         if args.simulator == "apsimx":
             if args.crop_name:
                 kws["crop_name"] = args.crop_name
+            kws["from_example"] = args.from_example
         if args.actions:
             kws["actions"] = args.actions
         if args.state_variables:

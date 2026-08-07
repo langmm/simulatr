@@ -35,8 +35,6 @@ jobs:
           mkdir -p build/noarch
           mv build/*.conda build/noarch/
           pixi run -e dev conda index build/
-          # pixi run -e dev python -m pip install conda-index
-          # pixi run -e dev conda-index build/
 
       - name: Create an environment with the built package
         uses: mamba-org/setup-micromamba@v3

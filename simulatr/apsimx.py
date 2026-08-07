@@ -2051,10 +2051,6 @@ class ApsimXEngine(CropModelEngine):
         self.stderr_pipe = None
         self._status = None
         self._current_time = None
-        if (isinstance(self.model_file, str)
-                and not (os.path.isfile(self.model_file)
-                         or os.path.dirname(self.model_file))):
-            self.model_file = os.path.join("Examples", self.model_file)
         super().model_post_init(__context)
         if not self.output_dir:
             # ApsimX saves output to the directory containing the
@@ -2430,8 +2426,11 @@ class ApsimXEngine(CropModelEngine):
         args_flat = []
         for k, v in param.items():
             args_flat += [k, v]
+        logger.debug(f"_act: {[action] + args_flat}")
         self.send_command("act", [action] + args_flat)
+        logger.debug("_act: recv_reply")
         reply = self.recv_reply()
+        logger.debug(f"_act: recv_reply returned {reply}")
         if reply != "ok":
             raise self._reply_error(reply)(
                f"act for \"{action}\" received non-ok reply "

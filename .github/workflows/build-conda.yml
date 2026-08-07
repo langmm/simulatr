@@ -16,9 +16,6 @@ jobs:
   build-conda:
     name: Build and test conda recipe on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        shell: bash -leo pipefail {0}
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +48,8 @@ jobs:
             simulatr
 
       - name: Test the installed package
+        shell: bash -leo pipefail {0}
         run: |
           cd $RUNNER_TEMP
-          python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
-          simulatr --help
+          conda run -e simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
+          conda run -e simulatr-test simulatr --help

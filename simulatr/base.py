@@ -2313,6 +2313,7 @@ class BaseModelEngine(BaseModel, ABC):
             cleanup: If True, cleanup the generated model file.
 
         """
+        logger.info("Stop called")
         try:
             self._stop()
         finally:

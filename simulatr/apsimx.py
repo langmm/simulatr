@@ -2250,8 +2250,11 @@ class ApsimXEngine(CropModelEngine):
             self.socket.close()
         if self.process is not None:
             if self.process.poll() is None:
+                logger.info("Calling kill")
                 self.process.kill()
                 self.process.wait(timeout=1)
+                logger.info("Kill returned")
+                logger.info(f"Poll = {self.process.poll()}")
                 assert self.process.poll() is not None
             # process = psutil.Process(self.process.pid)
             # for proc in process.children(recursive=True):

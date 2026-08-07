@@ -20,11 +20,12 @@ requests = "*"
 simulatr = { path = ".", editable = true }
 
 [feature.dev.dependencies]
-python-build = "*"
+conda-index = "*"
 flake8 = "*"
 myst-parser = "*"
 pytest = "*"
 pytest-cov = "*"
+python-build = "*"
 sphinx = "*"
 tox = "*"
 

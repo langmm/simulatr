@@ -51,5 +51,5 @@ jobs:
         shell: bash -leo pipefail {0}
         run: |
           cd $RUNNER_TEMP
-          conda run -e simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
-          conda run -e simulatr-test simulatr --help
+          conda run -n simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
+          conda run -n simulatr-test simulatr --help

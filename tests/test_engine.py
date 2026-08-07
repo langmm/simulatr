@@ -8,7 +8,7 @@ from simulatr.base import (
     InvalidActionError, RecoverableError,
     RecoverableModelEngineError,
 )
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 
 ##########################################################

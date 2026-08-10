@@ -1,11 +1,30 @@
 # python -m simulatr run apsimx --crop-name wheat --from-example
 import os
 import argparse
-import datetime
 import logging
 from typing import Any, Optional, List
-from . import logger, get_simulator_class
+from . import logger, registered_simulators, get_simulator_class
 from .utils import cfg
+from pydantic_settings import CliSettingsSource
+
+
+def _add_args_from_engine(simulator: str,
+                          root_parser: argparse.ArgumentParser,
+                          omit_fields: Optional[List[str]] = None,
+                          **kwargs: Any) -> CliSettingsSource:
+    # TODO:
+    # - Skip fields
+    # - Use extend for lists
+    # - Allow for choices
+    parser = root_parser.add_parser(simulator, **kwargs)
+    engine = get_simulator_class(simulator)
+    return CliSettingsSource(
+        engine,
+        root_parser=parser,
+        cli_parse_args=False,
+        cli_hide_none_type=True,
+        cli_kebab_case=True,
+    )
 
 
 def run(simulator: str, timestep: int = 0,
@@ -19,35 +38,36 @@ def run(simulator: str, timestep: int = 0,
         state_variables: Set of state variables to request at each
             timestep.
         **kwargs: Additional keyword arguments are passed along to
-            the engine class constructor.
+            the environment class constructor.
 
     """
-    # TODO: Ask for user input on the action that should be taken
-    # using the LLM prompt generation
-    engine_cls = get_simulator_class(simulator)
-    engine = engine_cls(**kwargs)
-    engine.start()
-    data = []
+    if state_variables:
+        kwargs["output_vars"] = state_variables
+    if timestep > 0:
+        kwargs["intervention_interval"] = timestep
+    env_cls = get_simulator_class(simulator, "env")
+    env = env_cls.create_interactive_for_human(**kwargs)
     try:
-        i = 0
-        while engine.is_running and not engine.is_complete:
-            logger.info(f"Time: {engine.current_time}")
-            if state_variables:
-                ivars = engine.getvars(state_variables)
-                data.append(ivars)
-            # TODO: PROMPT
-            if timestep <= 0:
-                engine.fast_forward()
-            else:
-                engine.fast_forward(datetime.timedelta(days=timestep))
-            i += 1
+        if timestep > 0:
+            # Stop at each timestep to ask the user what action to take
+            # using a prompt generated from the current observation.
+            logger.info(
+                "Simulation will pause at each timestep to ask the "
+                "user for an action")
+            env.run_interactive_for_human()
+        else:
+            # Run continuously to completion without intervention.
+            logger.info("Running the simulation continuously")
+            env.reset()
+            env.model.fast_forward()
     finally:
-        engine.stop()
-    print(f"Output written to {engine.output_file}")
+        env.close()
+    print(f"Output written to {env.model.output_file}")
 
 
 def main() -> None:
     r"""Run the command line interface."""
+    simulators = registered_simulators()
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
         dest="action", help='Action to perform')
@@ -91,32 +111,23 @@ def main() -> None:
         dest="simulator",
         help="Name of the simulator to create an input file for",
     )
-    parser_create_apsimx = parser_create_sim.add_parser(
-        "apsimx", help="Create an ApsimX input file")
-    parser_create_apsimx.add_argument(
-        "crop_name", type=str.lower,
-        choices=[
-            x.lower() for x in
-            get_simulator_class("apsimx", "file").available_crops()
-        ],
-        help="Crop name to create an input file for",
-    )
-    parser_create_apsimx.add_argument(
-        "--from-example", type=str, nargs="?", const=True, default=False,
-        help=(
-            "Create a new .apsimx model by copying an example. "
-            "The path to the example can be passed."
-        ),
-    )
-    for parser_x in [parser_create_apsimx]:
-        parser_x.add_argument(
-            "--interactive", action="store_true",
-            help="Make the new file interactive",
+    create_parsers = {}
+    for k in simulators:
+        create_parsers[k] = _add_args_from_engine(
+            k, parser_create_sim,
+            # TODO: omit_fields=[],
+            help=f"Create an {k} input file",
         )
-        parser_x.add_argument(
-            "--actions", type=str, nargs="+", action="extend",
-            help="Interactive actions that should be supported",
-        )
+    # create_parsers["apsimx"].add_argument(
+    #     "crop_name", type=str.lower,
+    #     choices=[
+    #         x.lower() for x in
+    #         get_simulator_class("apsimx", "file").available_crops()
+    #     ],
+    #     help="Crop name to create an input file for",
+    # )
+    for setting_x in create_parsers.values():
+        parser_x = setting_x.root_parser
         parser_x.add_argument(
             "--dst", type=str,
             help="Path to where the new file should be saved",
@@ -131,36 +142,21 @@ def main() -> None:
     )
     parser_run_sim = parser_run.add_subparsers(
         dest="simulator", help="Name of the simulator to run")
-    parser_run_apsimx = parser_run_sim.add_parser(
-        "apsimx", help="Run an ApsimX simulation")
-    parser_run_apsimx.add_argument(
-        "--crop-name", type=str,
-        choices=[
-            x.lower() for x in
-            get_simulator_class("apsimx", "file").available_crops()
-        ],
-        help="Name of crop to simulate",
-    )
-    parser_run_apsimx.add_argument(
-        "--from-example", type=str, nargs="?", const=True, default=False,
-        help=(
-            "Create a new .apsimx model by copying an example. "
-            "The path to the example can be passed."
-        ),
-    )
-    run_parsers = [parser_run_apsimx]
-    for parser_x in run_parsers:
-        parser_x.add_argument(
-            "--model-file", type=str,
-            help="Path to a model input file",
+    run_parsers = {}
+    for k in simulators:
+        run_parsers[k] = _add_args_from_engine(
+            k, parser_run_sim,
+            help=f"Run an {k} simulation",
         )
+    for setting_x in run_parsers.values():
+        parser_x = setting_x.root_parser
         parser_x.add_argument(
             "--timestep", type=int, default=0,
-            help="Time step between actions (in days). 0 for continuous",
-        )
-        parser_x.add_argument(
-            "--actions", type=str, nargs="+", action="extend",
-            help="Actions to allow",
+            help=(
+                "Time between actions (in days). If non-zero, the "
+                "simulation pauses at each timestep to ask for user "
+                "input. 0 for continuous"
+            ),
         )
         parser_x.add_argument(
             "--state-variables", type=str, nargs="+", action="extend",
@@ -193,46 +189,39 @@ def main() -> None:
         engine_cls.install()
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
-        kws = {}
-        if args.simulator == "apsimx":
-            if args.crop_name:
-                kws["crop_name"] = args.crop_name
-            kws["from_example"] = args.from_example
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "simulator", "dst", "overwrite"]
+        }
         if args.dst and os.path.isfile(args.dst):
             if not args.overwrite:
                 raise RuntimeError(f"Model file already exists: "
                                    f"\"{args.dst}\"")
             os.remove(args.dst)
-        engine = engine_cls(
-            model_file=args.dst,
-            # interactive=args.interactive,  # TODO
-            actions=args.actions,
-            **kws
-        )
+        if args.dst:
+            if args.model_file:
+                raise RuntimeError("Cannot provide both \"--model-file\" "
+                                   "and \"--dst\"")
+            kws["model_file"] = args.dst
+        engine = engine_cls(**kws)
         engine.model.generated = False  # Prevent cleanup
         print(f"Created input file \"{engine.model.fname}\"")
     elif args.action == "run":
-        kws = {"timestep": args.timestep}
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "simulator", "log_file", "log_level"]
+        }
         if args.log_file is True:
             log_file = args.simulator
-            if args.model_file:
+            if getattr(args, "model_file", None):
                 log_file += "_" + os.path.splitext(
                     os.path.basename(args.model_file))[0]
-            elif args.simulator == "apsimx" and args.crop_name:
+            elif ((args.simulator == "apsimx"
+                   and getattr(args, "crop_name", None))):
                 log_file += "_" + args.crop_name
             args.log_file = os.path.join(os.getcwd(), log_file + ".log")
         if args.log_file:
             print(f"Log being written to \"{args.log_file}\"")
         logging.basicConfig(filename=args.log_file,
                             level=getattr(logging, args.log_level))
-        if args.model_file:
-            kws["model_file"] = args.model_file
-        if args.simulator == "apsimx":
-            if args.crop_name:
-                kws["crop_name"] = args.crop_name
-            kws["from_example"] = args.from_example
-        if args.actions:
-            kws["actions"] = args.actions
-        if args.state_variables:
-            kws["state_variables"] = args.state_variables
         run(args.simulator, **kws)

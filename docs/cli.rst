@@ -181,8 +181,9 @@ Running a simulation
 ====================
 
 ``simulatr run apsimx`` starts the ApsimX ZMQ server and runs a
-simulation. A working ApsimX installation is required (see
-:ref:`the install command <cli-install>` and the README).
+simulation using the ApsimX gymnasium environment. A working ApsimX
+installation is required (see :ref:`the install command <cli-install>`
+and the README).
 
 Run a simulation from a crop name:
 
@@ -196,22 +197,31 @@ Or from an existing model input file:
 
    $ simulatr run apsimx --model-file ./wheat.apsimx
 
-Setting the action timestep
----------------------------
+Running interactively
+---------------------
 
 By default the simulation runs continuously to completion
-(``--timestep 0``). A positive ``--timestep`` runs the simulation in
-daily steps and pauses for an action between steps:
+(``--timestep 0``). A positive ``--timestep`` pauses the simulation
+every ``timestep`` days and asks the user what action to take next. At
+each pause a prompt is generated from the current observation and the
+available actions:
 
 .. code-block:: console
 
    $ simulatr run apsimx --crop-name wheat --timestep 7
 
-Recording state variables
--------------------------
+The prompt describes the current state of the simulation and lists the
+available actions, along with the exact response format to use. Type
+your chosen action and press Enter. The response is parsed and applied
+to the simulation before it advances to the next step, for example::
 
-Use ``--state-variables`` to log the value of a set of simulation state
-variables at each step:
+   <answer>Apply 2 kg/ha of nitrogen fertilizer in the form of NO3</answer>
+
+Observations
+------------
+
+Use ``--state-variables`` to select which simulation state variables are
+included in the observation at each step:
 
 .. code-block:: console
 
@@ -223,10 +233,11 @@ variables at each step:
            "[Weather].Rain" \
            "[Soil].Water.PAW"
 
-The retrieved values are written to the engine's output file.
-
 Allowing actions
 ----------------
+
+The ``--actions`` option limits which interventions the user can choose
+from at each step:
 
 .. code-block:: console
 

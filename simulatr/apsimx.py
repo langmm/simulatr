@@ -13,6 +13,7 @@ from functools import cached_property
 import numpy as np
 import pandas as pd
 from typing import Optional, Union, Any, List, Callable, Iterator, ClassVar
+from pydantic import Field
 from . import logger
 from .utils import cfg, LogPipe
 from .base import (
@@ -2032,7 +2033,11 @@ class ApsimXEngine(CropModelEngine):
         },
     }
 
-    from_example: Optional[Union[bool, str]] = True  # TODO: Update this
+    from_example: Optional[Union[bool, str]] = Field(
+        default=True,  # TODO: Update this
+        description="If True, copy the bundled example for the crop to "
+                    "use as the model file. If a string, the path to "
+                    "the example file to copy.")
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the engine.
@@ -2194,12 +2199,20 @@ class ApsimXEngine(CropModelEngine):
         logger.info(f"Running model \"{self.model.fname}\"")
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
+        kws = {}
+        if sys.platform == 'win32':
+            env = copy.deepcopy(os.environ)
+            env["PATH"] = (
+                os.path.dirname(self.apsim_srv())
+                + os.pathsep + env["PATH"]
+            )
+            kws["env"] = env
         self.process = subprocess.Popen([
             "dotnet", self.apsim_srv(),
             "-p", self.port,
             "-P", "interactive",
             "-f", self.model.fname,
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kws)
         self.stdout_pipe = LogPipe(
             self.process.stdout, prefix="APSIMX: ")
         self.stderr_pipe = LogPipe(
@@ -2236,7 +2249,9 @@ class ApsimXEngine(CropModelEngine):
         logger.debug(f"ApsimX _stop (is_operable = {self.is_operable})")
         if self.is_operable:
             try:
-                self.act("terminate")
+                with self.stop_on_error(("act", "terminate", tuple(), {})):
+                    self._act("terminate", {})
+                self.resume(wait=True)
                 if self.status != "finished":
                     raise ValueError(
                         f"Status after terminate is \"{self.status}\"")
@@ -2454,7 +2469,7 @@ class ApsimXLLMPromptGenerator(CropModelLLMPromptGenerator):
     r"""ApsimX LLM prompt generator."""
 
     # TODO: Verify units
-    DEFAULT_DESC_MAP = {
+    DEFAULT_DESC_MAP: ClassVar[dict] = {
         "[Clock].Today": (
             "Timeline", "Date/time"),
         "[CROP].LAI": (

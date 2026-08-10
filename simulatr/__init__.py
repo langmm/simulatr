@@ -1,9 +1,26 @@
 import logging
-from typing import Optional
+from typing import Optional, List
 logger = logging.getLogger(__name__)
 from .base import _ModelEnvMeta  # noqa: E402
 from .apsimx import ApsimXFile, ApsimXEngine, ApsimXEnv  # noqa: E402
 from ._version import __version__, __version_tuple__  # noqa: F401, E402
+
+
+def registered_simulators(only_installed: Optional[bool] = False) -> List[str]:
+    r"""Get the names of all supported simulators.
+
+    Args:
+        only_installed: If True, only include installed simulators in the
+            returned list.
+
+    Returns:
+        list: Names of supported simulators.
+
+    """
+    out = _ModelEnvMeta.registered_simulators()
+    if only_installed:
+        out = [k for k in out if get_simulator_class(k).is_installed()]
+    return out
 
 
 def get_simulator_class(simulator: str,
@@ -19,7 +36,7 @@ def get_simulator_class(simulator: str,
 
     """
     if file_type == "env":
-        return _ModelEnvMeta.get_model_env(simulator)
+        return _ModelEnvMeta.get_simulator_env(simulator)
     env_cls = get_simulator_class(simulator, "env")
     if file_type == "engine":
         return env_cls.MODEL_ENGINE_CLASS

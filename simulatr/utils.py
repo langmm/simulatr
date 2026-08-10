@@ -27,7 +27,7 @@ cfg.setdefaults(
 )
 
 
-def promptuser(prompt: str, _gha_default: str = "INVALID"):
+def promptuser(prompt: str, _gha_default: str = ""):
     r"""Prompt for input from the user. Set to default if GITHUB_ACTIONS
     environment variable is set.
 

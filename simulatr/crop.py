@@ -6,7 +6,7 @@ import pandas as pd
 import datetime
 from abc import abstractmethod
 from typing import Optional, Union, List, Any, ClassVar
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 from .base import (
     readonly_cached_property, NoDefault,
     BaseModelFile, BaseModelEngine,
@@ -547,16 +547,35 @@ class CropModelEngine(BaseModelEngine):
         "duration": datetime.timedelta(365),
     }
 
-    model_file: Optional[Union[str, List[str], BaseModelFile]] = None
-    crop_name: Optional[str] = None
-    crop_variety: Optional[str] = None
-    sow_date: Optional[datetime.date] = None
-    harvest_date: Optional[datetime.date] = None
-    season_length: Optional[Union[int, datetime.timedelta]] = None
-    year: Optional[int] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    weather_file: Optional[str] = None
+    model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
+        default=None,
+        description="Path to one or more model input files.")
+    crop_name: Optional[str] = Field(
+        default=None, description="Name of the crop.")
+    crop_variety: Optional[str] = Field(
+        default=None, description="Name of the crop variety/cultivar.")
+    sow_date: Optional[datetime.date] = Field(
+        default=None, description="Date that the crop should be sown.")
+    harvest_date: Optional[datetime.date] = Field(
+        default=None,
+        description="Date that the crop should be harvested.")
+    season_length: Optional[Union[int, datetime.timedelta]] = Field(
+        default=None,
+        description="Time between sowing and harvest. Only used if only "
+                    "one of sow_date or harvest_date are used. If an "
+                    "integer is provided, it is assumed to be in units "
+                    "of days.")
+    year: Optional[int] = Field(
+        default=None, description="Year to use to get weather data.")
+    latitude: Optional[float] = Field(
+        default=None,
+        description="Field latitude to use to get weather data.")
+    longitude: Optional[float] = Field(
+        default=None,
+        description="Field longitude to use to get weather data.")
+    weather_file: Optional[str] = Field(
+        default=None,
+        description="Path to a file containing NASA power weather data.")
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the crop model engine.
@@ -700,39 +719,27 @@ class CropModelEngine(BaseModelEngine):
 class CropModelLLMPromptGenerator(BaseModelLLMPromptGenerator):
     r"""Crop model LLM prompt generator."""
 
-    DEFAULT_REWARD = (
+    DEFAULT_REWARD: ClassVar[str] = (
         "Maximize the end-of-season profit from the crop yield"
     )
-    DEFAULT_STATE_DESCRIPTOR = "agronomic"
+    DEFAULT_STATE_DESCRIPTOR: ClassVar[str] = "agronomic"
 
-    def __init__(
-            self,
-            crop_name: Optional[str] = "the crop",
-            crop_variety: Optional[str] = None,
-            start_date: Optional[datetime.date] = None,
-            season_length: Optional[int] = 241,
-            location: Optional[str] = "the field",
-            **kwargs: Any
-    ) -> None:
-        """Initialize the prompt generator.
-
-        Args:
-            crop_name: Name of the crop being cultivated
-            crop_variety: Name of the crop varient/cultivar being
-                cultivated
-            start_date: Calendar start date of the simulation
-            season_length: Total length of growing season in days
-            location: Geographic location description
-            **kwargs: Additional keyword arguments are forwarded to the
-                BaseModelLLMPromptGenerator.__init__ method.
-
-        """
-        self.crop_name = crop_name
-        self.crop_variety = crop_variety
-        self.start_date = start_date
-        self.season_length = season_length
-        self.location = location
-        super().__init__(**kwargs)
+    crop_name: Optional[str] = Field(
+        default="the crop",
+        description="Name of the crop being cultivated.")
+    crop_variety: Optional[str] = Field(
+        default=None,
+        description="Name of the crop variant/cultivar being "
+                    "cultivated.")
+    start_date: Optional[datetime.date] = Field(
+        default=None,
+        description="Calendar start date of the simulation.")
+    season_length: Optional[int] = Field(
+        default=241,
+        description="Total length of growing season in days.")
+    location: Optional[str] = Field(
+        default="the field",
+        description="Geographic location description.")
 
     @classmethod
     def from_env(

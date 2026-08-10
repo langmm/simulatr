@@ -13,7 +13,9 @@ from typing import (
 from functools import cached_property
 import numpy as np
 import gymnasium as gym
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel, ConfigDict, Field, PrivateAttr, model_validator)
+from pydantic_settings import CliSuppress
 from . import logger
 from .utils import promptuser
 
@@ -111,6 +113,7 @@ class ModelAction(CachedPropertyMixin):
         allow_donothing: If True, the action should allow for a choice to
             do nothing.
         offset: Action offset when part of a discrete set.
+        is_control: True if the action is a simulation control.
 
     """
     ACTION_SCHEMA = {
@@ -171,6 +174,7 @@ class ModelAction(CachedPropertyMixin):
             param: Optional[dict] = None,
             allow_donothing: Optional[bool] = True,
             offset: Optional[int] = 0,
+            is_control: Optional[bool] = False,
     ) -> None:
         r"""Initialize a model action.
 
@@ -194,6 +198,7 @@ class ModelAction(CachedPropertyMixin):
             allow_donothing: If True, the action should allow for a
                 choice to do nothing.
             offset: Action offset when part of a discrete set.
+            is_control: True if the action is a simulation control.
 
         """
         self.name = name
@@ -207,6 +212,7 @@ class ModelAction(CachedPropertyMixin):
         self.param = {}
         self.allow_donothing = allow_donothing
         self.offset = offset
+        self.is_control = is_control
         self.num_levels = len(levels) if levels else num_levels
         if self.num_levels != -1:
             assert action_param is not None
@@ -1732,20 +1738,111 @@ class BaseModelEngine(BaseModel, ABC):
     _MODEL_NAME: ClassVar[Optional[str]] = None
     INPUT_FILE_TYPE: ClassVar[Any] = None
     AVAILABLE_ACTION_MAP: ClassVar[dict] = {}
+    CONTROL_ACTION_MAP: ClassVar[dict] = {
+        "resume": {
+            "description": (
+                "Continue the simulation to the next interaction"
+            ),
+            "action_param": None,
+            "num_levels": -1,
+        },
+        "stop": {
+            "description": "Stop the simulation",
+            "action_param": None,
+            "num_levels": -1,
+        },
+        "complete": {
+            "description": (
+                "Run the simulation to completion without any "
+                "additional interactions"
+            ),
+            "action_param": None,
+            "num_levels": -1,
+        },
+        "restart": {
+            "description": "Restart the simulation from the beginning",
+            "action_param": None,
+            "num_levels": -1,
+        },
+        "scrub": {
+            "description": (
+                "Move the simulation forward or backwards in time by "
+                "{time} days"
+            ),
+            "action_param": "time",  # None,
+            "num_levels": 0,
+            "param_desc": {
+                "time": {
+                    "type": "number",
+                    "default": 10,
+                },
+            },
+        },
+        "set": {
+            "description": (
+                "Set the value of the {name} simulation state variable "
+                "to {value}"
+            ),
+            "action_param": "name",
+            "param_desc": {
+                "name": {
+                    "type": "string",
+                    "enum": ["time"]  # TODO: Set this for the simulator
+                },
+                "value": {
+                    "type": "number",
+                },
+            },
+        },
+        "get": {
+            "description": (
+                "Get the value of the {name} simulation state variable"
+            ),
+            "action_param": "name",
+            "param_desc": {
+                "name": {
+                    "type": "string",
+                    "enum": ["time"]  # TODO: Set this for the simulator
+                },
+            },
+        },
+    }
     EXPLICIT_PARAM: ClassVar[list] = ["start_time", "end_time", "duration"]
     DATE_PARAM: ClassVar[list] = [("start_time", "end_time", "duration")]
     DEFAULT_PARAM: ClassVar[dict] = {}
 
-    model_file: Union[str, List[str], BaseModelFile]
-    model_suffix: Optional[str] = None
-    output_dir: Optional[str] = None
-    start_time: Optional[datetime.datetime] = None
-    end_time: Optional[datetime.datetime] = None
-    duration: Optional[datetime.timedelta] = None
-    param: Optional[dict] = None
-    actions: Optional[List[str]] = None
-    action_map: Optional[Union[dict, ModelActionSet]] = None
-    action_param: Optional[dict] = None
+    model_file: Union[str, List[str], BaseModelFile] = Field(
+        description="Path to one or more model input files.")
+    model_suffix: Optional[str] = Field(
+        default=None,
+        description="Additional suffix to add to a copy of the provided "
+                    "model file to ensure that it is unique.")
+    output_dir: Optional[str] = Field(
+        default=None,
+        description="Path to the directory where output should be saved.")
+    start_time: Optional[datetime.datetime] = Field(
+        default=None, description="Simulation start time.")
+    end_time: Optional[datetime.datetime] = Field(
+        default=None, description="Simulation end time.")
+    duration: Optional[datetime.timedelta] = Field(
+        default=None,
+        description="Simulation duration. Only used if either start_time "
+                    "or end_time is not provided.")
+    param: CliSuppress[Optional[dict]] = Field(
+        default=None,
+        description="Model parameters to update at the beginning of the "
+                    "simulation.")
+    actions: Optional[List[str]] = Field(
+        default=None,
+        description="Names of actions to include. Only used if action_map "
+                    "is not provided.")
+    action_map: CliSuppress[Optional[Union[dict, ModelActionSet]]] = Field(
+        default=None,
+        description="Description of the actions available via the act "
+                    "method.")
+    action_param: CliSuppress[Optional[dict]] = Field(
+        default=None,
+        description="Action parameters to use keyed to action names.")
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the model engine.
@@ -2245,7 +2342,14 @@ class BaseModelEngine(BaseModel, ABC):
         actions = (actions or list(action_map.keys())
                    or list(cls.AVAILABLE_ACTION_MAP.keys()))
         return {
-            k: action_map.get(k, cls.AVAILABLE_ACTION_MAP[k].copy())
+            k: action_map.get(
+                k, (
+                    cls.AVAILABLE_ACTION_MAP[k].copy()
+                    if k in cls.AVAILABLE_ACTION_MAP
+                    else dict(cls.CONTROL_ACTION_MAP[k].copy(),
+                              is_control=True)
+                )
+            )
             for k in actions
         }
 
@@ -2459,20 +2563,42 @@ class BaseModelEngine(BaseModel, ABC):
         out = None
         with self.stop_on_error(("act", action, args, kwargs),
                                 allow_error=allow_error):
-            if action not in self.action_map and action != "terminate":
+            if action not in self.action_map:
                 raise InvalidActionError(
                     f"Unsupported action \"{action}\". Supported "
                     f"actions include: {list(self.action_map.keys())}")
-                # return self.set(action, *args)
-            kws = {}
-            if action in self.action_map:
-                kws = self.action_map[action].combine_args_and_kwargs(
-                    args, kwargs)
-            out = self._act(action, kws)
+            kws = self.action_map[action].combine_args_and_kwargs(
+                args, kwargs)
+            if self.action_map[action].is_control:
+                out = self._control(action, kws)
+            else:
+                out = self._act(action, kws)
         logger.debug(f"act: {action}[{args}, {kwargs}]")
-        if action == "terminate":
-            self.resume(wait=True)
         return out
+
+    def _control(self, action: str, param: dict) -> Any:
+        r"""Perform a control action.
+
+        Args:
+            name: Name of the control action to perform.
+            param: Action parameters.
+
+        """
+        if action == "set":
+            return self.set(param["name"], param["value"])
+        elif action == "get":
+            return self.get(param["name"])
+        elif action == "resume":
+            return self.resume()
+        elif action == "stop":
+            return self.stop()
+        elif action == "complete":
+            return self.fast_forward()
+        elif action == "restart":
+            return self.rewind()
+        elif action == "scrub":
+            return self.scrub(param["time"])
+        raise NotImplementedError(f"Control action \"{action}\"")
 
     def getvars(self, names: list,
                 allow_error: Optional[bool] = False) -> dict:
@@ -2534,7 +2660,7 @@ class BaseModelEngine(BaseModel, ABC):
     def scrub(
             self, time: Union[datetime.datetime,
                               datetime.timedelta,
-                              int, str]
+                              int, float, str]
     ) -> None:
         r"""Fast forwrad or rewind the simulation to the desired time.
 
@@ -2546,7 +2672,7 @@ class BaseModelEngine(BaseModel, ABC):
                 assumed to be the number of days in a timedelta.
 
         """
-        if isinstance(time, int):
+        if isinstance(time, (int, float)):
             time = datetime.timedelta(days=time)
         elif isinstance(time, str):
             time = datetime.datetime.fromisoformat(time)
@@ -2647,82 +2773,95 @@ class BaseModelEngine(BaseModel, ABC):
         raise NotImplementedError  # pragma: no cover
 
 
-class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
-    """Generate LLM prompts for environments.
+class BaseModelLLMPromptGenerator(BaseModel, ABC):
+    r"""Generate LLM prompts for environments.
 
     This class handles the creation of system prompts and turn prompts
     for LLM-based agricultural management agents.
     """
 
-    VALID_THINKING_MODES = {"minimal", "grounding_decision"}
-    THINKING_MODE_ALIASES = {
+    model_config = ConfigDict(
+        extra="forbid",
+        arbitrary_types_allowed=True,
+    )
+
+    VALID_THINKING_MODES: ClassVar[set] = {"minimal", "grounding_decision"}
+    THINKING_MODE_ALIASES: ClassVar[dict] = {
         "think": "grounding_decision",
     }
-    DEFAULT_REWARD = ""
-    DEFAULT_STATE_DESCRIPTOR = ""
-    DEFAULT_DESC_MAP = {}
+    DEFAULT_REWARD: ClassVar[str] = ""
+    DEFAULT_STATE_DESCRIPTOR: ClassVar[str] = ""
+    DEFAULT_DESC_MAP: ClassVar[dict] = {}
 
-    def __init__(
-            self,
-            num_levels: Optional[int] = 4,
-            intervention_interval: Optional[int] = 7,
-            output_vars: Optional[List[str]] = None,
-            desc_map: Optional[Dict[str, Tuple[str, str]]] = None,
-            action_map: Optional[Union[dict, ModelActionSet]] = None,
-            reward: Optional[str] = None,
-            state_descriptor: Optional[str] = None,
-            allow_donothing: Optional[bool] = True,
-            exclusive: Optional[bool] = True,
-            require_think: bool = False,
-            thinking_mode: str = "grounding_decision",
-            think_tag: str = "think",
-            answer_tag: str = "answer",
-    ) -> None:
-        """Initialize the prompt generator.
+    _cached_properties: dict = PrivateAttr(default_factory=dict)
 
-        Args:
-            num_levels: Number of levels per action if not specified in
-                action_map (0 for continuous).
-            intervention_interval: Days between decisions
-            output_vars: List of observation variable names
-            desc_map: Custom description mapping for variables
-            action_map: Custom description mapping for actions
-            reward: Description of the reward that should be used.
-            state_descriptor: Description of the overall type of state
-                information.
-            allow_donothing: Include non-action as a possible action.
-            exclusive: Don't allow more than one action per step.
-            require_think: Whether to require thinking before answering
-            thinking_mode: Thinking prompt variant when require_think=True.
-                Supported values: "minimal", "think" (alias of
-                "grounding_decision"), "grounding_decision"
-            think_tag: Tag name for thinking (default: "think", e.g.
-                "tool_call")
-            answer_tag: Tag name for answer (default: "answer")
+    num_levels: Optional[int] = Field(
+        default=4,
+        description="Number of levels per action if not specified in "
+                    "action_map (0 for continuous).")
+    intervention_interval: Optional[
+        Union[int, datetime.timedelta]] = Field(
+        default=7, description="Days between decisions.")
+    output_vars: Optional[List[str]] = Field(
+        default=None,
+        description="List of observation variable names.")
+    desc_map: Optional[Dict[str, Tuple[str, str]]] = Field(
+        default=None,
+        description="Custom description mapping for variables.")
+    action_map: Optional[Union[dict, ModelActionSet]] = Field(
+        default=None,
+        description="Custom description mapping for actions.")
+    reward: Optional[str] = Field(
+        default=None,
+        description="Description of the reward that should be used.")
+    state_descriptor: Optional[str] = Field(
+        default=None,
+        description="Description of the overall type of state "
+                    "information.")
+    allow_donothing: Optional[bool] = Field(
+        default=True,
+        description="Include non-action as a possible action.")
+    exclusive: Optional[bool] = Field(
+        default=True,
+        description="Don't allow more than one action per step.")
+    require_think: bool = Field(
+        default=False,
+        description="Whether to require thinking before answering.")
+    thinking_mode: str = Field(
+        default="grounding_decision",
+        description="Thinking prompt variant when require_think=True. "
+                    "Supported values: \"minimal\", \"think\" (alias of "
+                    "\"grounding_decision\"), \"grounding_decision\".")
+    think_tag: str = Field(
+        default="think",
+        description="Tag name for thinking (default: \"think\", e.g. "
+                    "\"tool_call\").")
+    answer_tag: str = Field(
+        default="answer",
+        description="Tag name for answer (default: \"answer\").")
+    for_human: Optional[bool] = Field(
+        default=False,
+        description="Generate prompts that are human friendly")
 
-        """
-        self.num_levels = num_levels
-        self.intervention_interval = intervention_interval
-        self.output_vars = output_vars or []
-        self.desc_map = desc_map or self.DEFAULT_DESC_MAP
-        self.reward = reward or self.DEFAULT_REWARD
+    @model_validator(mode="after")
+    def _normalize_fields(self) -> "BaseModelLLMPromptGenerator":
+        r"""Resolve class-attribute defaults and normalize fields."""
+        self.output_vars = self.output_vars or []
+        self.desc_map = self.desc_map or self.DEFAULT_DESC_MAP
+        self.reward = self.reward or self.DEFAULT_REWARD
         self.state_descriptor = (
-            state_descriptor or self.DEFAULT_STATE_DESCRIPTOR)
+            self.state_descriptor or self.DEFAULT_STATE_DESCRIPTOR)
         if self.state_descriptor:
             self.state_descriptor = self.state_descriptor.strip() + " "
-        self.allow_donothing = allow_donothing
-        self.exclusive = exclusive
-        self.require_think = require_think
-        self.thinking_mode = self._normalize_thinking_mode(thinking_mode)
-        self.think_tag = think_tag
-        self.answer_tag = answer_tag
+        self.thinking_mode = self._normalize_thinking_mode(
+            self.thinking_mode)
         self.action_map = ModelActionSet.create(
-            action_map or {},
+            self.action_map or {},
             num_levels=self.num_levels,
             allow_donothing=self.allow_donothing,
             exclusive=self.exclusive,
         )
-        super().__init__()
+        return self
 
     @readonly_cached_property
     def reward_inline(self) -> str:
@@ -2813,7 +2952,9 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
         example_action = self.action_map.example_description
 
         # ── 4. Decision guidance (varies by require_think × thinking_mode)
-        if not self.require_think:
+        if self.for_human:
+            pass
+        elif not self.require_think:
             guidance_intro = (
                 "Please consider the following when making a decision:"
             )
@@ -2840,7 +2981,12 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
 
         # ── 5. Response format (varies by require_think) ───────────
         at = self.answer_tag
-        if self.require_think:
+        if self.for_human:
+            action_lines.extend([
+                "",
+                f"Example: {example_action}",
+            ])
+        elif self.require_think:
             tt = self.think_tag
             if self.thinking_mode == "grounding_decision":
                 action_lines.extend([
@@ -2910,23 +3056,26 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
         - ``require_think=False``: ``<answer>...</answer>`` only
 
         """
-        at = re.escape(self.answer_tag)
-        if self.require_think:
-            tt = re.escape(self.think_tag)
-            m = re.fullmatch(
-                rf"\s*<{tt}>(.*?)</{tt}>\s*<{at}>(.*?)</{at}>\s*",
-                response,
-                re.DOTALL,
-            )
+        if self.for_human:
+            action_text = response
         else:
-            m = re.fullmatch(
-                rf"\s*<{at}>(.*?)</{at}>\s*",
-                response,
-                re.DOTALL,
-            )
-        if m is None:
-            return None
-        action_text = m.group(m.lastindex).strip()
+            at = re.escape(self.answer_tag)
+            if self.require_think:
+                tt = re.escape(self.think_tag)
+                m = re.fullmatch(
+                    rf"\s*<{tt}>(.*?)</{tt}>\s*<{at}>(.*?)</{at}>\s*",
+                    response,
+                    re.DOTALL,
+                )
+            else:
+                m = re.fullmatch(
+                    rf"\s*<{at}>(.*?)</{at}>\s*",
+                    response,
+                    re.DOTALL,
+                )
+            if m is None:
+                return None
+            action_text = m.group(m.lastindex).strip()
         try:
             return self.action_map.description2action(action_text)
         except InvalidActionError:
@@ -2963,11 +3112,11 @@ class BaseModelLLMPromptGenerator(CachedPropertyMixin, ABC):
 
 
 class _ModelEnvMeta(type(BaseModel)):
-    r"""Metaclass that registers env subclasses by model name.
+    r"""Metaclass that registers env subclasses by simulator name.
 
     Subclasses of ``BaseModelEnv`` that set the ``MODEL_ENGINE_CLASS``
     class variable are automatically registered so that they can be
-    looked up by name via the ``get_model_env`` method.
+    looked up by name via the ``get_simulator_env`` method.
 
     """
 
@@ -2976,37 +3125,37 @@ class _ModelEnvMeta(type(BaseModel)):
     def __new__(mcs, name: str, bases: Tuple[type, ...],
                 namespace: Dict[str, Any], **kwargs: Any):
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        model_engine = namespace.get('MODEL_ENGINE_CLASS', None)
-        model_name = None
-        if model_engine is not None:
-            model_name = model_engine._MODEL_NAME
-        if isinstance(model_name, str) and model_name:
-            mcs._registry[model_name] = cls
+        simulator_engine = namespace.get('MODEL_ENGINE_CLASS', None)
+        simulator_name = None
+        if simulator_engine is not None:
+            simulator_name = simulator_engine._MODEL_NAME
+        if isinstance(simulator_name, str) and simulator_name:
+            mcs._registry[simulator_name] = cls
         return cls
 
     @classmethod
-    def get_model_env(mcs, model_name: str) -> type:
-        r"""Get the env class registered for a model name.
+    def get_simulator_env(mcs, name: str) -> type:
+        r"""Get the env class registered for a simulator name.
 
         Args:
-            model_name: Name of the model to get the env class for.
+            name: Name of the simulator to get the env class for.
 
         Returns:
-            type: Env class registered for the model name.
+            type: Env class registered for the simulator name.
 
         """
         try:
-            return mcs._registry[model_name]
+            return mcs._registry[name]
         except KeyError:
-            raise ValueError(f"Unsupported simulator \"{model_name}\"") \
+            raise ValueError(f"Unsupported simulator \"{name}\"") \
                 from None
 
     @classmethod
-    def registered_models(mcs) -> List[str]:
-        r"""Get the names of all registered models.
+    def registered_simulators(mcs) -> List[str]:
+        r"""Get the names of all registered simulators.
 
         Returns:
-            List[str]: Names of the registered models.
+            List[str]: Names of the registered simulators.
 
         """
         return sorted(mcs._registry)
@@ -3021,8 +3170,10 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
     metadata: ClassVar[dict] = {"render_modes": []}
     render_mode: ClassVar[Optional[str]] = None
     spec: ClassVar[Any] = None
-    action_space: Any = None
-    observation_space: Any = None
+    action_space: Any = Field(
+        default=None, description="Action space.")
+    observation_space: Any = Field(
+        default=None, description="Observation space.")
 
     # Class attributes
     MODEL_ENGINE_CLASS: ClassVar[Any] = None
@@ -3031,21 +3182,52 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
     DEFAULT_REVENUE_VAR: ClassVar[dict] = {}
 
     # Model fields
-    model_file: Optional[Union[str, List[str], BaseModelFile]] = None
-    start_time: Optional[datetime.datetime] = None
-    end_time: Optional[datetime.datetime] = None
+    model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
+        default=None,
+        description="Path to one or more model input files.")
+    start_time: Optional[datetime.datetime] = Field(
+        default=None, description="Simulation start time.")
+    end_time: Optional[datetime.datetime] = Field(
+        default=None, description="Simulation end time.")
     intervention_interval: Optional[
-        Union[int, datetime.timedelta]] = 7
-    output_vars: Optional[List[str]] = None
-    num_levels: Optional[int] = 4
-    actions: Optional[List[str]] = None
-    action_map: Optional[Union[dict, ModelActionSet]] = None
-    revenue_var: Optional[Dict[str, Union[str, float]]] = None
-    model_param: Optional[dict] = None
-    action_param: Optional[dict] = None
-    allow_donothing: Optional[bool] = True
-    exclusive: Optional[bool] = True
-    scale_action_amounts_by_interval: Optional[bool] = False
+        Union[int, datetime.timedelta]] = Field(
+        default=7,
+        description="Time between decisions. If an integer is provided, "
+                    "the units will be assumed to be days.")
+    output_vars: Optional[List[str]] = Field(
+        default=None, description="List of observation variable names.")
+    num_levels: Optional[int] = Field(
+        default=4,
+        description="Number of levels per action if not specified in "
+                    "action_map (0 for continuous, -1 for boolean).")
+    actions: Optional[List[str]] = Field(
+        default=None,
+        description="Names of actions to include. Only used if action_map "
+                    "is not provided.")
+    action_map: Optional[Union[dict, ModelActionSet]] = Field(
+        default=None,
+        description="Custom description mapping for actions.")
+    revenue_var: Optional[Dict[str, Union[str, float]]] = Field(
+        default=None,
+        description="Description of how profit should be calculated from "
+                    "an output variable.")
+    model_param: Optional[dict] = Field(
+        default=None,
+        description="Initial model parameters to set in the model file "
+                    "and/or when the simulation begins.")
+    action_param: Optional[dict] = Field(
+        default=None,
+        description="Action parameters to use keyed to action names.")
+    allow_donothing: Optional[bool] = Field(
+        default=True,
+        description="Include non-action as a possible action.")
+    exclusive: Optional[bool] = Field(
+        default=True,
+        description="Don't allow more than one action per step.")
+    scale_action_amounts_by_interval: Optional[bool] = Field(
+        default=False,
+        description="If True, scale action amounts by the intervention "
+                    "interval.")
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the environment.
@@ -3328,3 +3510,57 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         self._log(action_dict, observation, reward)
         return (self._process_observation(observation), reward,
                 terminated, truncated, self.log)
+
+    @classmethod
+    def create_interactive_for_human(cls, **kwargs: Any) -> "BaseModelEnv":
+        r"""Create an environment for running the simulator with
+        human interaction.
+
+        Args:
+            **kwargs: Keyword arguments are passed to the environment
+                constructor.
+
+        Returns:
+            BaseModelEnv: New environment.
+
+        """
+        kwargs.setdefault("num_levels", 0)
+        kwargs.setdefault("exclusive", True)
+        kwargs.setdefault("allow_donothing", True)
+        kwargs.setdefault("require_think", False)
+        if "action_map" not in kwargs:
+            kwargs["actions"] = kwargs.get("actions", []) + list(
+                cls.MODEL_ENGINE_CLASS.CONTROL_ACTION_MAP.keys())
+        return cls(**kwargs)
+
+    def run_interactive_for_human(self):
+        r"""Run the environment asking for human input on what actions
+        should be performed."""
+        prompt_generator = self.get_llm_prompt_generator(for_human=True)
+        raw_obs, _ = self.reset()
+        prompt_suffix = '\n\nWhat would you like to do? [CONTINUE]'
+        donothin_action = prompt_generator.action_map.donothin_action
+        assert donothin_action is not None  # DEBUG
+        while self.model.is_running and not self.model.is_complete:
+            response = promptuser(
+                prompt_generator.get_turn_prompt(raw_obs)
+                + f"{prompt_suffix}: "
+            )
+            action_id = None
+            while action_id != donothin_action:
+                while action_id is None:
+                    if not response:
+                        action_id = donothin_action
+                    else:
+                        action_id = prompt_generator.parse_action_response(
+                            response)
+                    if action_id is None:
+                        response = promptuser(
+                            f"Invalid response. {prompt_suffix}: ")
+                self.model.actvars(
+                    self.action_map.action2args(action_id))
+                if action_id != donothin_action:
+                    action_id = None
+                    response = promptuser("Anything else? [CONTINUE]: ")
+            if self.model.is_running and not self.model.is_complete:
+                raw_obs = self.step(action_id)[0]

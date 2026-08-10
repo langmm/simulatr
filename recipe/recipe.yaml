@@ -28,6 +28,8 @@ requirements:
     - wheel
   run:
     - python >=${{ python_min }}
+    - dotnet >=8.0.0,<9.0.0
+    - gtk3
     - gymnasium
     - msgpack-python
     - numpy

@@ -2201,6 +2201,7 @@ class ApsimXEngine(CropModelEngine):
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
         kws = {}
+        flags = []
         if sys.platform == 'win32':
             env = copy.deepcopy(os.environ)
             env["PATH"] = (
@@ -2208,6 +2209,7 @@ class ApsimXEngine(CropModelEngine):
                 + os.pathsep + env["PATH"]
             )
             kws["env"] = env
+            flags += ["--verbose"]
         self.process = subprocess.Popen([
             "dotnet", self.apsim_srv(),
             "-p", self.port,

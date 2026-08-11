@@ -22,9 +22,10 @@ from .base import (
     RecoverableError, ModelEngineError, InvalidActionError,
     RecoverableModelEngineError,
 )
+from .data import BaseWeatherFile, NASAPOWERWeatherFile
 from .crop import (
-    CropModelFile, BaseWeatherFile, CropModelEngine,
-    CropModelLLMPromptGenerator, CropModelEnv
+    CropModelFile,
+    CropModelEngine, CropModelLLMPromptGenerator, CropModelEnv
 )
 
 
@@ -48,183 +49,6 @@ def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
     resource = ApsimXFile(os.path.join(apsimx_dir, "Models", "Resources",
                                        f"{name}.json"))
     return resource.find(name)
-
-
-class ApsimXWeatherFile(BaseWeatherFile):
-    r"""Container for ApsimX weather data."""
-
-    _default_ext = ".met"
-    _power_names = {
-        "radn": "ALLSKY_SFC_SW_DWN",
-        "maxt": "T2M_MAX",
-        "mint": "T2M_MIN",
-        "rain": "PRECTOTCORR",
-        "vp": "T2MDEW",
-    }
-    _conv = {
-        # From PCSE
-        # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
-        #     evapotranspiration. Guidelines for computing crop water
-        #     requirements, FAO irrigation and drainage paper 56)
-        "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
-    }
-    _units = {
-        "radn": "MJ/m^2",
-        "maxt": "oC",
-        "mint": "oC",
-        "rain": "mm",
-        "vp": "hPa",
-        "tav": "oC",
-        "amp": "oC",
-        "latitude": "decimal degrees",
-        "longitude": "decimal degrees",
-        "elevation": "m",
-    }
-
-    @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        out = {
-            "constants": {},
-            "units": {},
-        }
-        with open(fname, "r") as fd:
-            for line in fd:
-                if line.startswith("[weather.met.weather]"):
-                    break
-            for line in fd:
-                if line.startswith("!"):
-                    continue
-                elif line.startswith("year"):
-                    names = line.split()
-                    for k, x in zip(names, fd.readline().split()):
-                        out["units"][k] = x.strip("()")
-                    out["columns"] = pd.read_csv(
-                        fd, sep=r"\s+", names=names,
-                    )
-                else:
-                    pattern = (
-                        r"(?P<name>\w+)\s+\=\s+(?P<value>[+-]?\d+(\.\d+)?)\s+"
-                        r"\((?P<units>(\w[\w\/\^ ]*)?)\)"
-                    )
-                    match = re.search(pattern, line)
-                    if not match:
-                        raise ValueError(f"Failed to parse .met line: "
-                                         f"\"{line}\"")
-                    match = match.groupdict()
-                    if match["units"]:
-                        out["units"][match["name"]] = match["units"]
-                    out["constants"][match["name"]] = match["value"]
-        return out
-
-    @classmethod
-    def _write(cls, fname: str, contents):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-            contents: File contents to write.
-
-        """
-        out = ["[weather.met.weather]"]
-        if "constants" in contents:
-            for k, v in contents["constants"].items():
-                out.append(f"{k} = {v} ({contents['units'].get(k, '')})")
-        column_order = ["year", "day"]
-        column_order += [k for k in contents["columns"].columns
-                         if k not in column_order]
-        units = {
-            k: f"({contents['units'].get(k, '')})"
-            for k in column_order
-        }
-        col_space = {k: max(len(k), len(v)) for k, v in units.items()}
-        for k in column_order:
-            v = units[k]
-            pad = (col_space[k] - len(v)) * " "
-            units[k] += pad
-        head, body = contents["columns"].to_string(
-            index=False, col_space=col_space, columns=column_order,
-        ).split("\n", maxsplit=1)
-        out.append(head)
-        out.append(" " + " ".join(list(units.values())))
-        out.append(body)
-        with open(fname, "w") as fd:
-            fd.write("\n".join(out))
-
-    @classmethod
-    def _from_power(cls, src: dict):
-        r"""Convert NASA power data into the correct format for this
-        file.
-
-        Args:
-            src: NASA power data.
-
-        Returns:
-            Converted data.
-
-        """
-        fill_value = float(src["header"]["fill_value"])
-        out = {"units": cls._units.copy()}
-        out["constants"] = {
-            "latitude": float(src["geometry"]["coordinates"][0]),
-            "longitude": float(src["geometry"]["coordinates"][1]),
-            "elevation": float(src["geometry"]["coordinates"][2]),
-            "tav": np.mean(
-                pd.Series(src["properties"]["parameter"]["T2M"])),
-        }
-        # description = [src["header"]["title"]]
-        columns = {}
-        for k, v in cls._power_names.items():
-            s = pd.Series(src["properties"]["parameter"][v])
-            s[s == fill_value] = np.nan
-            columns[k] = s
-        for k, v in cls._conv.items():
-            columns[k] = v(columns[k])
-        columns = pd.DataFrame(columns)
-        date = pd.to_datetime(columns.index, format="%Y%m%d")
-        columns["year"] = date.year
-        columns["day"] = date.dayofyear
-        ix = columns.isnull().any(axis=1)
-        columns = columns[~ix]
-        out["columns"] = columns
-        return out
-
-    @readonly_cached_property
-    def dates(self) -> np.ndarray:
-        r"""np.ndarray: Dates covered by this file."""
-        return (
-            (self.contents["columns"]["year"].to_numpy() - 1970).astype(
-                "datetime64[Y]")
-            + (self.contents["columns"]["day"].to_numpy() - 1).astype(
-                "timedelta64[D]")
-        )
-
-    @readonly_cached_property
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        return self.contents["constants"]["latitude"]
-
-    @readonly_cached_property
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        return self.contents["constants"]["longitude"]
-
-    def _make_interactive(self, actions: list):
-        r"""Modify this file to make it interactive.
-
-        Args:
-            actions: List of actions that should be enabled.
-
-        """
-        pass
 
 
 class ApsimXFileNode:
@@ -675,6 +499,197 @@ class ApsimXFileNode:
         return True
 
 
+class ApsimXWeatherFile(BaseWeatherFile):
+    r"""Container for ApsimX weather data."""
+
+    NAME = "apsimx"
+    _default_ext = ".met"
+    _power_names = {
+        "radn": "ALLSKY_SFC_SW_DWN",
+        "maxt": "T2M_MAX",
+        "mint": "T2M_MIN",
+        "rain": "PRECTOTCORR",
+        "vp": "T2MDEW",
+    }
+    _conv = {
+        # From PCSE
+        # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
+        #     evapotranspiration. Guidelines for computing crop water
+        #     requirements, FAO irrigation and drainage paper 56)
+        "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
+    }
+    _units = {
+        "radn": "MJ/m^2",
+        "maxt": "oC",
+        "mint": "oC",
+        "rain": "mm",
+        "vp": "hPa",
+        "tav": "oC",
+        "amp": "oC",
+        "latitude": "decimal degrees",
+        "longitude": "decimal degrees",
+        "elevation": "m",
+    }
+
+    @classmethod
+    def _read(cls, fname: str):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+
+        Returns:
+            object: File contents.
+
+        """
+        out = {
+            "constants": {},
+            "units": {},
+        }
+        with open(fname, "r") as fd:
+            for line in fd:
+                if line.startswith("[weather.met.weather]"):
+                    break
+            for line in fd:
+                if line.startswith("!"):
+                    continue
+                elif line.startswith("year"):
+                    names = line.split()
+                    for k, x in zip(names, fd.readline().split()):
+                        out["units"][k] = x.strip("()")
+                    out["columns"] = pd.read_csv(
+                        fd, sep=r"\s+", names=names,
+                    )
+                else:
+                    pattern = (
+                        r"(?P<name>\w+)\s+\=\s+(?P<value>[+-]?\d+(\.\d+)?)\s+"
+                        r"\((?P<units>(\w[\w\/\^ ]*)?)\)"
+                    )
+                    match = re.search(pattern, line)
+                    if not match:
+                        raise ValueError(f"Failed to parse .met line: "
+                                         f"\"{line}\"")
+                    match = match.groupdict()
+                    if match["units"]:
+                        out["units"][match["name"]] = match["units"]
+                    out["constants"][match["name"]] = match["value"]
+        return out
+
+    @classmethod
+    def _write(cls, fname: str, contents):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+            contents: File contents to write.
+
+        """
+        out = ["[weather.met.weather]"]
+        if "constants" in contents:
+            for k, v in contents["constants"].items():
+                out.append(f"{k} = {v} ({contents['units'].get(k, '')})")
+        column_order = ["year", "day"]
+        column_order += [k for k in contents["columns"].columns
+                         if k not in column_order]
+        units = {
+            k: f"({contents['units'].get(k, '')})"
+            for k in column_order
+        }
+        col_space = {k: max(len(k), len(v)) for k, v in units.items()}
+        for k in column_order:
+            v = units[k]
+            pad = (col_space[k] - len(v)) * " "
+            units[k] += pad
+        head, body = contents["columns"].to_string(
+            index=False, col_space=col_space, columns=column_order,
+        ).split("\n", maxsplit=1)
+        out.append(head)
+        out.append(" " + " ".join(list(units.values())))
+        out.append(body)
+        with open(fname, "w") as fd:
+            fd.write("\n".join(out))
+
+    @classmethod
+    def _from_base(cls, src: BaseWeatherFile):
+        r"""Convert weather data from another file format into the
+        correct format for this file.
+
+        Args:
+            src: NASA power data.
+
+        Returns:
+            Converted data.
+
+        """
+        if not isinstance(src, NASAPOWERWeatherFile):
+            return super()._from_base(src)
+        fill_value = float(src.contents["header"]["fill_value"])
+        out = {"units": cls._units.copy()}
+        out["constants"] = {
+            "latitude": src.latitude,
+            "longitude": src.longitude,
+            "elevation": float(src.contents["geometry"]["coordinates"][2]),
+            "tav": np.mean(
+                pd.Series(src.contents["properties"]["parameter"]["T2M"])),
+        }
+        # description = [src.contents["header"]["title"]]
+        columns = {}
+        for k, v in cls._power_names.items():
+            s = pd.Series(src.contents["properties"]["parameter"][v])
+            s[s == fill_value] = np.nan
+            columns[k] = s
+        for k, v in cls._conv.items():
+            columns[k] = v(columns[k])
+        columns = pd.DataFrame(columns)
+        date = pd.to_datetime(columns.index, format="%Y%m%d")
+        columns["year"] = date.year
+        columns["day"] = date.dayofyear
+        ix = columns.isnull().any(axis=1)
+        columns = columns[~ix]
+        out["columns"] = columns
+        return out
+
+    @readonly_cached_property
+    def dates(self) -> np.ndarray:
+        r"""np.ndarray: Dates covered by this file."""
+        return (
+            (self.contents["columns"]["year"].to_numpy() - 1970).astype(
+                "datetime64[Y]")
+            + (self.contents["columns"]["day"].to_numpy() - 1).astype(
+                "timedelta64[D]")
+        )
+
+    @readonly_cached_property
+    def latitude(self) -> float:
+        r"""float: Latitude (degrees)."""
+        return self.contents["constants"]["latitude"]
+
+    @readonly_cached_property
+    def longitude(self) -> float:
+        r"""float: Longitude (degrees)."""
+        return self.contents["constants"]["longitude"]
+
+    def update_param(self, contents: Any) -> None:
+        r"""Merge downloaded parameters into the current data.
+
+        Args:
+            contents: New data to incorporate.
+
+        """
+        for k in ["units", "contents", "columns"]:
+            # TODO: Handle dataframe in "columns"
+            self.contents[k].udpate(contents[k])
+
+    def _make_interactive(self, actions: list):
+        r"""Modify this file to make it interactive.
+
+        Args:
+            actions: List of actions that should be enabled.
+
+        """
+        pass
+
+
 class ApsimXFile(CropModelFile):
     r"""Container for manipulating .apsimx model files.
 
@@ -685,6 +700,7 @@ class ApsimXFile(CropModelFile):
 
     """
 
+    NAME = "apsimx"
     EXAMPLE = os.path.join("Examples", "Wheat.apsimx")
     ACTION_NODES = dict({
         "sow": {
@@ -1359,21 +1375,6 @@ class ApsimXFile(CropModelFile):
                 self._set_parameter(node, info, value)
         except KeyError as e:
             raise KeyError(f"{name}: {e}")
-
-    @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        with open(fname, 'r') as fd:
-            out = json.load(fd)
-        return out
 
     @classmethod
     def _write(cls, fname: str, contents):

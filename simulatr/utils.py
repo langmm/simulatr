@@ -16,6 +16,8 @@ cfg = PackageConfig(
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
             'nasa_power_weather_data': os.path.join(
                 os.getcwd(), 'nasa_power_weather_data'),
+            'isric_soil_data': os.path.join(
+                os.getcwd(), 'isric_soil_data'),
         },
     },
 )

@@ -43,15 +43,15 @@ class TestBase:
 
     __test__ = False
     _name = None
-    _file_type = None
+    _class_type = None
 
     @pytest.fixture(scope="class")
     @classmethod
     def simulator_cls(cls):
-        if cls._name is None or cls._file_type is None:
+        if cls._name is None or cls._class_type is None:
             pytest.skip("Simulator/file type not defined (base class)")
-        out = get_simulator_class(cls._name, file_type=cls._file_type)
-        if cls._file_type == "engine":
+        out = get_simulator_class(cls._name, class_type=cls._class_type)
+        if cls._class_type == "engine":
             is_installed = out.is_installed()
         else:
             is_installed = get_simulator_class(
@@ -70,7 +70,7 @@ class TestBase:
     def example_model(cls):
         r"""str: Path to example model input file."""
         if cls._name is not None:
-            file_cls = get_simulator_class(cls._name, file_type="file")
+            file_cls = get_simulator_class(cls._name, class_type="file")
             if file_cls.EXAMPLE is not None:
                 return file_cls.EXAMPLE
         pytest.skip("No example model defined")
@@ -84,13 +84,13 @@ class TestBase:
 class TestModelFile(TestBase):
 
     _name = None
-    _file_type = "file"
+    _class_type = "file"
 
 
 class TestModelEngine(TestBase):
 
     _name = None
-    _file_type = "engine"
+    _class_type = "engine"
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -170,7 +170,7 @@ class TestModelEngine(TestBase):
 
 class TestModelEnv(TestBase):
 
-    _file_type = "env"
+    _class_type = "env"
 
     @pytest.fixture(scope="class",
                     ids=["discrete", "continuous", "simultaneous"],

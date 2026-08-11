@@ -24,25 +24,25 @@ def registered_simulators(only_installed: Optional[bool] = False) -> List[str]:
 
 
 def get_simulator_class(simulator: str,
-                        file_type: Optional[str] = "engine"):
+                        class_type: Optional[str] = "engine"):
     r"""Get a simulator class.
 
     Args:
         simulator: Name of the simulator to get the engine class for.
-        file_type: Type of simulator class to return.
+        class_type: Type of simulator class to return.
 
     Returns:
         type: Simulator class.
 
     """
-    if file_type == "env":
+    if class_type == "env":
         return _ModelEnvMeta.get_simulator_env(simulator)
     env_cls = get_simulator_class(simulator, "env")
-    if file_type == "engine":
+    if class_type == "engine":
         return env_cls.MODEL_ENGINE_CLASS
-    elif file_type == "file":
+    elif class_type == "file":
         return env_cls.MODEL_ENGINE_CLASS.INPUT_FILE_TYPE
-    elif file_type == "prompt_generator":
+    elif class_type == "prompt_generator":
         return env_cls.LLM_PROMPT_GENERATOR_CLASS
     raise ValueError(f"Unsupported file type \"{simulator}\"")
 

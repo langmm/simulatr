@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import copy
 import uuid
 import pprint
@@ -14,7 +15,8 @@ from functools import cached_property
 import numpy as np
 import gymnasium as gym
 from pydantic import (
-    BaseModel, ConfigDict, Field, PrivateAttr, model_validator)
+    BaseModel, ConfigDict, Field, PrivateAttr, model_validator,
+    field_validator)
 from pydantic_settings import CliSuppress
 from . import logger
 from .utils import promptuser
@@ -1435,7 +1437,60 @@ class ModelActionSet(CachedPropertyMixin):
         return lines if return_lines else "\n".join(lines)
 
 
-class BaseModelFile(CachedPropertyMixin, ABC):
+class _ModelFileMeta(type(ABC)):
+    r"""Metaclass that registers file subclasses."""
+
+    _registry: Dict[str, Dict[str, type]] = {}
+
+    def __new__(mcs, name: str, bases: Tuple[type, ...],
+                namespace: Dict[str, Any], **kwargs: Any):
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        category = namespace.get('CATEGORY', None)
+        name = namespace.get('NAME', None)
+        if name is not None and category is None and bases:
+            category = getattr(bases[0], "CATEGORY", None)
+        if category is not None and name is not None:
+            mcs._registry.setdefault(category, {})
+            mcs._registry[category][name] = cls
+        return cls
+
+    @classmethod
+    def get_filetype_registry(mcs, category: str) -> dict:
+        r"""Get the file class registery for a file category.
+
+        Args:
+            category: Name of the file category.
+
+        Returns:
+            dict: File class registery for the category.
+
+        """
+        try:
+            return mcs._registry[category]
+        except KeyError:
+            raise ValueError(f"Unsupported file category \"{category}\"") \
+                from None
+
+    @classmethod
+    def get_filetype(mcs, category: str, name: str) -> type:
+        r"""Get the file class registered for a file category & name.
+
+        Args:
+            category: Name of the file category.
+            name: Name of the file type.
+
+        Returns:
+            type: File class registered for the category/name.
+
+        """
+        try:
+            return mcs._registry[category][name]
+        except KeyError:
+            raise ValueError(f"Unsupported {category} file \"{name}\"") \
+                from None
+
+
+class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
     r"""Base class for managing model input files.
 
     Args:
@@ -1446,8 +1501,11 @@ class BaseModelFile(CachedPropertyMixin, ABC):
 
     """
 
+    CATEGORY = "input"
+    NAME = None
     CACHED = False
     EXAMPLE = None
+    _default_ext = ".json"
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -1481,7 +1539,6 @@ class BaseModelFile(CachedPropertyMixin, ABC):
             self._clear_cached_properties()
 
     @classmethod
-    @abstractmethod
     def _read(cls, fname: str):
         r"""Read a model input file.
 
@@ -1492,11 +1549,13 @@ class BaseModelFile(CachedPropertyMixin, ABC):
             object: File contents.
 
         """
+        if cls._default_ext.endswith(".json"):
+            with open(fname, "r") as fd:
+                return json.load(fd)
         raise NotImplementedError  # pragma: no cover
 
     @classmethod
-    @abstractmethod
-    def _write(cls, fname: str, contents):
+    def _write(cls, fname: str, contents: Any):
         r"""Read a model input file.
 
         Args:
@@ -1504,6 +1563,11 @@ class BaseModelFile(CachedPropertyMixin, ABC):
             contents: File contents to write.
 
         """
+        if cls._default_ext.endswith(".json"):
+            with open(fname, "w") as fd:
+                json.dump(contents, fd, indent=4)
+                fd.write("\n")
+            return
         raise NotImplementedError  # pragma: no cover
 
     def _get(self, name: str):
@@ -1821,9 +1885,13 @@ class BaseModelEngine(BaseModel, ABC):
         default=None,
         description="Path to the directory where output should be saved.")
     start_time: Optional[datetime.datetime] = Field(
-        default=None, description="Simulation start time.")
+        default=None,
+        examples=[datetime.datetime.fromisoformat("1991-01-01")],
+        description="of simulation (ISO 8601 format)")
     end_time: Optional[datetime.datetime] = Field(
-        default=None, description="Simulation end time.")
+        default=None,
+        examples=[datetime.datetime.fromisoformat("1991-11-05")],
+        description="of simulation (ISO 8601 format)")
     duration: Optional[datetime.timedelta] = Field(
         default=None,
         description="Simulation duration. Only used if either start_time "
@@ -1900,6 +1968,24 @@ class BaseModelEngine(BaseModel, ABC):
         self.update_model_file()
         if not self.is_installed():
             self.install()
+
+    @field_validator('start_time', 'end_time', mode="before")
+    @classmethod
+    def check_datetime(cls, v):
+        r"""Parse datetime strings in ISO 8601 format."""
+        if isinstance(v, str):
+            return datetime.datetime.fromisoformat(v)
+        return v
+
+    @field_validator('duration', mode="before")  # 'timestep')
+    @classmethod
+    def check_timedelta(cls, v):
+        r"""Parse timedelta in days."""
+        if isinstance(v, (int, float)):
+            if v <= 0:
+                return None
+            return datetime.timedelta(days=v)
+        return v
 
     @classmethod
     def model_dir(cls) -> str:

@@ -122,7 +122,7 @@ class TestModelEngine(TestBase):
 
     def test_attributes(self, instance):
         r"""Test instance attributes."""
-        print(instance.get_output_vars())
+        print(instance.output_vars)
 
     @pytest.mark.parametrize(
         "command,error,command_args", [
@@ -341,7 +341,19 @@ class TestApsimXEngine(TestModelEngine):
         assert instance.crop_variety == "Hartog"
         assert instance.location != "the field"
         assert instance.field_area == 1.0
-        print(instance.get_output_vars())
+        print(instance.output_vars)
+
+    def test_run(self, new_instance):
+        with new_instance(actions=["irrigate"]) as instance:
+            trace = instance.run()
+            assert not instance.is_running
+            assert instance.is_complete
+            assert '[CROP].Grain.Total.Wt' in trace
+            assert max(trace['[CROP].Grain.Total.Wt']) > 0
+            # TODO: Get result for original ApsimX Wheat example
+            # expected = pytest.approx(402.63773381981514, rel=1e-3)
+            # expected = pytest.approx(309.2315738609009, rel=1e-3)
+            # assert max(trace['[CROP].Grain.Total.Wt']) == expected
 
     def test_loop(self, new_instance):
         r"""Test loop to apply fertilizer and irrigate."""

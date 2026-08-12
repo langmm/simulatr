@@ -4,6 +4,7 @@ import datetime
 from abc import abstractmethod
 from typing import Optional, Union, List, Any, ClassVar
 from pydantic import ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 from .base import (
     NoDefault,
     BaseModelFile, BaseModelEngine,
@@ -136,7 +137,7 @@ class CropModelEngine(BaseModelEngine):
         "crop_name", "crop_variety",
         "sow_date", "harvest_date", "season_length",
         "latitude", "longitude", "year",
-        "weather_file",
+        "weather_file", "soil_file",
     ]
     WEATHER_FILE_TYPE: ClassVar[Any] = None
     DATE_PARAM: ClassVar[list] = BaseModelEngine.DATE_PARAM + [
@@ -149,45 +150,46 @@ class CropModelEngine(BaseModelEngine):
     model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
         default=None,
         description="Path to one or more model input files.")
-    crop_name: Optional[str] = Field(
+    crop_name: Optional[str | SkipJsonSchema[None]] = Field(
         default=None, examples=["Wheat"],
         description="Name of the crop that will be simulated")
-    crop_variety: Optional[str] = Field(
-        default=None, examples=["Herzog"],
+    crop_variety: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None, examples=["Hartog"],
         description="Name of the crop variety/cultivar that will be "
                     "simulated")
-    sow_date: Optional[datetime.date] = Field(
+    sow_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-01-01")],
         description="Date that the crop should be sown (ISO 8601 format).")
-    harvest_date: Optional[datetime.date] = Field(
+    harvest_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-11-05")],
         description="Date that the crop should be harvested "
                     "(ISO 8601 format).")
-    season_length: Optional[Union[int, float, datetime.timedelta]] = Field(
+    season_length: Optional[int | float | datetime.timedelta
+                            | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.timedelta(365)],
         description="Time between sowing and harvest. Only used if only "
                     "one of sow_date or harvest_date are used. If an "
                     "integer is provided, it is assumed to be in units "
                     "of days.")
-    year: Optional[int] = Field(
+    year: Optional[int | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[1991],
         description="Year to use to get weather data.")
-    latitude: Optional[float] = Field(
+    latitude: Optional[float | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[40.1164],
         description="Field latitude to use to get weather data (degrees).")
-    longitude: Optional[float] = Field(
+    longitude: Optional[float | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[-88.2434],
         description="Field longitude to use to get weather data (degrees).")
-    weather_file: Optional[str] = Field(
+    weather_file: Optional[str | SkipJsonSchema[None]] = Field(
         default=None,
         description="Path to a file containing weather data.")
-    soil_file: Optional[str] = Field(
+    soil_file: Optional[str | SkipJsonSchema[None]] = Field(
         default=None,
         description="Path to a file containing soil data.")
 
@@ -208,6 +210,19 @@ class CropModelEngine(BaseModelEngine):
                 return None
             return datetime.timedelta(days=v)
         return v
+
+    @classmethod
+    def default_server_fields(cls) -> dict:
+        r"""dict: The default fields that should be used for a server."""
+        out = super().default_server_fields()
+        out.update(
+            year=None,
+            sow_date=None,
+            harvest_date=None,
+            weather_file=None,
+            soil_file=None,
+        )
+        return out
 
     def create_model_file(self) -> CropModelFile:
         r"""Create a model input file.

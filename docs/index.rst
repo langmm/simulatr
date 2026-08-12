@@ -6,6 +6,7 @@
    usage
    cli
    api
+   server
    dev
    models
 

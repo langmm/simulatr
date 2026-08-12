@@ -1,9 +1,12 @@
 # python -m simulatr run apsimx --crop-name wheat --from-example
 import os
+import json
 import argparse
 import logging
 from typing import Any, Optional, List
-from . import logger, registered_simulators, get_simulator_class
+from . import (
+    logger, registered_simulators, get_simulator_class, n8n, server,
+)
 from .utils import cfg
 from pydantic_settings import CliSettingsSource
 
@@ -28,21 +31,16 @@ def _add_args_from_engine(simulator: str,
 
 
 def run(simulator: str, timestep: int = 0,
-        state_variables: Optional[List[str]] = None,
         **kwargs: Any) -> None:
     r"""Run a simulation.
 
     Args:
         simulator: Name of the simulator to run.
         timestep: Time between actions (in days). 0 for continuous.
-        state_variables: Set of state variables to request at each
-            timestep.
         **kwargs: Additional keyword arguments are passed along to
             the environment class constructor.
 
     """
-    if state_variables:
-        kwargs["output_vars"] = state_variables
     if timestep > 0:
         kwargs["intervention_interval"] = timestep
     env_cls = get_simulator_class(simulator, "env")
@@ -68,9 +66,11 @@ def run(simulator: str, timestep: int = 0,
 def main() -> None:
     r"""Run the command line interface."""
     simulators = registered_simulators()
+    installed_simulators = registered_simulators(only_installed=True)
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
-        dest="action", help='Action to perform')
+        dest="action", required=True,
+        help='Action to perform')
     # For setting configuration options
     parser_config = subparsers.add_parser(
         "config", help="Set a configuration option",
@@ -108,7 +108,7 @@ def main() -> None:
         "create", help="Create a simulator input file"
     )
     parser_create_sim = parser_create.add_subparsers(
-        dest="simulator",
+        dest="simulator", required=True,
         help="Name of the simulator to create an input file for",
     )
     create_parsers = {}
@@ -141,27 +141,15 @@ def main() -> None:
         "run", help="Run a simulation"
     )
     parser_run_sim = parser_run.add_subparsers(
-        dest="simulator", help="Name of the simulator to run")
+        dest="simulator", required=True,
+        help="Name of the simulator to run")
     run_parsers = {}
     for k in simulators:
         run_parsers[k] = _add_args_from_engine(
             k, parser_run_sim,
-            help=f"Run an {k} simulation",
+            help=f"Run a {k} simulation",
         )
-    for setting_x in run_parsers.values():
-        parser_x = setting_x.root_parser
-        parser_x.add_argument(
-            "--timestep", type=int, default=0,
-            help=(
-                "Time between actions (in days). If non-zero, the "
-                "simulation pauses at each timestep to ask for user "
-                "input. 0 for continuous"
-            ),
-        )
-        parser_x.add_argument(
-            "--state-variables", type=str, nargs="+", action="extend",
-            help="State variables to request at each time step.",
-        )
+        parser_x = run_parsers[k].root_parser
         parser_x.add_argument(
             "--log-file", type=str, nargs="?", const=True,
             help="File where log message should be written",
@@ -172,7 +160,111 @@ def main() -> None:
             ],
             help="Logging level", default="INFO",
         )
-    # Generic arguments
+    # Simulator servers
+    parser_server = subparsers.add_parser(
+        "serve", help="Launch simulator(s) as fastapi application")
+    parser_server.add_argument(
+        "simulator", type=str, nargs="+", action="extend",
+        choices=installed_simulators,
+        default=installed_simulators,
+        help=(
+            "Name of the simulator(s) to create application endpoints "
+            "for. If not specified, all of the installed simulators "
+            "will be included."
+        )
+    )
+    parser_server.add_argument(
+        "--port", type=int, default=5000,
+        help="Port that application should be served on",
+    )
+    parser_server.add_argument(
+        "--host", type=str, default="0.0.0.0",
+        help="Host address",
+    )
+    parser_server.add_argument(
+        "--log-file", type=str,
+        help="File where log message should be written",
+    )
+    parser_server.add_argument(
+        "--log-level", choices=[
+            "NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+        ],
+        help="Logging level", default="INFO",
+    )
+    parser_server.add_argument(
+        "--allow-shutdown", action="store_true",
+        help="Include an endpoint to allow shutdown from the client",
+    )
+    # n8n tool utilities
+    # n8n_entry_points = list(server.EndPointRegistry._registry.keys())
+    n8n_entry_points = ["start", "start-interactive"]
+    parser_n8n = subparsers.add_parser(
+        "n8n", help="Manage n8n tools for models")
+    parser_n8n.add_argument(
+        "simulator", type=str, choices=simulators,
+        help="Name of the simulator to manage n8n tools for",
+    )
+    parser_n8n_act = parser_n8n.add_subparsers(
+        dest="utility", required=True,
+        help="Name of the utility to run.")
+    n8n_parsers = {}
+    n8n_parsers["create"] = parser_n8n_act.add_parser(
+        "create", help="Create an n8n tool")
+    n8n_parsers["update"] = parser_n8n_act.add_parser(
+        "update", help="Update an existing tool")
+    n8n_parsers["remove"] = parser_n8n_act.add_parser(
+        "remove", help="Remove an n8n tool")
+    n8n_parsers["query"] = parser_n8n_act.add_parser(
+        "query", help="Query an n8n tool")
+    for k, parser_x in n8n_parsers.items():
+        parser_x.add_argument(
+            "--name", type=str, nargs="+", action="extend",
+            choices=n8n_entry_points,
+            help="Name of the entry point(s)",
+        )
+        parser_x.add_argument(
+            "--toolname", type=str,
+            help="Name of the tool (single name must be provided)",
+        )
+        parser_x.add_argument(
+            "--output-tool", "--output", type=str, nargs='?', const=True,
+            help="Output the tool summary to a file",
+        )
+        parser_x.add_argument(
+            "--verbose", action="store_true",
+            help="Print all REST API responses",
+        )
+        if k != 'query':
+            parser_x.add_argument(
+                "--dry-run", action="store_true",
+                help="Don't actually do anything, just show requests.",
+            )
+    for k in ["create", "update"]:
+        parser_x = n8n_parsers[k]
+        parser_x.add_argument(
+            "--publish-for-address", type=str,
+            help=(
+                "Address for the service that should be used in the "
+                "published tool"
+            ),
+        )
+        parser_x.add_argument(
+            "--overwrite", action="store_true",
+            help="Overwrite any existing tool",
+        )
+        parser_x.add_argument(
+            "--output-request", type=str, nargs='?', const=True,
+            help="Output the tool creation request to a file",
+        )
+        parser_x.add_argument(
+            "--output-form", type=str, nargs='?', const=True,
+            help="Output the form for a tool to a file",
+        )
+    n8n_parsers["create"].add_argument(
+        "--update", action="store_true",
+        help="Update any existing tool",
+    )
+    # Parse
     args = parser.parse_args()
     if args.action == "config":
         if args.section in ["directories", "files"]:
@@ -211,7 +303,7 @@ def main() -> None:
             k: v for k, v in vars(args).items()
             if k not in ["action", "simulator", "log_file", "log_level"]
         }
-        if args.log_file is True:
+        if getattr(args, "log_file", None) is True:
             log_file = args.simulator
             if getattr(args, "model_file", None):
                 log_file += "_" + os.path.splitext(
@@ -220,8 +312,72 @@ def main() -> None:
                    and getattr(args, "crop_name", None))):
                 log_file += "_" + args.crop_name
             args.log_file = os.path.join(os.getcwd(), log_file + ".log")
-        if args.log_file:
+        if getattr(args, "log_file", None):
             print(f"Log being written to \"{args.log_file}\"")
         logging.basicConfig(filename=args.log_file,
                             level=getattr(logging, args.log_level))
         run(args.simulator, **kws)
+    elif args.action == "serve":
+        server.run_server(
+            args.simulator,
+            host=args.host, port=args.port,
+            log_file=args.log_file,
+            log_level=args.log_level,
+            allow_shutdown=args.allow_shutdown,
+        )
+    elif args.action == "n8n":
+        if args.simulator == "apsimx":
+            args.simulator = "ApsimX"  # backwards compatibility
+        if not args.name:
+            if args.utility in ["query", "remove"] and args.toolname:
+                args.name = [""]  # Won't be used
+            else:
+                args.name = n8n_entry_points
+        if len(args.name) > 1:
+            assert not args.toolname
+            for k in ["output_request", "output_tool", "output_form"]:
+                assert not isinstance(getattr(args, k, None), str)
+        if args.utility in ["create", "update"]:
+            if not args.publish_for_address:
+                args.publish_for_address = os.environ.get(
+                    "SIMULATR_REMOTE_SERVER_ADDRESS", None)
+        if args.utility == "update":
+            args.update = "required"
+        for name in args.name:
+            print(f"{args.utility} {name}")
+            if args.utility in ["create", "update"]:
+                n8n.publish_n8n_service(
+                    args.simulator, name,
+                    service_address=args.publish_for_address,
+                    toolname=args.toolname,
+                    overwrite=args.overwrite,
+                    update=args.update,
+                    dry_run=args.dry_run,
+                    output_request=args.output_request,
+                    output_tool=args.output_tool,
+                    output_form=args.output_form,
+                    verbose=args.verbose,
+                )
+            elif args.utility == "remove":
+                n8n.remove_n8n_service(
+                    args.simulator, name,
+                    toolname=args.toolname,
+                    output=args.output_tool,
+                    dry_run=args.dry_run,
+                    verbose=args.verbose,
+                )
+            elif args.utility == "query":
+                response = n8n.query_n8n_service(
+                    args.simulator, name,
+                    toolname=args.toolname,
+                    output=args.output_tool,
+                    allow_multiple=True,
+                    verbose=args.verbose,
+                )
+                if not args.output_tool:
+                    print(json.dumps(response, indent=2))
+            else:
+                raise NotImplementedError(
+                    f"n8n utility = \"{args.utility}\"")
+    else:
+        raise NotImplementedError(f"action = \"{args.action}\"")

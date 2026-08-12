@@ -14,10 +14,14 @@ cfg = PackageConfig(
             'output': os.path.join(os.getcwd(), 'output'),
             'models': os.path.join(os.getcwd(), 'models'),
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
+            'scratch': os.path.join(os.getcwd(), 'scratch'),
             'nasa_power_weather_data': os.path.join(
                 os.getcwd(), 'nasa_power_weather_data'),
             'isric_soil_data': os.path.join(
                 os.getcwd(), 'isric_soil_data'),
+        },
+        'urls': {
+            'n8n_api': "https://tools.uiuc.chat/api/v1",
         },
     },
 )

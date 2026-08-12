@@ -8,6 +8,7 @@ platforms = ["osx-64", "osx-arm64", "linux-64", "win-64"]
 
 [dependencies]
 python = ">=3.10,<3.15"
+fastapi = "*"
 gymnasium = "*"
 msgpack-python = "*"
 numpy = ">=1.13.0"

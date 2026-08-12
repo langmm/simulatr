@@ -5,6 +5,7 @@ simulatr/_version.py
 nasa_power_weather_data
 models
 output
+scratch
 
 # Local config file
 .simulatr.ini

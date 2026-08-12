@@ -11,10 +11,14 @@ import subprocess
 import contextlib
 import datetime
 from functools import cached_property
+import sqlite3
 import numpy as np
 import pandas as pd
-from typing import Optional, Union, Any, List, Callable, Iterator, ClassVar
+from typing import (
+    Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar
+)
 from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
 from . import logger
 from .utils import cfg, LogPipe
 from .base import (
@@ -825,8 +829,7 @@ class ApsimXFile(CropModelFile):
             "field": "FileName",
             "fget": lambda x: x.replace("%root%", _apsimxdir),
         },
-        # "soil_file": {
-        # }
+        "soil_file": False,
         "latitude": {
             "contains": {
                 "$type": "Models.Soils.Soil, Models",
@@ -1358,6 +1361,8 @@ class ApsimXFile(CropModelFile):
             info = self.PARAM_NODES[name]
         if info is False:
             return
+        if name == "output_vars" and isinstance(value, list):
+            value = [self._get_internal_name(x) for x in value]
         try:
             anyset = False
             for xnode in self.findall_parameters(name, info=info):
@@ -1939,6 +1944,8 @@ class ApsimXEngine(CropModelEngine):
     in another process."""
 
     _MODEL_NAME: ClassVar[str] = "apsimx"
+    MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
+        days=1)
     STATUS_MESSAGES: ClassVar[list] = [
         "connect", "finished", "error", "recoverable_error",
     ]
@@ -2034,8 +2041,15 @@ class ApsimXEngine(CropModelEngine):
             },
         },
     }
+    EXAMPLE_STATE: ClassVar[Tuple[str, float]] = (
+        "[Grain].MaximumPotentialGrainSize.FixedValue",
+        0.043,
+    )
+    EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = (
+        "nitrogen", {"amount", 160.0},
+    )
 
-    from_example: Optional[Union[bool, str]] = Field(
+    from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
         default=True,  # TODO: Update this
         description="If True, copy the bundled example for the crop to "
                     "use as the model file. If a string, the path to "
@@ -2059,6 +2073,11 @@ class ApsimXEngine(CropModelEngine):
         self._status = None
         self._current_time = None
         super().model_post_init(__context)
+        if self.output_vars:
+            self.output_vars = [
+                self.model._get_external_name(x) for x in
+                self.output_vars
+            ]
         if not self.output_dir:
             # ApsimX saves output to the directory containing the
             # model input file
@@ -2108,6 +2127,15 @@ class ApsimXEngine(CropModelEngine):
         subprocess.run(
             ["dotnet", "build", sln_file], check=True)
 
+    @classmethod
+    def default_server_fields(cls) -> dict:
+        r"""dict: The default fields that should be used for a server."""
+        out = super().default_server_fields()
+        out["actions"] = [
+            k for k in out["actions"] if k not in ["sow", "harvest"]
+        ]
+        return out
+
     def create_model_file(self) -> CropModelFile:
         r"""Create a model input file.
 
@@ -2150,8 +2178,9 @@ class ApsimXEngine(CropModelEngine):
         r"""datetime.datetime: Current simulation time."""
         if self._current_time is None:
             if not self.is_operable:
-                return self.start_time
-            return self.get("[Clock].Today")
+                self._current_time = self.start_time
+            else:
+                self._current_time = self.get("[Clock].Today")
         return self._current_time
 
     @property
@@ -2160,9 +2189,14 @@ class ApsimXEngine(CropModelEngine):
         if self._status is None and self.socket is not None:
             self._status = self.socket.recv_string()
             if self._status == "paused":
+                prev = self._current_time
                 self._current_time = None
                 self.current_time
-                logger.debug(f"Simulation waiting at {self.current_time}")
+                if self.is_operable:
+                    logger.debug(
+                        f"Simulation waiting at {self.current_time}")
+                else:
+                    self._current_time = prev
             elif self._status in self.STATUS_MESSAGES:
                 out = self._status
                 self.send_command("ok")
@@ -2178,15 +2212,14 @@ class ApsimXEngine(CropModelEngine):
         return os.path.join(
             os.path.splitext(self.model.fname)[0] + ".db")
 
-    def get_output_vars(self) -> List[str]:
-        r"""Get the output variables specified by the model file.
-
-        Returns:
-            list: Output variables
-
-        """
-        out = super().get_output_vars()
-        return [self.model._get_external_name(x) for x in out]
+    def get_results(self) -> Any:
+        r"""Get the simulation results."""
+        if os.path.isfile(self.output_file):
+            # This currently errors due to missing report
+            conn = sqlite3.connect(self.output_file)
+            df = pd.read_sql_query("SELECT * FROM Report", conn)
+            return df.to_json()
+        return None
 
     def _start(self):
         r"""Start a listening server on a random port."""
@@ -2250,15 +2283,21 @@ class ApsimXEngine(CropModelEngine):
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""
-        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable})")
+        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable}, "
+                     f"is_running = {self.is_running}, "
+                     f"is_complete = {self.is_complete}, "
+                     f"current_time = {self._current_time})")
+        if self.is_running and self.is_complete and self._status == "paused":
+            self._resume(wait=True)
         if self.is_operable:
             try:
                 with self.stop_on_error(("act", "terminate", tuple(), {})):
                     self._act("terminate", {})
-                self.resume(wait=True)
+                self._resume(wait=True)
                 if self.status != "finished":
                     raise ValueError(
-                        f"Status after terminate is \"{self.status}\"")
+                        f"Status after terminate is \"{self.status}\" "
+                        f"(is_complete = {self.is_complete})")
                 self._status = "terminated"
             except ModelEngineError:
                 pass
@@ -2456,7 +2495,7 @@ class ApsimXEngine(CropModelEngine):
                f"\"{reply}\""
             )
 
-    def resume(self, wait: Optional[bool] = False) -> None:
+    def _resume(self, wait: Optional[bool] = False) -> None:
         r"""Resume the simulation.
 
         Args:

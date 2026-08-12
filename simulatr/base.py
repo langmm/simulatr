@@ -6,6 +6,7 @@ import uuid
 import pprint
 import datetime
 import contextlib
+import itertools
 from collections import defaultdict
 from abc import ABC, abstractmethod
 from typing import (
@@ -17,6 +18,7 @@ import gymnasium as gym
 from pydantic import (
     BaseModel, ConfigDict, Field, PrivateAttr, model_validator,
     field_validator)
+from pydantic.json_schema import SkipJsonSchema
 from pydantic_settings import CliSuppress
 from . import logger
 from .utils import promptuser
@@ -1871,69 +1873,74 @@ class BaseModelEngine(BaseModel, ABC):
             },
         },
     }
-    EXPLICIT_PARAM: ClassVar[list] = ["start_time", "end_time", "duration"]
+    EXPLICIT_PARAM: ClassVar[list] = [
+        "start_time", "end_time", "duration", "output_vars",
+    ]
     DATE_PARAM: ClassVar[list] = [("start_time", "end_time", "duration")]
     DEFAULT_PARAM: ClassVar[dict] = {}
+    MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
+        days=0)
+    EXAMPLE_STATE: ClassVar[Tuple[str, float]] = ("INVALID", 0.5)
+    EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = ("INVALID", {})
 
-    model_file: Union[str, List[str], BaseModelFile] = Field(
+    model_file: Optional[str | List[str] | BaseModelFile
+                         | SkipJsonSchema[None]] = Field(
+        default=None,
         description="Path to one or more model input files.")
-    model_suffix: Optional[str] = Field(
+    model_suffix: Optional[Union[str, SkipJsonSchema[None]]] = Field(
         default=None,
         description="Additional suffix to add to a copy of the provided "
-                    "model file to ensure that it is unique.")
-    output_dir: Optional[str] = Field(
+                    "model file to ensure that it is unique.",
+        json_schema_extra={"hidden_for_server": True},
+    )
+    output_dir: Optional[str | SkipJsonSchema[None]] = Field(
         default=None,
-        description="Path to the directory where output should be saved.")
-    start_time: Optional[datetime.datetime] = Field(
+        description="Path to the directory where output should be saved.",
+        json_schema_extra={"hidden_for_server": True},
+    )
+    start_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-01-01")],
         description="of simulation (ISO 8601 format)")
-    end_time: Optional[datetime.datetime] = Field(
+    end_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-11-05")],
         description="of simulation (ISO 8601 format)")
-    duration: Optional[datetime.timedelta] = Field(
+    duration: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
         default=None,
         description="Simulation duration. Only used if either start_time "
-                    "or end_time is not provided.")
-    param: CliSuppress[Optional[dict]] = Field(
+                    "or end_time is not provided.",
+        json_schema_extra={"hidden_for_server": True},
+    )
+    timestep: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[datetime.timedelta(1)],
+        description="Step that should be taken when resume is called.",
+    )
+    output_vars: Optional[List[str] | SkipJsonSchema[None]] = Field(
+        default=None,
+        description="List of state variable names to record at each "
+                    "time step.",
+    )
+    param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Model parameters to update at the beginning of the "
                     "simulation.")
-    actions: Optional[List[str]] = Field(
+    actions: Optional[List[str | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Names of actions to include. Only used if action_map "
                     "is not provided.")
-    action_map: CliSuppress[Optional[Union[dict, ModelActionSet]]] = Field(
+    action_map: CliSuppress[Optional[dict | ModelActionSet
+                                     | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Description of the actions available via the act "
                     "method.")
-    action_param: CliSuppress[Optional[dict]] = Field(
+    action_param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Action parameters to use keyed to action names.")
 
     def model_post_init(self, __context: Any) -> None:
-        r"""Initialize the model engine.
-
-        Args:
-            model_file: Path to one or more model input files.
-            model_suffix: Additional suffix to add to a copy of the
-                provided model file to ensure that it is unique.
-            output_dir: Path to the directory where output should be
-                saved.
-            start_time: Simulation start time.
-            end_time: Simulation end time.
-            duration: Simulation duration. Only used if either
-                start_time or end_time is not provided.
-            param: Model parameters to update at the beginning of the
-                simulation.
-            actions: Names of actions to include. Only used if action_map
-                not provided.
-            action_map: Description of actions available via the act
-                method.
-            action_param: Action parameters to use keyed to action names.
-
-        """
+        r"""Initialize the model engine."""
         self.products = []
         self.initial_param = (self.param.copy()
                               if self.param is not None else {})
@@ -1941,6 +1948,7 @@ class BaseModelEngine(BaseModel, ABC):
         self.initial_param_dynamic = {}
         self.initial_param_src = {}
         self.history = defaultdict(lambda: [])
+        self.trace = defaultdict(lambda: [])
         self.model = None
         if isinstance(self.model_file, BaseModelFile):
             self.model = self.model_file
@@ -1977,14 +1985,22 @@ class BaseModelEngine(BaseModel, ABC):
             return datetime.datetime.fromisoformat(v)
         return v
 
-    @field_validator('duration', mode="before")  # 'timestep')
+    @field_validator('duration', 'timestep', mode="before")
     @classmethod
     def check_timedelta(cls, v):
         r"""Parse timedelta in days."""
         if isinstance(v, (int, float)):
-            if v <= 0:
-                return None
-            return datetime.timedelta(days=v)
+            v = datetime.timedelta(days=v)
+        if isinstance(v, datetime.timedelta) and v <= cls.MINIMUM_TIMESTEP:
+            return None
+        return v
+
+    @field_validator('actions', 'output_vars', mode="before")
+    @classmethod
+    def check_list(cls, v):
+        r"""Parse comma separated list."""
+        if isinstance(v, str):
+            return [vv.strip() for vv in v.split(",")]
         return v
 
     @classmethod
@@ -2060,6 +2076,28 @@ class BaseModelEngine(BaseModel, ABC):
 
         """
         raise NotImplementedError  # pragma: no cover
+
+    @property
+    def output_file(self) -> str:
+        r"""str: Path to a file containing the simulation results."""
+        return None
+
+    def get_results(self) -> Any:
+        r"""Get the simulation results."""
+        return None
+
+    def get_trace(self) -> Dict[str, list]:
+        r"""Get the recorded trace as a dictionary of lists (instead
+        of a dictionary mapping from time to parameters)"""
+        out = {}
+        for k, v in self.trace.items():
+            if not out:
+                out["time"] = []
+                out.update({kk: [] for kk in v.keys()})
+            out["time"].append(k)
+            for kk, vv in v.items():
+                out[kk].append(vv)
+        return out
 
     def has_param(self, name: str,
                   skip_file: Optional[bool] = False) -> bool:
@@ -2412,6 +2450,15 @@ class BaseModelEngine(BaseModel, ABC):
             self.model.write()
 
     @classmethod
+    def default_server_fields(cls) -> dict:
+        r"""dict: The default fields that should be used for a server."""
+        return {
+            "actions": list(cls.AVAILABLE_ACTION_MAP.keys()),
+            "output_vars": None,
+            "model_file": None,
+        }
+
+    @classmethod
     def select_actions(cls, actions: Optional[List[str]] = None,
                        action_map: Optional[dict] = None) -> dict:
         r"""Select a set of default actions.
@@ -2439,15 +2486,6 @@ class BaseModelEngine(BaseModel, ABC):
             for k in actions
         }
 
-    def get_output_vars(self) -> List[str]:
-        r"""Get the output variables specified by the model file.
-
-        Returns:
-            list: Output variables
-
-        """
-        return self.model.output_vars
-
     @property
     def is_complete(self) -> bool:
         r"""bool: True if the simulation is complete."""
@@ -2474,8 +2512,32 @@ class BaseModelEngine(BaseModel, ABC):
         r"""datetime.datetime: Current simulation time."""
         raise NotImplementedError  # pragma: no cover
 
+    def run(self, remove_output: bool = False) -> Any:
+        r"""Run the model to completion. Recording results.
+
+        Args:
+            remove_output: If True, the output files for the model will
+                be removed.
+
+        Returns:
+            dict: The trace for the model.
+
+        """
+        self.start()
+        out = None
+        try:
+            self.fast_forward()
+            out = self.get_trace()
+        finally:
+            self.stop()
+            self.cleanup(remove_output=remove_output)
+        return out
+
     def start(self) -> None:
         r"""Start the model engine."""
+        if self.is_running:
+            logger.info("Simulation already running...")
+            return
         self._start()
         self.setvars(self.initial_param_dynamic)
         logger.info(f"Simulating from {self.start_time} to {self.end_time}")
@@ -2507,11 +2569,17 @@ class BaseModelEngine(BaseModel, ABC):
         try:
             self._stop()
         finally:
-            if cleanup:
+            if cleanup and self.model is not None:
                 self.model.cleanup()
 
     def cleanup(self, remove_output: Optional[bool] = False) -> None:
-        r"""Cleanup the model."""
+        r"""Cleanup the model.
+
+        Args:
+            remove_output: If True, the output files for the model will
+                be removed.
+
+        """
         self.model.cleanup()
         if remove_output:
             self.cleanup_output()
@@ -2532,6 +2600,7 @@ class BaseModelEngine(BaseModel, ABC):
         self.stop()
         self.start()
         self.history = defaultdict(lambda: [])
+        self.trace = defaultdict(lambda: [])
 
     @abstractmethod
     def _get(self, name: str):
@@ -2743,6 +2812,14 @@ class BaseModelEngine(BaseModel, ABC):
         """
         self.history[self.current_time].append(args)
 
+    def record_trace(self):
+        r"""Record output variables for the current state."""
+        if not self.output_vars:
+            return {}
+        logger.debug(f"Recording trace for t = {self.current_time}...")
+        self.trace[self.current_time] = self.getvars(self.output_vars)
+        return self.trace[self.current_time]
+
     def scrub(
             self, time: Union[datetime.datetime,
                               datetime.timedelta,
@@ -2776,13 +2853,16 @@ class BaseModelEngine(BaseModel, ABC):
     def fast_forward(
             self, time: Optional[Union[datetime.datetime,
                                        datetime.timedelta,
-                                       int, str]] = None
+                                       int, str]] = None,
+            dont_record_trace: Optional[bool] = False,
     ) -> None:
         r"""Fast forward the simulation to the desired time.
 
         Args:
             time: Time that simulation should be run to or the the
                 time that the simulation should be run for (timedelta).
+            dont_record_trace: If True, don't record the trace before
+                continuing.
 
         """
         if time is None:
@@ -2802,12 +2882,17 @@ class BaseModelEngine(BaseModel, ABC):
             time = self.end_time
         if time <= self.current_time:
             # if self.current_time == self.end_time:
-            #     self.resume()
+            #     self._resume()
             return
-        logger.info(f"Fast-forward to {time} from {self.current_time}")
+        if not dont_record_trace:
+            logger.info(f"Fast-forward to {time} from "
+                        f"{self.current_time}")
         while ((self.is_running and self.current_time < time
                 and not self.is_complete)):
-            self.resume(wait=True)
+            if dont_record_trace:
+                self._resume(wait=True)
+            else:
+                self.resume(wait=True)
 
     def rewind(self, time: Optional[Union[datetime.datetime,
                                           datetime.timedelta,
@@ -2835,21 +2920,50 @@ class BaseModelEngine(BaseModel, ABC):
             return
         logger.info(f"Rewinding to {time} from {self.current_time}")
         history = self.history
+        trace = self.trace
         self.reset()
         if self.current_time < time:
-            for t, actions in history.items():
+            times = sorted(list(set(itertools.chain(history.keys(),
+                                                    trace.keys()))))
+            for t in times:
                 if t > time:
                     break
                 self.fast_forward(t)
-                for action in actions:
-                    logger.info(f"Replaying t={t}: {action}")
-                    getattr(self, action[0])(
-                        action[1], *action[2], **action[3])
+                if t in history:
+                    for action in history[t]:
+                        logger.info(f"Replaying t={t}: {action}")
+                        getattr(self, action[0])(
+                            action[1], *action[2], **action[3])
+                if t in trace:
+                    self.record_trace()
         if time > self.current_time:
             self.fast_forward(time)
 
+    def resume(self, wait: Optional[bool] = False,
+               dont_record_trace: Optional[bool] = False) -> dict:
+        r"""Resume the simulation.
+
+        Args:
+            wait: If True, wait for the simulation to pause.
+            dont_record_trace: If True, don't record the trace before
+                continuing.
+
+        Returns:
+            dict: Map of output_vars values prior to resuming the
+                simulation. If output_vars is not set, this will be empty.
+
+        """
+        out = None
+        if not dont_record_trace:
+            out = self.record_trace()
+        if self.timestep and self.timestep > self.MINIMUM_TIMESTEP:
+            self.fast_forward(self.timestep, dont_record_trace=True)
+            return out
+        self._resume(wait=wait)
+        return out
+
     @abstractmethod
-    def resume(self, wait: Optional[bool] = False) -> None:
+    def _resume(self, wait: Optional[bool] = False) -> None:
         r"""Resume the simulation.
 
         Args:
@@ -3216,6 +3330,13 @@ class _ModelEnvMeta(type(BaseModel)):
         if simulator_engine is not None:
             simulator_name = simulator_engine._MODEL_NAME
         if isinstance(simulator_name, str) and simulator_name:
+            actions = list(simulator_engine.AVAILABLE_ACTION_MAP.keys())
+            simulator_engine.model_fields["actions"].json_schema_extra = {
+                "items": {
+                    "type": "string",
+                    "enum": actions,
+                },
+            }
             mcs._registry[simulator_name] = cls
         return cls
 
@@ -3379,7 +3500,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         if self.end_time is None:
             self.end_time = self.model.end_time
         if not self.output_vars:
-            self.output_vars = self.model.get_output_vars()
+            self.output_vars = self.model.output_vars
         if self.revenue_var:
             self.output_vars = [self.revenue_var["name"]] + [
                 k for k in self.output_vars

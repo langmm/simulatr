@@ -171,8 +171,8 @@ class CropModelEngine(BaseModelEngine):
         default=None,
         examples=[datetime.timedelta(365)],
         description="Time between sowing and harvest. Only used if only "
-                    "one of sow_date or harvest_date are used. If an "
-                    "integer is provided, it is assumed to be in units "
+                    "one of sow_date or harvest_date are used. If a "
+                    "number is provided, it is assumed to be in units "
                     "of days.")
     year: Optional[int | SkipJsonSchema[None]] = Field(
         default=None,

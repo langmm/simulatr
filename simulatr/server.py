@@ -29,6 +29,7 @@ class InteractiveModelRegistry:
         self._in_use = []
 
     def __del__(self):
+        r"""Stop and remove all models on destruction."""
         for k in list(self._models.keys()):
             asyncio.run(self._safe_remove(k))
 
@@ -193,6 +194,7 @@ def _json_schema_extra_server(schema: dict):
         if not v.get("hidden_for_server", False)
     }
     schema["properties"] = props
+    return schema
 
 
 class EndPointRegistry(type(BaseModel)):
@@ -204,6 +206,18 @@ class EndPointRegistry(type(BaseModel)):
 
     def __new__(mcs, name: str, bases: Tuple[type, ...],
                 namespace: Dict[str, Any], **kwargs: Any):
+        r"""Register the new endpoint class in the endpoint registry.
+
+        Args:
+            name: Name of the new class.
+            bases: Base classes of the new class.
+            namespace: Class namespace.
+            \*\*kwargs: Additional keyword arguments.
+
+        Returns:
+            type: The newly created class.
+
+        """
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         if cls._endpoint_name is not None:
             if cls._simulator_name is None:
@@ -218,17 +232,20 @@ class EndPointRegistry(type(BaseModel)):
         return cls
 
     @classmethod
-    def get_simulator_endpoints(cls, simulator: str) -> Dict[str, type]:
+    def get_simulator_endpoints(cls, simulator: str = None) -> Dict[str, type]:
         r"""Get the endpoints for a simulator.
 
         Args:
-            simulator: Name of the simulator.
+            simulator: Name of the simulator. If not provided, the base
+                class registry will be returned.
 
         Returns:
             dict: Mapping of classes defining endpoints for the
                 simulator.
 
         """
+        if simulator is None:
+            return cls._registry
         cls.add_simulator(simulator)
         return cls._simulator_registry[simulator]
 
@@ -344,9 +361,11 @@ class EndPointModelMixin(EndPointBase):
         if "endpoint" not in kwargs.get("attr", {}):
             if "{idstr}" in cls._endpoint_name:
                 async def endpoint(ref, idstr: str, input: input_type):
+                    r"""Handle a request for a specific model."""
                     return await cls.endpoint(idstr, input)
             else:
                 async def endpoint(ref, input: input_type):
+                    r"""Handle a request."""
                     return await cls.endpoint(input)
             out.endpoint = classmethod(endpoint)
         # print(cls.endpoint.__annotations__)
@@ -465,6 +484,7 @@ class ContinuousSimulator(EndPointModelMixin):
         )
 
     def model_post_init(self, context):
+        r"""Assign a unique id to the model."""
         self._idstr = str(uuid.uuid4())
         return super().model_post_init(context)
 
@@ -526,6 +546,7 @@ class InteractiveSimulator(ContinuousSimulator):
         return super().create_type(engine, **kwargs)
 
     def model_post_init(self, context):
+        r"""Initialize the lock and event for the interactive model."""
         self._model_lock = asyncio.Lock()
         self._model_accessed = asyncio.Event()
         return super().model_post_init(context)
@@ -533,11 +554,13 @@ class InteractiveSimulator(ContinuousSimulator):
     @field_validator('wait_time')
     @classmethod
     def check_wait_time(cls, v):
+        r"""Clamp the wait time to the allowed range."""
         if v < 0 or v > 300:
             return 300
         return v
 
     def start(self, **kwargs):
+        r"""Start the model, scheduling shutdown if it is unused."""
         super().start(**kwargs)
         self._shutdown_after_wait = asyncio.create_task(
             self.shutdown_after_wait())
@@ -815,6 +838,7 @@ class InteractiveSet(EndPointModelMixin):
     @field_validator('values', mode="before")
     @classmethod
     def check_json(cls, v):
+        r"""Parse json string input."""
         if isinstance(v, str):
             return json.loads(v)
         return v
@@ -873,6 +897,7 @@ class InteractiveGet(EndPointModelMixin):
     @field_validator('state_variables', mode="before")
     @classmethod
     def check_list(cls, v):
+        r"""Parse comma separated list."""
         if isinstance(v, str):
             return [vv.strip() for vv in v.split(",")]
         return v
@@ -932,6 +957,7 @@ class InteractiveAct(EndPointModelMixin):
     @field_validator('parameters', mode="before")
     @classmethod
     def check_json(cls, v):
+        r"""Parse json string input."""
         if isinstance(v, str):
             if not v:
                 return {}
@@ -985,6 +1011,18 @@ class InteractiveAct(EndPointModelMixin):
 def add_simulator_endpoints(app: FastAPI, simulators: List[str] = None,
                             allow_shutdown: bool = False,
                             server: uvicorn.Server = None):
+    r"""Add simulator endpoints to a fastapi application.
+
+    Args:
+        app: FastAPI application to add endpoints to.
+        simulators: Names of simulators to add endpoints for. If None,
+            all installed simulators are used.
+        allow_shutdown: If True, add an endpoint to shut the server
+            down.
+        server: Uvicorn server to shut down. Used only if
+            allow_shutdown is True.
+
+    """
     import signal
     if simulators is None:
         simulators = registered_simulators(only_installed=True)
@@ -993,18 +1031,22 @@ def add_simulator_endpoints(app: FastAPI, simulators: List[str] = None,
         if server:
             @app.post("/shutdown")
             def shutdown():
+                r"""Shut the server down."""
                 def stop_server():
+                    r"""Set the flag that stops the server."""
                     server.should_exit = True
                 asyncio.get_event_loop().call_later(0.1, stop_server)
                 return {"status": "Shutdown initiated"}
         else:
             @app.post("/shutdown")
             def shutdown():
+                r"""Shut the server down."""
                 os.kill(os.getpid(), signal.SIGINT)
                 return {"message": "Server shutting down..."}
 
     @app.get("/")
     async def status():
+        r"""Status of all simulators currently being served."""
         counts = {
             k: InteractiveModelRegistry.size(k)
             for k in simulators
@@ -1025,6 +1067,19 @@ def run_server(simulators: List[str] = None,
                log_file: str = None,
                log_level: str = "info",
                allow_shutdown: bool = False):
+    r"""Run a server for the given simulators.
+
+    Args:
+        simulators: Names of simulators to serve. If None, all
+            installed simulators are used.
+        host: Host to bind the server to.
+        port: Port to bind the server to.
+        log_file: Path to file to write logs to.
+        log_level: Logging level to use.
+        allow_shutdown: If True, allow the server to be shut down via
+            the API.
+
+    """
     logging.basicConfig(filename=log_file,
                         level=getattr(logging, log_level.upper()))
     app = FastAPI()

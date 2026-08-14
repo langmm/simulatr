@@ -2053,7 +2053,9 @@ class ApsimXEngine(CropModelEngine):
         default=True,  # TODO: Update this
         description="If True, copy the bundled example for the crop to "
                     "use as the model file. If a string, the path to "
-                    "the example file to copy.")
+                    "the example file to copy.",
+        json_schema_extra={"hidden_for_server": True},
+    )
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the engine.
@@ -2265,6 +2267,7 @@ class ApsimXEngine(CropModelEngine):
                 if e.errno != zmq.EAGAIN:
                     raise
         if self._status != "connect":
+            logger.info("Failed to connect after 10 seconds")
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "
                                    "ApsimX ZMQ server")
@@ -2280,6 +2283,7 @@ class ApsimXEngine(CropModelEngine):
             self.end_time = self.get("[Clock].End")
         else:
             assert self.get("[Clock].End") == self.end_time
+        logger.info("APSIMX Start complete")
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""

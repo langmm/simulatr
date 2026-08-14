@@ -23,6 +23,14 @@ _n8n_type_noplaceholder = [
     "dropdown", "checkbox", "radio", "date", "file"
 ]
 _n8n_zero_indicates_null = ["year", "timestep", "duration"]
+_n8n_simulator_tool_name = {
+    "apsimx": "ApsimX",
+}
+
+
+def _default_toolname(simulator: str, endpoint: str):
+    simulator = _n8n_simulator_tool_name.get(simulator, simulator)
+    return f'{simulator} {endpoint} Tool'
 
 
 def tool_update_matches(updates, existing, remove_match=False):
@@ -108,12 +116,13 @@ def jsonschema_to_n8n(field_name: str, details: dict):
         if {'type': 'null'} in anyOf:
             anyOf.remove({'type': 'null'})
         if {'format': 'duration', 'type': 'string'} in anyOf:
-            anyOf.remove({'format': 'duration', 'type': 'string'})
-        if (({'format': 'date-time', 'type': 'string'} in anyOf
-             and {'type': 'string'} in anyOf)):
-            anyOf.remove({'type': 'string'})
-        if len(anyOf) == 1:
+            details.update({'format': 'duration', 'type': 'string'})
+        elif {'format': 'date-time', 'type': 'string'} in anyOf:
+            details.update({'format': 'date-time', 'type': 'string'})
+        elif len(anyOf) == 1:
             details.update(anyOf[0])
+        elif all(x['type'] in ['integer', 'number'] for x in anyOf):
+            details.update({'type': 'number'})
         else:
             assert {'type': 'string'} in anyOf
         # import pdb; pdb.set_trace()
@@ -127,6 +136,9 @@ def jsonschema_to_n8n(field_name: str, details: dict):
     if ((pydantic_type == "string"
          and details.get("format", None) == "date-time")):
         n8n_type = "date"
+    elif ((pydantic_type == "string"
+           and details.get("format", None) == "duration")):
+        n8n_type = "number"
     elif pydantic_type == "array" and "enum" in details.get("items", {}):
         n8n_type = _n8n_type_mapping.get(details["items"]["type"], "text")
         pydantic_enum = details["items"]["enum"]
@@ -333,18 +345,18 @@ def query_n8n_service(simulator: str,
 
     """
     if toolname is None:
-        toolname = f'{simulator} {name} Tool'
+        toolname = _default_toolname(simulator, name)
     response = n8n_api_request(
         'workflows', 'get', params={'name': toolname}, **kwargs
     )
     if required and len(response['data']) == 0:
         raise RuntimeError(f"No tool found matching name \"{toolname}\"")
-    if len(response['data']) > 0:
-        dump_to_scratch(response, output, toolname.replace(' ', '_'))
-    elif len(response['data']) > 1 and (not allow_multiple):
+    if len(response['data']) > 1 and (not allow_multiple):
         raise RuntimeError(
             f"More than one tool matching name \"{toolname}\":\n"
             f"{pprint.pformat(response['data'])}")
+    if len(response['data']) > 0:
+        dump_to_scratch(response, output, toolname.replace(' ', '_'))
     return response
 
 
@@ -377,7 +389,7 @@ def remove_n8n_service(simulator: str, name: str,
 
     """
     if toolname is None:
-        toolname = f'{simulator} {name} Tool'
+        toolname = _default_toolname(simulator, name)
     if not toolname.startswith("ApsimX"):  # TODO: Not generic, but safe
         raise RuntimeError(
             f"Cannot remove someone else's tool: \"{toolname}\"")
@@ -440,7 +452,7 @@ def publish_n8n_service(simulator: str,
 
     """
     if toolname is None:
-        toolname = f'{simulator} {name} Tool'
+        toolname = _default_toolname(simulator, name)
     # Check if the workflow exists
     if output_tool and not output_prev:
         output_prev = True

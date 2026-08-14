@@ -328,6 +328,7 @@
         "        {",
         "            if (connection == null) { return; }",
         "            ",
+        "            Console.WriteLine(\"Finished...\");",
         "            connection.SendFrame(\"finished\");",
         "            var msg = connection.ReceiveFrameString(); ",
         "            if (msg != \"ok\") { throw new Exception(\"Expected ok at end\"); }",

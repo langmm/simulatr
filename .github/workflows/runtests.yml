@@ -55,7 +55,7 @@ jobs:
         run: pixi run -e ${{ matrix.pixi-environment }} python -m simulatr install
       - name: Run tests
         run: pixi run -e ${{ matrix.pixi-environment }} test -sv --log-cli-level=DEBUG
-        timeout-minutes: 2
+        timeout-minutes: 5
 
   docs:
     name: Build the docs

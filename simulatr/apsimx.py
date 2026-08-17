@@ -2260,6 +2260,7 @@ class ApsimXEngine(CropModelEngine):
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
         kws = {}
         flags = []
+        timeout = 10
         if sys.platform == 'win32':
             env = copy.deepcopy(os.environ)
             env["PATH"] = (
@@ -2268,6 +2269,7 @@ class ApsimXEngine(CropModelEngine):
             )
             kws["env"] = env
             flags += ["--verbose"]
+            timeout = 60
         self.process = subprocess.Popen([
             "dotnet", self.apsim_srv(),
             "-p", self.port,
@@ -2280,7 +2282,7 @@ class ApsimXEngine(CropModelEngine):
             self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
         tstart = time.time()
-        while time.time() - tstart < 10 and self.is_running:
+        while time.time() - tstart < timeout and self.is_running:
             try:
                 self._status = self.socket.recv_string(
                     flags=zmq.NOBLOCK)

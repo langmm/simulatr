@@ -2291,7 +2291,7 @@ class ApsimXEngine(CropModelEngine):
                 if e.errno != zmq.EAGAIN:
                     raise
         if self._status != "connect":
-            logger.info("Failed to connect after 10 seconds")
+            logger.info(f"Failed to connect after {timeout} seconds")
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "
                                    "ApsimX ZMQ server")

@@ -205,7 +205,7 @@ def pydantic_to_n8n_fields(model: type[BaseModel]):
     properties = schema.get("properties", {})
     required_fields = set(schema.get("required", []))
     form_fields = []
-    order = model.FORM_FIELD_ORDER.copy()
+    order = getattr(model, "FORM_FIELD_ORDER", []).copy()
     order += [k for k in properties.keys() if k not in order]
     for field_name in order:
         details = properties[field_name]

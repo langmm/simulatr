@@ -98,8 +98,7 @@ def main() -> None:
     )
     parser_install.add_argument(
         "--simulator", type=str,  nargs="+", action="extend",
-        choices=registered_simulators(),
-        default=registered_simulators(),
+        choices=simulators,
         help="Name(s) of simulators to install. If not provided, all "
              "of the registered simulators will be installed.",
     )
@@ -111,6 +110,11 @@ def main() -> None:
     parser_install.add_argument(
         "--always-yes", action="store_true",
         help="Don't ask the user to approve the install",
+    )
+    parser_install.add_argument(
+        "--force", action="store_true",
+        help="Force reinstallation of the simulator even if it is "
+             "already installed",
     )
     # For creating model input files
     parser_create = subparsers.add_parser(
@@ -175,7 +179,6 @@ def main() -> None:
     parser_server.add_argument(
         "--simulator", type=str, nargs="+", action="extend",
         choices=installed_simulators,
-        default=installed_simulators,
         help=(
             "Name of the simulator(s) to create application endpoints "
             "for. If not specified, all of the installed simulators "
@@ -284,17 +287,20 @@ def main() -> None:
                     f" of \"{dst}\" to \"{args.value}\" ")
         return
     elif args.action == "install":
+        if not args.simulator:
+            args.simulator = simulators
         if args.directory:
             if len(args.simulator) > 1:
                 raise RuntimeError(
                     f"Cannot specify an install directory for more "
                     f"than one simulator ({len(args.simulator)} "
-                    f"specified)")
-            cfg.set("directories", args.simulator, args.directory)
+                    f"specified, {args.simulator})")
+            cfg.set("directories", args.simulator[0], args.directory)
         for simulator in args.simulator:
             logger.info(f"Installing {simulator} simulator...")
             engine_cls = get_simulator_class(simulator)
-            engine_cls.install(always_yes=args.always_yes)
+            engine_cls.install(always_yes=args.always_yes,
+                               force=args.force)
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
         kws = {
@@ -334,6 +340,8 @@ def main() -> None:
                             level=getattr(logging, args.log_level))
         run(args.simulator, **kws)
     elif args.action == "serve":
+        if not args.simulator:
+            args.simulator = installed_simulators
         server.run_server(
             args.simulator,
             host=args.host, port=args.port,

@@ -17,7 +17,7 @@ FROM build AS build-simulator
 WORKDIR /app
 ARG SIMULATOR=apsimx
 COPY ./simulatr /app/simulatr
-RUN pixi run -e prod install-simulator ${SIMULATOR} -- --directory ./models_docker/${SIMULATOR} --always-yes
+RUN pixi run -e prod python -m simulatr install --simulator ${SIMULATOR} --directory ./models_docker/${SIMULATOR} --always-yes
 RUN pixi run -e prod python -m simulatr config directories models /app/models
 RUN pixi run -e prod python -m simulatr config directories ${SIMULATOR} /app/models/${SIMULATOR}
 

@@ -21,22 +21,6 @@ requests = "*"
 [pypi-dependencies]
 simulatr = { path = ".", editable = true }
 
-[tasks]
-install-simulator = {
-    cmd = "python -m simulatr install {{ simulator }}",
-    args = [
-      { arg = "simulator", default = "apsimx"},
-    ],
-    description = "Install a simulator",
-}
-run-simulator = {
-    cmd = "python -m simulatr run {{ simulator }}",
-    args = [
-      { arg = "simulator", default = "apsimx"},
-    ],
-    description = "Run a simulator",
-}
-
 [feature.dev.dependencies]
 conda-index = "*"
 flake8 = "*"

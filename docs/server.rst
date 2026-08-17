@@ -5,11 +5,9 @@ Simulator Servers
 REST API
 --------
 
-To launch the server run the following from the n8n_tool directory::
+To launch the server run the following::
 
-  fastapi run --host 0.0.0.0 --port 5000 main.py apsimx
-
-TODO: Correct this w/ server entry point for package and add CLI argument for specifying the model to host
+  simulatr serve --simulator apsimx
 
 or via pixi...::
 
@@ -28,12 +26,9 @@ To build the docker image this run the following from the simulatr root director
   docker build -f utils/Dockerfile.server -t apsimx .
 
 
-TODO: Build arg to pass model
-
-
 or via pixi...::
 
-  pixi run -e dev build-docker-server --simulator apsimx
+  pixi run -e dev build-docker-server apsimx
 
 
 To run the server in the docker image::
@@ -42,7 +37,7 @@ To run the server in the docker image::
 
 or via pixi...::
 
-  pixi run -e dev run-server-docker --simulator apsimx
+  pixi run -e dev run-server-docker apsimx
 
 
 To run the service tests for a running docker container::
@@ -56,7 +51,7 @@ To select a different host port::
 
 or via pixi...::
 
-  pixi run -e dev run-server-docker --simulator apsimx --port <alternate port>
+  pixi run -e dev run-server-docker apsimx <alternate port>
 
 Beam Deployment
 ---------------
@@ -98,6 +93,6 @@ To create an n8n tool that uses the apsimx simulator service::
 
 To update an existing n8n tool that uses the apsimx model service::
 
-  pixi run -e dev n8n apsimx update --name start
+  pixi run -e dev simulatr n8n apsimx update --name start
 
 

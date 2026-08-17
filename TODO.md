@@ -5,7 +5,6 @@
 - [ ] Fix windows tests on CI
 - [ ] Add soil file parsing
 - [ ] Improve human readable prompt for CLI and fix set/get description
-- [ ] Option to force reinstallation of simulator
 
 ## Server
 

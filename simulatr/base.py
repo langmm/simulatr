@@ -2031,16 +2031,20 @@ class BaseModelEngine(BaseModel, ABC):
         return isinstance(model_dir, str) and os.path.isdir(model_dir)
 
     @classmethod
-    def install(cls, always_yes: bool = False) -> None:
+    def install(cls, always_yes: bool = False,
+                force: bool = False) -> None:
         r"""Install the model if it is not installed.
 
         Args:
             always_yes: If True, don't ask the user for approval.
+            force: Force reinstallation of the simulator even if it is
+                already installed.
 
         """
         from .utils import cfg
         model_dir = cls.model_dir()
-        if cls.is_installed():
+        reinstall = (cls.is_installed() and force)
+        if cls.is_installed() and not force:
             if model_dir != cfg["directories"].get(cls._MODEL_NAME, None):
                 cfg.set("directories", cls._MODEL_NAME, model_dir)
                 cfg.write()
@@ -2048,7 +2052,8 @@ class BaseModelEngine(BaseModel, ABC):
                         f"{model_dir}")
             return
         prefix = ""
-        if cfg["directories"].get(cls._MODEL_NAME, None) is not None:
+        if ((cfg["directories"].get(cls._MODEL_NAME, None) is not None
+             and not reinstall)):
             prefix = (
                 f"The {cls._MODEL_NAME} model is not installed in the "
                 f"specified directory. "

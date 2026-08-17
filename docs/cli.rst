@@ -96,23 +96,55 @@ The ``directories`` section supports the following options:
 Installing a simulator
 ======================
 
-``simulatr install apsimx`` installs ApsimX into the directory given by
-the ``apsimx`` configuration option (by default
-``./models/apsimx``), prompting for confirmation:
+``simulatr install`` installs one or more simulators. Without arguments
+every registered simulator is installed:
 
 .. code-block:: console
 
-   $ simulatr install apsimx
-   Install the apsimx model into ".../models/apsimx"? [Y/n]
+   $ simulatr install
 
-Use ``--directory`` to install into a different location and record it
-in the configuration at the same time:
+Select a specific simulator with ``--simulator``:
 
 .. code-block:: console
 
-   $ simulatr install apsimx --directory /Users/me/ApsimX
+   $ simulatr install --simulator apsimx
 
-If a valid installation already exists at the configured location, the
+Use ``--directory`` to install into a custom location and record it
+in the configuration at the same time. ``--directory`` cannot be used
+when more than one simulator is specified:
+
+.. code-block:: console
+
+   $ simulatr install --simulator apsimx --directory /Users/me/ApsimX
+
+Skip the confirmation prompt with ``--always-yes`` and force
+reinstallation of an already-installed simulator with ``--force``:
+
+.. code-block:: console
+
+   $ simulatr install --simulator apsimx --always-yes --force
+
+Arguments
+---------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--simulator SIM [SIM ...]``
+     - Simulator(s) to install. Defaults to all registered simulators.
+   * - ``--directory DIR``
+     - Custom install directory. Cannot be used with more than one
+       simulator.
+   * - ``--always-yes``
+     - Skip the confirmation prompt.
+   * - ``--force``
+     - Force reinstallation even if the simulator is already
+       installed.
+
+If a valid installation already exists at the configured location the
 command simply registers it and returns.
 
 Creating model input files

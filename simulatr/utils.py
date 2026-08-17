@@ -49,23 +49,28 @@ def partialclone(repourl: str, dst: str = None,
     if dst is None:
         dst = os.path.splitext(repourl.rsplit('/')[-1])[0]
     if not patterns:
-        subprocess.run(
-            ["git", "clone", repourl, dst], check=True)
+        if not os.path.isdir(dst):
+            subprocess.run(
+                ["git", "clone", repourl, dst], check=True)
         return
-    fpattern = tempfile.NamedTemporaryFile("w", delete_on_close=False)
-    fpattern.write("\n".join(patterns))
-    fpattern.close()
-    subprocess.run(
-        f"git clone --filter=blob:none --no-checkout {repourl} {dst}",
-        shell=True, check=True)
-    cmds = [
-        "git sparse-checkout init --no-cone",
-        f"git sparse-checkout set --stdin < {fpattern.name}",
-        "git read-tree -mu HEAD",
-    ]
-    for cmd in cmds:
-        subprocess.run(cmd, shell=True, check=True,
-                       cwd=dst)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        fpattern = os.path.join(tmpdir, "patterns.txt")
+        with open(fpattern, "w") as fd:
+            fd.write("\n".join(patterns))
+        if not os.path.isdir(dst):
+            subprocess.run(
+                f"git clone --filter=blob:none --no-checkout {repourl} {dst}",
+                shell=True, check=True)
+            subprocess.run(
+                "git sparse-checkout init --no-cone",
+                shell=True, check=True, cwd=dst)
+        cmds = [
+            f"git sparse-checkout set --stdin < {fpattern}",
+            "git read-tree -mu HEAD",
+        ]
+        for cmd in cmds:
+            subprocess.run(cmd, shell=True, check=True,
+                           cwd=dst)
     # import pprint
     # import glob
     # pprint.pprint(sorted(glob.glob(os.path.join(dst, "*"))))

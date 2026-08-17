@@ -2292,6 +2292,7 @@ class ApsimXEngine(CropModelEngine):
                     raise
         if self._status != "connect":
             logger.info(f"Failed to connect after {timeout} seconds")
+            self._status = "never connected"
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "
                                    "ApsimX ZMQ server")
@@ -2317,7 +2318,7 @@ class ApsimXEngine(CropModelEngine):
                      f"current_time = {self._current_time})")
         if self.is_running and self.is_complete and self._status == "paused":
             self._resume(wait=True)
-        if self.is_operable:
+        if self.is_operable and self._status != "never connected":
             try:
                 with self.stop_on_error(("act", "terminate", tuple(), {})):
                     self._act("terminate", {})

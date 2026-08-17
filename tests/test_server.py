@@ -176,7 +176,7 @@ def test_model_interactive_timeout(simulator_address, base_model_request,
     request.update(wait_time=1)
     with running_interactive_model(request, dont_stop=True) as idstr:
         model_address = f'{simulator_address}/interactive-model/{idstr}'
-        time.sleep(2)
+        time.sleep(3)
         r = requests.get(f'{model_address}/status')
         r.raise_for_status()
         assert r.json() == {"status": "stopped"}

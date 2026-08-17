@@ -96,12 +96,16 @@ def main() -> None:
         "install", help="Install a simulator"
     )
     parser_install.add_argument(
-        "simulator", type=str,  # choices=
-        help="Name of the simulator to install",
+        "--simulator", type=str,  nargs="+", action="extend",
+        choices=registered_simulators(),
+        default=registered_simulators(),
+        help="Name(s) of simulators to install. If not provided, all "
+             "of the registered simulators will be installed.",
     )
     parser_install.add_argument(
         "--directory", type=str,
-        help="Directory where the simulator should be installed.",
+        help="Directory where the simulator should be installed. "
+             "Cannot be used if more than one simulator is specified.",
     )
     parser_install.add_argument(
         "--always-yes", action="store_true",
@@ -280,9 +284,15 @@ def main() -> None:
         return
     elif args.action == "install":
         if args.directory:
+            if len(args.simulator) > 1:
+                raise RuntimeError(
+                    f"Cannot specify an install directory for more "
+                    f"than one simulator ({len(args.simulator)} "
+                    f"specified)")
             cfg.set("directories", args.simulator, args.directory)
-        engine_cls = get_simulator_class(args.simulator)
-        engine_cls.install(always_yes=args.always_yes)
+        for simulator in args.simulator:
+            engine_cls = get_simulator_class(args.simulator)
+            engine_cls.install(always_yes=args.always_yes)
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
         kws = {

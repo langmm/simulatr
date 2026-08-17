@@ -27,7 +27,7 @@ In addition to installing the gym, you will also need to install the simulators 
 Simulatr will install the required simulators automatically, but you can also install the simulators yourself via the simulatr CLI before running a simulator
 
 ```
-python -m simulatr install apsimx
+python -m simulatr install
 ```
 
 # Running a simulator

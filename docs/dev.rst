@@ -29,6 +29,7 @@ If you want to update a running simulator service and/or n8n tool then
 1. Update ``SIMULATR_REMOTE_SERVER_ADDRESS`` in test environment
 1. Run remote tests in tests/test_server.py
 1. Update the n8n tool
+1. Stop old deployment on beam once n8n tool working
 
 
 .. include:: ../TODO.md

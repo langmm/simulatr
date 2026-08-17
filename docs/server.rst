@@ -13,11 +13,11 @@ TODO: Correct this w/ server entry point for package and add CLI argument for sp
 
 or via pixi...::
 
-  pixi run -e py313 run-server --simulator apsimx
+  pixi run -e dev python -m simulatr serve --simulator apsimx
 
 To run the tests::
 
-  pixi run -e py313 test -svx tests/test_server.py
+  pixi run -e dev test -svx tests/test_server.py
 
 
 Docker
@@ -25,7 +25,7 @@ Docker
 
 To build the docker image this run the following from the simulatr root directory::
 
-  docker build -f Dockerfile.n8n -t apsimx .
+  docker build -f utils/Dockerfile.server -t apsimx .
 
 
 TODO: Build arg to pass model
@@ -33,7 +33,7 @@ TODO: Build arg to pass model
 
 or via pixi...::
 
-  pixi run -e py313 build-docker --simulator apsimx
+  pixi run -e dev build-docker-server --simulator apsimx
 
 
 To run the server in the docker image::
@@ -42,27 +42,34 @@ To run the server in the docker image::
 
 or via pixi...::
 
-  pixi run -e py313 run-server-docker --simulator apsimx
+  pixi run -e dev run-server-docker --simulator apsimx
 
-  
-To select a different host/container port::
 
-  docker build -f n8n_tool/Dockerfile --build-arg APP_PORT=${CONTAINER_PORT} -t apsimx .
-  docker run -p ${HOST_PORT}:${CONTAINER_PORT} -d apsimx
+To run the service tests for a running docker container::
 
+  pixi run -e dev test -svx tests/test_server.py --service-location docker
+
+
+To select a different host port::
+
+  docker run -p <alternate port>:8000 apsimx
+
+or via pixi...::
+
+  pixi run -e dev run-server-docker --simulator apsimx --port <alternate port>
 
 Beam Deployment
 ---------------
 
 To deploy pod based application to beam.cloud::
 
-  beam deploy n8n_tool/beam_pod.py:pod
+  beam deploy utils/beam_pod.py:pod
 
 
 To serve docker/python based ASGI application.::
 
-  beam serve n8n_tool/beam_asgi.py:web_server
-  beam serve n8n_tool/beam_docker.py:web_server
+  beam serve utils/beam_asgi.py:web_server
+  beam serve utils/beam_docker.py:web_server
 
 The asgi version does not work currently and causes the following error::
 
@@ -71,7 +78,7 @@ The asgi version does not work currently and causes the following error::
 To run the tests using the deployment on beam::
 
   export SIMULATR_REMOTE_SERVER_ADDRESS=<BEAM_URL>
-  pytest -svx tests/test_server.py
+  pixi run -e dev test tests/test_server.py --service-location remote
 
 
 n8n Tool
@@ -84,14 +91,13 @@ To access the n8n api, a valid API key must be passed via the ``X_N8N_API_KEY`` 
   export X_N8N_API_KEY=<N8N_CREDENTIALS>
   export SIMULATR_REMOTE_SERVER_ADDRESS=<BEAM_URL>
 
-
 To create an n8n tool that uses the apsimx simulator service::
 
-  python -m simulatr n8n apsimx create --name start
+  pixi run -e dev simulatr n8n apsimx create --name start
 
 
 To update an existing n8n tool that uses the apsimx model service::
 
-  python -m simulatr n8n apsimx update --name start
+  pixi run -e dev n8n apsimx update --name start
 
 

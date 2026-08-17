@@ -1,0 +1,42 @@
+FROM ghcr.io/prefix-dev/pixi:0.76.2 AS build
+
+# copy source code, pixi.toml and pixi.lock to the container
+WORKDIR /app
+COPY . .
+# install dependencies to `/app/.pixi/envs/prod`
+# use `--locked` to ensure the lock file is up to date with pixi.toml
+RUN pixi install --locked -e prod
+# create the shell-hook bash script to activate the environment
+RUN pixi shell-hook -e prod -s bash > /shell-hook
+RUN echo "#!/bin/bash" > /app/entrypoint.sh
+RUN cat /shell-hook >> /app/entrypoint.sh
+# extend the shell-hook script to run the command passed to the container
+RUN echo 'exec "$@"' >> /app/entrypoint.sh
+
+FROM build AS build-simulator
+WORKDIR /app
+ARG SIMULATOR=apsimx
+COPY ./simulatr /app/simulatr
+RUN pixi run -e prod install-simulator ${SIMULATOR} -- --directory ./models_docker/${SIMULATOR} --always-yes
+RUN pixi run -e prod python -m simulatr config directories models /app/models
+RUN pixi run -e prod python -m simulatr config directories ${SIMULATOR} /app/models/${SIMULATOR}
+
+FROM ubuntu:24.04 AS production
+WORKDIR /app
+
+# only copy the production environment into prod container
+# please note that the "prefix" (path) needs to stay the same as in the build container
+COPY --from=build-simulator /app/.pixi/envs/prod /app/.pixi/envs/prod
+COPY --from=build-simulator --chmod=0755 /app/entrypoint.sh /app/entrypoint.sh
+# copy the simulator code into the container
+COPY --from=build-simulator /app/models_docker /app/models
+# copy your project code into the container as well
+COPY ./simulatr /app/simulatr
+# RUN ./entrypoint.sh && python -m simulatr install ${SIMULATOR}
+# RUN pixi run -e prod install-simulator ${SIMULATOR}
+
+EXPOSE 8000
+ENTRYPOINT [ "/app/entrypoint.sh" ]
+# run your app inside the pixi environment
+CMD [ "simulatr", "serve", "--host", "0.0.0.0", "--port", "8000" ]
+# CMD [ "uvicorn", "simulatr:app", "--host", "0.0.0.0" ]

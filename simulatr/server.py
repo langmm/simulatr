@@ -7,7 +7,7 @@ import asyncio
 import contextlib
 from collections import OrderedDict
 import re
-from typing import Dict, Tuple, List, Any, ClassVar, Callable, Self
+from typing import Dict, Tuple, List, Any, ClassVar, Callable
 from pydantic import (
     BaseModel, PrivateAttr, field_validator, Field, ConfigDict,
 )
@@ -498,7 +498,7 @@ class ContinuousSimulator(EndPointModelMixin):
         return super().run(remove_output=True)
 
     @classmethod
-    async def endpoint(cls, input: Self):
+    async def endpoint(cls, input: "ContinuousSimulator"):
         r"""Endpoint.
 
         Args:
@@ -589,7 +589,7 @@ class InteractiveSimulator(ContinuousSimulator):
                 break
 
     @classmethod
-    async def endpoint(cls, input: Self):
+    async def endpoint(cls, input: "InteractiveSimulator"):
         r"""Endpoint.
 
         Args:
@@ -844,7 +844,7 @@ class InteractiveSet(EndPointModelMixin):
         return v
 
     @classmethod
-    async def endpoint(cls, idstr: str, input: Self):
+    async def endpoint(cls, idstr: str, input: "InteractiveSet"):
         r"""Endpoint.
 
         Args:

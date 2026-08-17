@@ -1,7 +1,7 @@
 import os
 import threading
 import logging
-from typing import Optional, Union, Any
+from typing import Optional, Union, Any, List
 from io import BufferedReader
 from . import logger
 from .config import PackageConfig, _pkgdir
@@ -31,6 +31,44 @@ cfg.setdefaults(
         'data': os.path.join(_pkgdir, 'data'),
     },
 )
+
+
+def partialclone(repourl: str, dst: str = None,
+                 patterns: List[str] = []):
+    r"""Clone a git repository, only including certain files/directories.
+
+    Args:
+        repourl: Repository URL.
+        dst: Directory that the repository should be cloned into.
+        patterns: One or more patterns specifying which files/directories
+            to include in the cloned repository.
+
+    """
+    import tempfile
+    import subprocess
+    if dst is None:
+        dst = os.path.splitext(repourl.rsplit('/')[-1])[0]
+    if not patterns:
+        subprocess.run(
+            ["git", "clone", repourl, dst], check=True)
+        return
+    fpattern = tempfile.NamedTemporaryFile("w", delete_on_close=False)
+    fpattern.write("\n".join(patterns))
+    fpattern.close()
+    subprocess.run(
+        f"git clone --filter=blob:none --no-checkout {repourl} {dst}",
+        shell=True, check=True)
+    cmds = [
+        "git sparse-checkout init --no-cone",
+        f"git sparse-checkout set --stdin < {fpattern.name}",
+        "git read-tree -mu HEAD",
+    ]
+    for cmd in cmds:
+        subprocess.run(cmd, shell=True, check=True,
+                       cwd=dst)
+    # import pprint
+    # import glob
+    # pprint.pprint(sorted(glob.glob(os.path.join(dst, "*"))))
 
 
 def promptuser(prompt: str, _gha_default: str = ""):

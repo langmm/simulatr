@@ -19,7 +19,7 @@ from typing import (
 )
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
-from . import logger
+from . import logger, utils
 from .utils import cfg, LogPipe
 from .base import (
     readonly_cached_property,
@@ -2119,9 +2119,31 @@ class ApsimXEngine(CropModelEngine):
 
         """
         repourl = "https://github.com/APSIMInitiative/ApsimX.git"
-        subprocess.run(
-            ["git", "clone", repourl, model_dir], check=True)
-        sln_file = os.path.join(model_dir, "ApsimX.sln")
+        utils.partialclone(
+            repourl, model_dir,
+            patterns=[
+                "APSIM.*",
+                "CONTRIBUTING.md",
+                "README.md",
+                "LICENSE.md",
+                "Models/",
+                "Examples/*.apsimx",
+                "Examples/WeatherFiles/",
+                "DeepCloner.Core",
+                # The following are required if other projects built
+                # "ApsimNG",
+                # "ApsimX.sln",
+                "!Tests/",
+                "!Tools/",
+                "!Gtk.Sheet/",
+            ],
+        )
+        sln_file = os.path.join(
+            model_dir, "APSIM.Server", "ZMQ+msgpack",
+            "APSIM.ZMQServer.csproj")
+        # sln_file = os.path.join(
+        #     model_dir, "Models", "Models.csproj")
+        # sln_file = os.path.join(model_dir, "ApsimX.sln")
         if not os.path.isfile(sln_file):
             raise RuntimeError(f"APSIMX solution does not "
                                f"exist: \"{sln_file}\"")

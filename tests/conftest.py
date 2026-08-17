@@ -2,6 +2,33 @@ import numpy as np
 import pytest
 
 
+_markers_disabled_by_default = ["slow", "unstable"]
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        '--service-location', dest="service_location",
+        type=str, choices=["local", "remote", "docker"],
+        default="local",
+        help="Location where the test server is running or should be run",
+    )
+    for k in _markers_disabled_by_default:
+        parser.addoption(
+            f'--run-{k}', action='store_true', dest=f"run_{k}",
+            default=False,
+            help=f"enable tests marked as {k}")
+
+
+def pytest_configure(config):
+    for k in _markers_disabled_by_default:
+        if not getattr(config.option, f"run_{k}"):
+            if not config.getoption("markexpr"):
+                config.option.markexpr = f"not {k}"
+            elif k not in config.getoption("markexpr"):
+                markexpr = config.getoption("markexpr")
+                config.option.markexpr = f"({markexpr}) and not {k}"
+
+
 class NestedAssertionError(AssertionError):
 
     def __init__(self, nested):

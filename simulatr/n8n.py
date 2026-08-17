@@ -22,7 +22,9 @@ _n8n_type_nodefault = ["password", "html", "hiddenField", "file"]
 _n8n_type_noplaceholder = [
     "dropdown", "checkbox", "radio", "date", "file"
 ]
-_n8n_zero_indicates_null = ["year", "timestep", "duration"]
+_n8n_zero_indicates_null = [
+    "year", "timestep", "duration", "season_length",
+]
 _n8n_simulator_tool_name = {
     "apsimx": "ApsimX",
 }
@@ -587,7 +589,8 @@ def publish_n8n_service(simulator: str,
         response = n8n_api_request(
             f'workflows/{request["id"]}', 'put',
             json=request, dry_run=dry_run,
-            headers={'accept': 'application/json'}, **kwargs)
+            headers={'accept': 'application/json'},
+            **kwargs)
     else:
         dump_to_scratch(request, output_request,
                         f"{name}-tool-request")

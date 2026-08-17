@@ -110,7 +110,8 @@ filterwarnings = [
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:dateutil.*",
 ]
 markers = [
-  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "slow: marks tests as slow (enable with '--run-slow')",
+  "unstable: marks tests as being unstable (enable with --run-unstable)",
 ]
 addopts = ["-p", "pytest_cov"]
 

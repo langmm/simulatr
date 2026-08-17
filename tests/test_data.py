@@ -159,20 +159,19 @@ class TestWeatherBase(TestDataBase):
 # Soil
 ##########################################################
 
-@pytest.mark.slow
 class TestSoilBase(TestDataBase):
 
     __test__ = True
     _category = "soil"
 
-    @pytest.fixture(scope="class", params=list(
-        _ModelFileMeta.get_filetype_registry("soil").keys()
-    ))
+    @pytest.fixture(scope="class", params=[
+        # TODO: This is skipped by default until the API is stable
+        pytest.param(k, marks=pytest.mark.unstable)
+        if k == "ISRIC SoilGrids" else k
+        for k in _ModelFileMeta.get_filetype_registry("soil").keys()
+    ])
     @classmethod
     def name(cls, request):
-        # TODO: This is disabled until the API is stable
-        if request.param == "ISRIC SoilGrids":
-            pytest.skip("ISRIC SoilGrids REST API unstable")
         return request.param
 
     @pytest.fixture(scope="class")

@@ -103,6 +103,10 @@ def main() -> None:
         "--directory", type=str,
         help="Directory where the simulator should be installed.",
     )
+    parser_install.add_argument(
+        "--always-yes", action="store_true",
+        help="Don't ask the user to approve the install",
+    )
     # For creating model input files
     parser_create = subparsers.add_parser(
         "create", help="Create a simulator input file"
@@ -164,7 +168,7 @@ def main() -> None:
     parser_server = subparsers.add_parser(
         "serve", help="Launch simulator(s) as fastapi application")
     parser_server.add_argument(
-        "simulator", type=str, nargs="+", action="extend",
+        "--simulator", type=str, nargs="+", action="extend",
         choices=installed_simulators,
         default=installed_simulators,
         help=(
@@ -278,7 +282,7 @@ def main() -> None:
         if args.directory:
             cfg.set("directories", args.simulator, args.directory)
         engine_cls = get_simulator_class(args.simulator)
-        engine_cls.install()
+        engine_cls.install(always_yes=args.always_yes)
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
         kws = {
@@ -326,8 +330,6 @@ def main() -> None:
             allow_shutdown=args.allow_shutdown,
         )
     elif args.action == "n8n":
-        if args.simulator == "apsimx":
-            args.simulator = "ApsimX"  # backwards compatibility
         if not args.name:
             if args.utility in ["query", "remove"] and args.toolname:
                 args.name = [""]  # Won't be used

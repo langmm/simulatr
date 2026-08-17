@@ -7,6 +7,7 @@ import requests
 import datetime
 import contextlib
 from subprocess import Popen
+from simulatr import registered_simulators
 
 
 @pytest.fixture(scope="session")
@@ -24,60 +25,64 @@ def ping_address():
 
 
 @pytest.fixture(scope="session")
-def local_address(ping_address):
-    host = "0.0.0.0"
-    port = 5000
-    out = f"http://{host}:{port}"
-    if ping_address(out):
-        yield out
-    else:
-        docker = False
-        if docker:
-            # TODO: Pass --allow-shutdown
-            cmd = f"docker run -p {port}:8000 apsimx"
-        else:
-            cmd = (
-                f"python -m simulatr serve apsimx "
-                f"--host {host} --port {port} "
-                f"--allow-shutdown"
-            )
-        p = Popen(cmd.split())
-        try:
-            while p.poll() is None and not ping_address(out):
-                time.sleep(1)
+def local_service(ping_address, pytestconfig, simulator):
+
+    @contextlib.contextmanager
+    def _local_service(host="0.0.0.0", port=5000, docker=False):
+        out = f"http://{host}:{port}"
+        if ping_address(out):
             yield out
-        finally:
-            if p.poll() is None:
-                requests.post(f"{out}/shutdown")
-                p.wait(timeout=1)
-            if p.poll() is None:
-                p.terminate()
-                p.kill()
+        else:
+            if docker:
+                cmd = f"docker run -p {port}:8000 {simulator}"
             else:
-                assert p.returncode == 0
+                cmd = (
+                    f"python -m simulatr serve "
+                    f"--host {host} --port {port} "
+                    f"--allow-shutdown"
+                )
+            p = Popen(cmd.split())
+            try:
+                while p.poll() is None and not ping_address(out):
+                    time.sleep(1)
+                yield out
+            finally:
+                if p.poll() is None:
+                    if docker:
+                        import signal
+                        os.kill(p.pid, signal.SIGINT)
+                        p.wait(timeout=1)
+                    else:
+                        requests.post(f"{out}/shutdown")
+                        p.wait(timeout=1)
+                if p.poll() is None:
+                    p.terminate()
+                    p.kill()
+                else:
+                    assert p.returncode == 0
+
+    return _local_service
 
 
-@pytest.fixture(scope="session", params=[
-    "local",
-    "remote",
-])
-def address(local_address, request, ping_address):
-    if request.param == "local":
-        out = local_address
+@pytest.fixture(scope="session")
+def service_address(pytestconfig, local_service):
+    location = pytestconfig.getoption("service_location")
+    if location in ["local", "docker"]:
+        with local_service(docker=(location == "docker")) as out:
+            yield out
     else:
-        out = os.environ.get("SIMULATR_REMOTE_SERVER_ADDRESS", None)
+        yield os.environ.get("SIMULATR_REMOTE_SERVER_ADDRESS", None)
+
+
+@pytest.fixture(scope="session")
+def address(service_address, ping_address):
+    out = service_address
     if not (out and ping_address(out)):
         pytest.skip(f"Could not connect to \"{out}\"")
     yield out
 
 
-# TODO: Generic
-# @pytest.fixture(scope="session")
-# def model_address(address):
-#     return f"{address}/apsimx"
-
-
-@pytest.fixture(scope="session", params=["apsimx"])
+@pytest.fixture(scope="session", params=registered_simulators())
 def simulator(request) -> str:
     r"""str: Simulator name."""
     return request.param

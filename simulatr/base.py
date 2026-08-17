@@ -2030,8 +2030,13 @@ class BaseModelEngine(BaseModel, ABC):
         return isinstance(model_dir, str) and os.path.isdir(model_dir)
 
     @classmethod
-    def install(cls) -> None:
-        r"""Install the model if it is not installed."""
+    def install(cls, always_yes: bool = False) -> None:
+        r"""Install the model if it is not installed.
+
+        Args:
+            always_yes: If True, don't ask the user for approval.
+
+        """
         from .utils import cfg
         model_dir = cls.model_dir()
         if cls.is_installed():
@@ -2045,8 +2050,11 @@ class BaseModelEngine(BaseModel, ABC):
                 f"The {cls._MODEL_NAME} model is not installed in the "
                 f"specified directory. "
             )
-        ans = ""
-        while True:
+        if always_yes:
+            ans = "Y"
+        else:
+            ans = ""
+        while ans not in ["N", "Y"]:
             ans = promptuser(
                 f"{prefix}Install the {cls._MODEL_NAME} model into "
                 f"\"{model_dir}\"? [Y/n]",

@@ -1882,6 +1882,7 @@ class BaseModelEngine(BaseModel, ABC):
         days=0)
     EXAMPLE_STATE: ClassVar[Tuple[str, float]] = ("INVALID", 0.5)
     EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = ("INVALID", {})
+    FORM_FIELD_ORDER: ClassVar[List[str]] = []
 
     model_file: Optional[str | List[str] | BaseModelFile
                          | SkipJsonSchema[None]] = Field(
@@ -2043,6 +2044,8 @@ class BaseModelEngine(BaseModel, ABC):
             if model_dir != cfg["directories"].get(cls._MODEL_NAME, None):
                 cfg.set("directories", cls._MODEL_NAME, model_dir)
                 cfg.write()
+            logger.info(f"{cls._MODEL_NAME} already installed in "
+                        f"{model_dir}")
             return
         prefix = ""
         if cfg["directories"].get(cls._MODEL_NAME, None) is not None:

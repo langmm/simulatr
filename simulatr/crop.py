@@ -146,6 +146,11 @@ class CropModelEngine(BaseModelEngine):
     DEFAULT_PARAM: ClassVar[dict] = {
         "duration": datetime.timedelta(365),
     }
+    FORM_FIELD_ORDER: ClassVar[List[str]] = (
+        BaseModelEngine.FORM_FIELD_ORDER + [
+            "crop_name", "crop_variety",
+        ]
+    )
 
     model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
         default=None,

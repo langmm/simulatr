@@ -29,7 +29,7 @@ console script:
 
 Both forms accept the same subcommands::
 
-   usage: simulatr [-h] {config,install,create,run} ...
+   usage: simulatr [-h] {config,install,create,run,serve,n8n} ...
 
 Overview
 ========
@@ -48,6 +48,10 @@ Overview
      - Create a simulator model input file.
    * - ``simulatr run``
      - Run a simulation.
+   * - ``simulatr serve``
+     - Launch one or more simulators as a FastAPI application.
+   * - ``simulatr n8n``
+     - Manage n8n tools that expose simulator endpoints.
 
 Configuration
 =============
@@ -82,6 +86,10 @@ The ``directories`` section supports the following options:
 * ``apsimx`` -- Directory containing the ApsimX installation.
 * ``nasa_power_weather_data`` -- Cache directory for downloaded NASA
   POWER weather data.
+* ``isric_soil_data`` -- Cache directory for downloaded ISRIC soil
+  data.
+* ``scratch`` -- Temporary directory for intermediate files generated
+  by the n8n tool utilities.
 
 .. _cli-install:
 
@@ -258,3 +266,165 @@ The ``--log-level`` option controls the verbosity of logging and
 
    $ simulatr run apsimx --crop-name wheat \
        --log-file ./run.log --log-level DEBUG
+
+.. _cli-serve:
+
+Serving simulators
+==================
+
+``simulatr serve`` launches one or more simulators as a FastAPI web
+application. By default every installed simulator is exposed:
+
+.. code-block:: console
+
+   $ simulatr serve --simulator apsimx
+
+Select simulators explicitly with ``--simulator``, bind to a specific
+host and port, and optionally allow remote shutdown:
+
+.. code-block:: console
+
+   $ simulatr serve --simulator apsimx \
+       --host 0.0.0.0 --port 8000 \
+       --allow-shutdown
+
+Arguments
+---------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--simulator SIM [SIM ...]``
+     - Simulator(s) to expose via REST endpoints. Defaults to all
+       installed simulators.
+   * - ``--port PORT``
+     - Port that the application is served on (default: ``5000``).
+   * - ``--host HOST``
+     - Host address to bind to (default: ``0.0.0.0``).
+   * - ``--log-file FILE``
+     - File to write log messages to.
+   * - ``--log-level LEVEL``
+     - Logging verbosity. Choices: ``NOTSET``, ``DEBUG``, ``INFO``,
+       ``WARNING``, ``ERROR``, ``CRITICAL`` (default: ``INFO``).
+   * - ``--allow-shutdown``
+     - Include a ``/shutdown`` endpoint that allows the client to
+       stop the server.
+
+.. _cli-n8n:
+
+n8n tools
+=========
+
+``simulatr n8n`` manages n8n workflow tools that wrap simulator REST
+APIs as web forms. A valid n8n API key must be available in the
+``X_N8N_API_KEY`` environment variable.
+
+.. code-block:: console
+
+   $ export X_N8N_API_KEY=<key>
+   $ simulatr n8n apsimx create --name start \
+       --publish-for-address <service-address>
+
+The ``SIMULATR_REMOTE_SERVER_ADDRESS`` environment variable is used as
+a fallback for the service address when ``--publish-for-address`` is
+not provided.
+
+Common arguments
+-----------------
+
+These arguments are available for every ``n8n`` subcommand
+(``create``, ``update``, ``remove``, ``query``):
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``simulator``
+     - Name of the simulator to manage tools for.
+   * - ``--name NAME [NAME ...]``
+     - Entry point(s) to act on. Choices: ``start``,
+       ``start-interactive``. Defaults to both entry points if not
+       specified.
+   * - ``--toolname NAME``
+     - Explicit name of the n8n tool. When provided for ``query`` or
+       ``remove``, ``--name`` is not required.
+   * - ``--output-tool FILE``, ``--output FILE``
+     - Output the tool summary to a JSON file. With no value, a
+       default filename is used.
+   * - ``--verbose``
+     - Print every REST API request and response.
+
+create
+------
+
+Creates a new n8n tool. Additional arguments:
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--publish-for-address ADDR``
+     - Base address of the simulator service the tool should call.
+   * - ``--overwrite``
+     - Remove any existing tool before creating the new one.
+   * - ``--update``
+     - Update the existing tool instead of failing when a tool with
+       the same name already exists.
+   * - ``--output-request [FILE]``
+     - Output the tool creation request to a JSON file.
+   * - ``--output-form [FILE]``
+     - Output the form definition to a JSON file.
+   * - ``--dry-run``
+     - Print requests instead of performing them.
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx create --name start \
+       --publish-for-address https://server.example.com \
+       --overwrite
+
+update
+------
+
+Updates an existing n8n tool. Accepts the same additional arguments
+as ``create`` above. The ``--update`` flag is set automatically
+so an existing tool is required:
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx update --name start \
+       --publish-for-address https://server.example.com
+
+remove
+------
+
+Removes an existing n8n tool. Additional arguments:
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--dry-run``
+     - Print requests instead of performing them.
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx remove --name start
+
+query
+-----
+
+Queries the n8n service for tools matching a given name:
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx query --name start

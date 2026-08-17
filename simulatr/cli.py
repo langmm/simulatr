@@ -65,6 +65,7 @@ def run(simulator: str, timestep: int = 0,
 
 def main() -> None:
     r"""Run the command line interface."""
+    logging.basicConfig(level=logging.INFO)
     simulators = registered_simulators()
     installed_simulators = registered_simulators(only_installed=True)
     parser = argparse.ArgumentParser()
@@ -279,8 +280,8 @@ def main() -> None:
             args.value = os.path.abspath(os.path.expanduser(args.value))
         cfg.set(args.section, args.name, args.value)
         dst = cfg.write(level=args.level)
-        print(f"Set {args.name} in the \"{args.section}\" section of "
-              f"\"{dst}\" to \"{args.value}\" ")
+        logger.info(f"Set {args.name} in the \"{args.section}\" section"
+                    f" of \"{dst}\" to \"{args.value}\" ")
         return
     elif args.action == "install":
         if args.directory:
@@ -291,7 +292,8 @@ def main() -> None:
                     f"specified)")
             cfg.set("directories", args.simulator, args.directory)
         for simulator in args.simulator:
-            engine_cls = get_simulator_class(args.simulator)
+            logger.info(f"Installing {simulator} simulator...")
+            engine_cls = get_simulator_class(simulator)
             engine_cls.install(always_yes=args.always_yes)
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
@@ -311,7 +313,7 @@ def main() -> None:
             kws["model_file"] = args.dst
         engine = engine_cls(**kws)
         engine.model.generated = False  # Prevent cleanup
-        print(f"Created input file \"{engine.model.fname}\"")
+        logger.info(f"Created input file \"{engine.model.fname}\"")
     elif args.action == "run":
         kws = {
             k: v for k, v in vars(args).items()
@@ -327,7 +329,7 @@ def main() -> None:
                 log_file += "_" + args.crop_name
             args.log_file = os.path.join(os.getcwd(), log_file + ".log")
         if getattr(args, "log_file", None):
-            print(f"Log being written to \"{args.log_file}\"")
+            logger.info(f"Log being written to \"{args.log_file}\"")
         logging.basicConfig(filename=args.log_file,
                             level=getattr(logging, args.log_level))
         run(args.simulator, **kws)
@@ -356,7 +358,7 @@ def main() -> None:
         if args.utility == "update":
             args.update = "required"
         for name in args.name:
-            print(f"{args.utility} {name}")
+            logger.info(f"{args.utility} {name}")
             if args.utility in ["create", "update"]:
                 n8n.publish_n8n_service(
                     args.simulator, name,
@@ -387,7 +389,7 @@ def main() -> None:
                     verbose=args.verbose,
                 )
                 if not args.output_tool:
-                    print(json.dumps(response, indent=2))
+                    logger.info(json.dumps(response, indent=2))
             else:
                 raise NotImplementedError(
                     f"n8n utility = \"{args.utility}\"")

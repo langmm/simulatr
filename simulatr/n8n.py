@@ -205,7 +205,10 @@ def pydantic_to_n8n_fields(model: type[BaseModel]):
     properties = schema.get("properties", {})
     required_fields = set(schema.get("required", []))
     form_fields = []
-    for field_name, details in properties.items():
+    order = model.FORM_FIELD_ORDER.copy()
+    order += [k for k in properties.keys() if k not in order]
+    for field_name in order:
+        details = properties[field_name]
         field_def = jsonschema_to_n8n(field_name, details)
         field_def["requiredField"] = field_name in required_fields
         form_fields.append(field_def)
@@ -583,11 +586,11 @@ def publish_n8n_service(simulator: str,
         )
         update = False
     if update and existing:
-        request["id"] = existing["id"]
+        request.pop("projectId")
         dump_to_scratch(request, output_request,
                         f"{name}-tool-request-update")
         response = n8n_api_request(
-            f'workflows/{request["id"]}', 'put',
+            f'workflows/{existing["id"]}', 'put',
             json=request, dry_run=dry_run,
             headers={'accept': 'application/json'},
             **kwargs)

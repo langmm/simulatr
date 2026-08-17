@@ -2195,7 +2195,8 @@ class ApsimXEngine(CropModelEngine):
         r"""bool: True if the model engine is running and functioning."""
         if not super().is_operable:
             return False
-        return (self._status not in ["finished", "error", "terminated"])
+        return (self._status not in ["finished", "error", "terminated",
+                                     "never connected"])
 
     @property
     def current_time(self) -> datetime.datetime:
@@ -2270,12 +2271,15 @@ class ApsimXEngine(CropModelEngine):
             kws["env"] = env
             flags += ["--verbose"]
             timeout = 60
-        self.process = subprocess.Popen([
-            "dotnet", self.apsim_srv(),
-            "-p", self.port,
-            "-P", "interactive",
-            "-f", self.model.fname,
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE, **kws)
+        self.process = subprocess.Popen(
+            [
+                "dotnet", self.apsim_srv(),
+                "-p", self.port,
+                "-P", "interactive",
+                "-f", self.model.fname,
+            ] + flags,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            **kws)
         self.stdout_pipe = LogPipe(
             self.process.stdout, prefix="APSIMX: ")
         self.stderr_pipe = LogPipe(
@@ -2312,13 +2316,13 @@ class ApsimXEngine(CropModelEngine):
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""
-        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable}, "
-                     f"is_running = {self.is_running}, "
-                     f"is_complete = {self.is_complete}, "
-                     f"current_time = {self._current_time})")
+        logger.info(f"ApsimX _stop (is_operable = {self.is_operable}, "
+                    f"is_running = {self.is_running}, "
+                    f"is_complete = {self.is_complete}, "
+                    f"current_time = {self._current_time})")
         if self.is_running and self.is_complete and self._status == "paused":
             self._resume(wait=True)
-        if self.is_operable and self._status != "never connected":
+        if self.is_operable:
             try:
                 with self.stop_on_error(("act", "terminate", tuple(), {})):
                     self._act("terminate", {})

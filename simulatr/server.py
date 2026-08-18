@@ -576,8 +576,10 @@ class InteractiveSimulator(ContinuousSimulator):
             if not is_running:
                 break
             try:
-                async with asyncio.timeout(self.wait_time):
-                    await self._model_accessed.wait()
+                await asyncio.wait_for(
+                    self._model_accessed.wait(),
+                    timeout=self.wait_time
+                )
                 self._model_accessed.clear()
             except TimeoutError:
                 if is_running:

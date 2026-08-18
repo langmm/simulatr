@@ -1,5 +1,7 @@
 import os
 import threading
+import subprocess
+import signal
 import logging
 from typing import Optional, Union, Any, List
 from io import BufferedReader
@@ -31,6 +33,27 @@ cfg.setdefaults(
         'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
     },
 )
+
+
+def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
+    r"""Kill a subprocess instance, first trying kill method, then
+    falling back on SIGINT.
+
+    Args:
+        process: Subprocess instance.
+        timeout: Number of seconds to wait after calling kill.
+
+    """
+    try:
+        process.kill()
+        process.wait(timeout=1)
+    except subprocess.TimeoutExpired:
+        os.kill(process.pid, signal.SIGINT)
+        process.wait(timeout=timeout)
+    # process2 = psutil.Process(process.pid)
+    # for proc in process2.children(recursive=True):
+    #     proc.kill()
+    # process2.kill()
 
 
 def partialclone(repourl: str, dst: str = None,

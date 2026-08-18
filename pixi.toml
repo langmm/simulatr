@@ -24,6 +24,7 @@ simulatr = { path = ".", editable = true }
 [feature.dev.dependencies]
 conda-index = "*"
 flake8 = "*"
+git-changelog = "*"
 myst-parser = "*"
 pytest = "*"
 pytest-cov = "*"
@@ -35,6 +36,10 @@ tox = "*"
 test = { cmd = "pytest", description = "Run the test suite" }
 lint = { cmd = "flake8 simulatr tests", description = "Lint the codebase" }
 docs = { cmd = "sphinx-build docs docs/_build", description = "Build the documentation" }
+changelog = {
+    cmd = "git-changelog",
+    description = "Update the change log"
+}
 build-conda = {
     cmd = "pixi publish --path recipe --target-dir build",
     description = "Build the conda package with pixi publish"
@@ -62,7 +67,6 @@ git = "*"
 
 [feature.py310.dependencies]
 python = "3.10.*"
-async-timeout = "*"
 
 [feature.py311.dependencies]
 python = "3.11.*"

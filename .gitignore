@@ -2,6 +2,7 @@
 simulatr/_version.py
 
 # Generated directories
+HUMERIS
 nasa_power_weather_data
 models
 output

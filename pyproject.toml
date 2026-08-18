@@ -57,16 +57,17 @@ requires-python = ">= 3.10"
 simulatr = "simulatr.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/langmm/ApsimX"
-Documentation = "https://github.com/langmm/ApsimX"
-Repository = "https://github.com/langmm/ApsimX"
-Issues = "https://github.com/langmm/ApsimX/issues"
-Changelog = "https://github.com/langmm/ApsimX/blob/main/ApsimXGym/HISTORY.rst"
+Homepage = "https://github.com/langmm/simulatr"
+Documentation = "https://github.com/langmm/simulatr"
+Repository = "https://github.com/langmm/simulatr"
+Issues = "https://github.com/langmm/simulatr/issues"
+Changelog = "https://github.com/langmm/simulatr/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
   'build',
   'flake8',
+  'git-changelog',
   'myst-parser',
   'pytest',
   'pytest-cov',
@@ -183,3 +184,9 @@ exclude = '''
 )/
 '''
 
+
+[tool.git-changelog]
+template = "keepachangelog"
+bump = "auto"
+output = "CHANGELOG.md"
+# in-place = true

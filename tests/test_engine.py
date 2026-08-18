@@ -9,10 +9,7 @@ from simulatr.base import (
     InvalidActionError, RecoverableError,
     RecoverableModelEngineError,
 )
-if sys.platform == 'win32':
-    logger.setLevel(logging.DEBUG)
-else:
-    logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
 
 
 ##########################################################

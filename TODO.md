@@ -2,7 +2,6 @@
 
 ## General
 
-- [ ] Fix windows tests on CI
 - [ ] Add soil file parsing
 - [ ] Improve human readable prompt for CLI and fix set/get description
 
@@ -19,4 +18,3 @@
 - [ ] Improved documentation
 - [ ] Endpoint for getting a list of state variables (this would require parsing C# files)
 - [ ] Auto test API examples/defaults
-- [ ] Add option to upload a crop model file?

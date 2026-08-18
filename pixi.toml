@@ -62,6 +62,7 @@ git = "*"
 
 [feature.py310.dependencies]
 python = "3.10.*"
+async-timeout = "*"
 
 [feature.py311.dependencies]
 python = "3.11.*"

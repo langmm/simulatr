@@ -1,6 +1,5 @@
 import os
 import re
-import sys
 import glob
 import json
 import copy
@@ -2262,15 +2261,6 @@ class ApsimXEngine(CropModelEngine):
         kws = {}
         flags = []
         timeout = 10
-        if sys.platform == 'win32':
-            env = copy.deepcopy(os.environ)
-            env["PATH"] = (
-                os.path.dirname(self.apsim_srv())
-                + os.pathsep + env["PATH"]
-            )
-            kws["env"] = env
-            flags += ["--verbose"]
-            timeout = 60
         self.process = subprocess.Popen(
             [
                 "dotnet", self.apsim_srv(),
@@ -2296,7 +2286,7 @@ class ApsimXEngine(CropModelEngine):
                 if e.errno != zmq.EAGAIN:
                     raise
         if self._status != "connect":
-            logger.info(f"Failed to connect after {timeout} seconds")
+            logger.error(f"Failed to connect after {timeout} seconds")
             self._status = "never connected"
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "
@@ -2313,14 +2303,14 @@ class ApsimXEngine(CropModelEngine):
             self.end_time = self.get("[Clock].End")
         else:
             assert self.get("[Clock].End") == self.end_time
-        logger.info("APSIMX Start complete")
+        logger.debug("APSIMX Start complete")
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""
-        logger.info(f"ApsimX _stop (is_operable = {self.is_operable}, "
-                    f"is_running = {self.is_running}, "
-                    f"is_complete = {self.is_complete}, "
-                    f"current_time = {self._current_time})")
+        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable}, "
+                     f"is_running = {self.is_running}, "
+                     f"is_complete = {self.is_complete}, "
+                     f"current_time = {self._current_time})")
         if self.is_running and self.is_complete and self._status == "paused":
             self._resume(wait=True)
         if self.is_operable:

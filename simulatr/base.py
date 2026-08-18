@@ -1802,6 +1802,9 @@ class BaseModelEngine(BaseModel, ABC):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     _MODEL_NAME: ClassVar[Optional[str]] = None
+    _allow_bulk_set: ClassVar[bool] = False
+    _allow_bulk_get: ClassVar[bool] = False
+    _allow_bulk_act: ClassVar[bool] = False
     INPUT_FILE_TYPE: ClassVar[Any] = None
     AVAILABLE_ACTION_MAP: ClassVar[dict] = {}
     CONTROL_ACTION_MAP: ClassVar[dict] = {
@@ -1884,7 +1887,7 @@ class BaseModelEngine(BaseModel, ABC):
     EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = ("INVALID", {})
     FORM_FIELD_ORDER: ClassVar[List[str]] = []
 
-    model_file: Optional[str | List[str] | BaseModelFile
+    model_file: Optional[str | List[str] | CliSuppress[BaseModelFile]
                          | SkipJsonSchema[None]] = Field(
         default=None,
         description="Path to one or more model input files.")
@@ -1902,40 +1905,40 @@ class BaseModelEngine(BaseModel, ABC):
     start_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-01-01")],
-        description="of simulation (ISO 8601 format)")
+        description="Start time of the simulation (ISO 8601 format)")
     end_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.datetime.fromisoformat("1991-11-05")],
-        description="of simulation (ISO 8601 format)")
+        description="End time of the simulation (ISO 8601 format)")
     duration: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
         default=None,
-        description="Simulation duration. Only used if either start_time "
-                    "or end_time is not provided.",
+        description="Duration of the simulation. Only used if either "
+                    "start_time or end_time is not provided.",
         json_schema_extra={"hidden_for_server": True},
     )
     timestep: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.timedelta(1)],
-        description="Step that should be taken when resume is called.",
+        description="Time step that should be taken when the "
+                    "simulation resumes between pauses for user "
+                    "interaction and/or logging output variables "
+                    "in the trace",
     )
     output_vars: Optional[List[str] | SkipJsonSchema[None]] = Field(
         default=None,
-        description="List of state variable names to record at each "
-                    "time step.",
+        description="List of state variable names to record in the "
+                    "trace at each time step.",
     )
     param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Model parameters to update at the beginning of the "
                     "simulation.")
-    actions: Optional[List[str | SkipJsonSchema[None]]] = Field(
+    actions: Optional[List[str] | CliSuppress[dict]
+                      | CliSuppress[ModelActionSet]
+                      | SkipJsonSchema[None]] = Field(
         default=None,
-        description="Names of actions to include. Only used if action_map "
-                    "is not provided.")
-    action_map: CliSuppress[Optional[dict | ModelActionSet
-                                     | SkipJsonSchema[None]]] = Field(
-        default=None,
-        description="Description of the actions available via the act "
-                    "method.")
+        description="Names or descriptions of the actions available "
+                    "when running interactively.")
     action_param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Action parameters to use keyed to action names.")
@@ -1964,12 +1967,10 @@ class BaseModelEngine(BaseModel, ABC):
                     self.model_dir(), self.model_file)
             if os.path.isfile(self.model_file):
                 self.model = self.INPUT_FILE_TYPE(self.model_file)
-        self.action_map = ModelActionSet.create(
-            self.action_map or self.select_actions(self.actions),
-        )
+        self.actions = self._check_actions(self.actions)
         if self.action_param:
             for k, v in self.action_param.items():
-                self.action_map.set_param(v, action=k)
+                self.actions.set_param(v, action=k)
         if self.model is None:
             self.model = self.create_model_file()
             if self.model_file is None:
@@ -1985,6 +1986,37 @@ class BaseModelEngine(BaseModel, ABC):
         if isinstance(v, str):
             return datetime.datetime.fromisoformat(v)
         return v
+
+    @field_validator('actions', mode="before")
+    @classmethod
+    def check_actions(cls, v):
+        r"""Parse actions input."""
+        return cls._check_actions(v)
+
+    @classmethod
+    def _check_actions(cls, v, **kwargs):
+        if isinstance(v, ModelActionSet):
+            if not kwargs:
+                return v
+        elif v is None:
+            v = cls.AVAILABLE_ACTION_MAP.copy()
+        elif isinstance(v, list):
+            vdict = {}
+            for k in v:
+                if isinstance(k, str):
+                    vdict[k] = (
+                        cls.AVAILABLE_ACTION_MAP[k].copy()
+                        if k in cls.AVAILABLE_ACTION_MAP
+                        else dict(cls.CONTROL_ACTION_MAP[k].copy(),
+                                  is_control=True)
+                    )
+                elif isinstance(k, ModelAction):
+                    vdict[k.name] = k
+                elif isinstance(k, dict):
+                    vdict[k["name"]] = k
+            v = vdict
+        assert isinstance(v, (dict, ModelActionSet))
+        return ModelActionSet.create(v, **kwargs)
 
     @field_validator('duration', 'timestep', mode="before")
     @classmethod
@@ -2403,7 +2435,7 @@ class BaseModelEngine(BaseModel, ABC):
                 self.initial_param_dynamic[k] = value
                 missing.append(k)
         if added:
-            self.action_map.set_param(added, src="model parameters")
+            self.actions.set_param(added, src="model parameters")
             logger.info(f"Synchronized parameters:\n"
                         f"{pprint.pformat(added)}")
         if required and missing:
@@ -2465,7 +2497,7 @@ class BaseModelEngine(BaseModel, ABC):
         r"""Update the model file to make it interactive and set the
         start/end times."""
         if not self.model.is_interactive:
-            self.model.make_interactive(list(self.action_map.keys()))
+            self.model.make_interactive(list(self.actions.keys()))
         if self.output_dir or self.model_suffix:
             self.model.move(directory=self.output_dir,
                             suffix=self.model_suffix)
@@ -2503,8 +2535,9 @@ class BaseModelEngine(BaseModel, ABC):
 
         """
         action_map = action_map or {}
-        actions = (actions or list(action_map.keys())
-                   or list(cls.AVAILABLE_ACTION_MAP.keys()))
+        if actions is None:
+            actions = (list(action_map.keys())
+                       or list(cls.AVAILABLE_ACTION_MAP.keys()))
         return {
             k: action_map.get(
                 k, (
@@ -2634,12 +2667,12 @@ class BaseModelEngine(BaseModel, ABC):
         self.trace = defaultdict(lambda: [])
 
     @abstractmethod
-    def _get(self, name: str):
-        r"""Send a request to get the current value of a simulation state
-        variable.
+    def _get(self, name: str | List[str]) -> Any:
+        r"""Send a request to get the current value of simulation state
+        variable(s).
 
         Args:
-            name: Name of variable to get the value of.
+            name: Name(s) of variable(s) to get the value of.
 
         Returns:
             object: Current variable value.
@@ -2648,8 +2681,8 @@ class BaseModelEngine(BaseModel, ABC):
         raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
-    def _set(self, name: str, value):
-        r"""Send a request to set a simulation state variable.
+    def _set(self, name: str | dict, value: Any = None) -> None:
+        r"""Send a request to set simulation state variable(s).
 
         Args:
             name: Name of the variable to update.
@@ -2659,7 +2692,7 @@ class BaseModelEngine(BaseModel, ABC):
         raise NotImplementedError  # pragma: no cover
 
     @abstractmethod
-    def _act(self, action: str, param: dict):
+    def _act(self, action: str | dict, param: dict = None) -> None:
         r"""Perform an action.
 
         Args:
@@ -2738,8 +2771,8 @@ class BaseModelEngine(BaseModel, ABC):
         Args:
             name: Name of the action to perform.
             *args: Additional positional arguments provide action
-                 parameters in the order specified by \"param\" in the
-                 action_map.
+                 parameters in the order specified by \"param\" in
+                 actions.
             allow_error: If True, a RecoverableError error will not
                 result in the simulation being stopped.
             **kwargs: Additional keyword arguments provide action
@@ -2749,13 +2782,13 @@ class BaseModelEngine(BaseModel, ABC):
         out = None
         with self.stop_on_error(("act", action, args, kwargs),
                                 allow_error=allow_error):
-            if action not in self.action_map:
+            if action not in self.actions:
                 raise InvalidActionError(
                     f"Unsupported action \"{action}\". Supported "
-                    f"actions include: {list(self.action_map.keys())}")
-            kws = self.action_map[action].combine_args_and_kwargs(
+                    f"actions include: {list(self.actions.keys())}")
+            kws = self.actions[action].combine_args_and_kwargs(
                 args, kwargs)
-            if self.action_map[action].is_control:
+            if self.actions[action].is_control:
                 out = self._control(action, kws)
             else:
                 out = self._act(action, kws)
@@ -2801,6 +2834,14 @@ class BaseModelEngine(BaseModel, ABC):
                 values.
 
         """
+        if self._allow_bulk_get:
+            if not names:
+                return {}
+            with self.stop_on_error(("getvars", names, tuple([]), {}),
+                                    allow_error=allow_error):
+                out = self._get(names)
+            logger.debug(f"getvars: {names}")
+            return out
         out = {}
         for name in names:
             out[name] = self.get(name, allow_error=allow_error)
@@ -2817,6 +2858,14 @@ class BaseModelEngine(BaseModel, ABC):
                 result in the simulation being stopped.
 
         """
+        if self._allow_bulk_set:
+            if not values:
+                return
+            with self.stop_on_error(("setvars", values, tuple([]), {}),
+                                    allow_error=allow_error):
+                self._set(values)
+            logger.debug(f"setvars: {values}")
+            return
         for k, v in values.items():
             self.set(k, v, allow_error=allow_error)
 
@@ -2831,6 +2880,25 @@ class BaseModelEngine(BaseModel, ABC):
                 result in the simulation being stopped.
 
         """
+        if self._allow_bulk_act:
+            if not values:
+                return
+            with self.stop_on_error(("actvars", values, tuple([]), {}),
+                                    allow_error=allow_error):
+                missing = [action for action in values.keys()
+                           if action not in self.actions]
+                if missing:
+                    raise InvalidActionError(
+                        f"Unsupported action(s) {missing}. Supported "
+                        f"actions include: {list(self.actions.keys())}")
+                control = [action for action in values.keys()
+                           if self.actions[action].is_control]
+                if control:
+                    raise InvalidActionError(
+                        f"Cannot bundle control actions: {control}")
+                self._act(values)
+            logger.debug(f"actvars: {values}")
+            return
         for k, v in values.items():
             self.act(k, *v, allow_error=allow_error)
 
@@ -3029,7 +3097,7 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
     num_levels: Optional[int] = Field(
         default=4,
         description="Number of levels per action if not specified in "
-                    "action_map (0 for continuous).")
+                    "actions (0 for continuous).")
     intervention_interval: Optional[
         Union[int, datetime.timedelta]] = Field(
         default=7, description="Days between decisions.")
@@ -3039,7 +3107,7 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
     desc_map: Optional[Dict[str, Tuple[str, str]]] = Field(
         default=None,
         description="Custom description mapping for variables.")
-    action_map: Optional[Union[dict, ModelActionSet]] = Field(
+    actions: Optional[Union[dict, ModelActionSet]] = Field(
         default=None,
         description="Custom description mapping for actions.")
     reward: Optional[str] = Field(
@@ -3086,8 +3154,8 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
             self.state_descriptor = self.state_descriptor.strip() + " "
         self.thinking_mode = self._normalize_thinking_mode(
             self.thinking_mode)
-        self.action_map = ModelActionSet.create(
-            self.action_map or {},
+        self.actions = ModelActionSet.create(
+            self.actions or {},
             num_levels=self.num_levels,
             allow_donothing=self.allow_donothing,
             exclusive=self.exclusive,
@@ -3179,8 +3247,8 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
             obs_lines += section_lines
 
         # ── 3. Action options ───────────────────────────────────────
-        action_lines = self.action_map.description_lines.copy()
-        example_action = self.action_map.example_description
+        action_lines = self.actions.description_lines.copy()
+        example_action = self.actions.example_description
 
         # ── 4. Decision guidance (varies by require_think × thinking_mode)
         if self.for_human:
@@ -3270,7 +3338,7 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
         """
         at = self.answer_tag
         try:
-            action = self.action_map.action2description(action_id)
+            action = self.actions.action2description(action_id)
             return f"<{at}>{action}</{at}>"
         except BaseException:
             return f"<{at}>Unknown action {action_id}.</{at}>"
@@ -3308,7 +3376,7 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
                 return None
             action_text = m.group(m.lastindex).strip()
         try:
-            return self.action_map.description2action(action_text)
+            return self.actions.description2action(action_text)
         except InvalidActionError:
             return None
 
@@ -3334,7 +3402,7 @@ class BaseModelLLMPromptGenerator(BaseModel, ABC):
             num_levels=env.num_levels,
             intervention_interval=env.intervention_interval,
             output_vars=env.output_vars,
-            action_map=env.action_map,
+            actions=env.actions,
             allow_donothing=env.allow_donothing,
             exclusive=env.exclusive,
             # REWARD
@@ -3420,7 +3488,8 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
     DEFAULT_REVENUE_VAR: ClassVar[dict] = {}
 
     # Model fields
-    model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
+    model_file: Optional[Union[str, List[str],
+                               CliSuppress[BaseModelFile]]] = Field(
         default=None,
         description="Path to one or more model input files.")
     start_time: Optional[datetime.datetime] = Field(
@@ -3437,14 +3506,11 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
     num_levels: Optional[int] = Field(
         default=4,
         description="Number of levels per action if not specified in "
-                    "action_map (0 for continuous, -1 for boolean).")
-    actions: Optional[List[str]] = Field(
+                    "actions (0 for continuous, -1 for boolean).")
+    actions: Optional[Union[List[str], dict, ModelActionSet]] = Field(
         default=None,
-        description="Names of actions to include. Only used if action_map "
-                    "is not provided.")
-    action_map: Optional[Union[dict, ModelActionSet]] = Field(
-        default=None,
-        description="Custom description mapping for actions.")
+        description="Names of actions or custom description mapping "
+                    "for actions.")
     revenue_var: Optional[Dict[str, Union[str, float]]] = Field(
         default=None,
         description="Description of how profit should be calculated from "
@@ -3478,10 +3544,9 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
                 is provided, the units will be assumed to be days.
             output_vars: List of observation variable names.
             num_levels: Number of levels per action if not specified in
-                action_map (0 for continuous, -1 for boolean).
-            actions: Names of actions to include. Only used if action_map
-                not provided.
-            action_map: Custom description mapping for actions.
+                actions (0 for continuous, -1 for boolean).
+            actions: Names of actions to include or custom description
+                mapping for actions.
             revenue_var: Description of how profit should be calculated
                 from an output variable.
             model_param: Initial model parameters to set in the model
@@ -3504,13 +3569,10 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         self.output_vars = self.output_vars or []
         self.revenue_var = self.revenue_var or copy.deepcopy(
             self.DEFAULT_REVENUE_VAR)
-        action_map = self.action_map or {}
-        actions = (
-            self.actions or list(action_map.keys())
-            or self.DEFAULT_ACTIONS
-        )
-        self.action_map = ModelActionSet.create(
-            self.MODEL_ENGINE_CLASS.select_actions(actions, action_map),
+        if self.actions is None:
+            self.actions = self.DEFAULT_ACTIONS
+        self.actions = self.MODEL_ENGINE_CLASS._check_actions(
+            self.actions,
             num_levels=self.num_levels,
             allow_donothing=self.allow_donothing,
             exclusive=self.exclusive,
@@ -3518,9 +3580,9 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         )
         if self.action_param:
             for k, v in self.action_param.items():
-                self.action_map.set_param(v, action=k)
+                self.actions.set_param(v, action=k)
         if self.scale_action_amounts_by_interval:
-            self.action_map.scale_action_amounts(
+            self.actions.scale_action_amounts(
                 float(self.intervention_interval.days)
             )
 
@@ -3539,7 +3601,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
             ]
 
         # Define what actions are available (bounds for each parameter)
-        self.action_space = self.action_map.space
+        self.action_space = self.actions.space
 
         # Define what the agent can observe (bounds for each output)
         self.observation_space = gym.spaces.Box(
@@ -3602,7 +3664,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
             model_file=self.model_file,
             start_time=self.start_time,
             end_time=self.end_time,
-            action_map=self.action_map,
+            actions=self.actions,
             param=self.model_param,
             **kwargs
         )
@@ -3638,7 +3700,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         """
         out = 0.0
         for k, v in action.items():
-            out += self.action_map[k].args2cost(v)
+            out += self.actions[k].args2cost(v)
         return out
 
     def _get_revenue(self, obs: dict) -> float:
@@ -3738,7 +3800,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
             tuple: (observation, reward, terminated, truncated, info)
 
         """
-        action_dict = self.action_map.action2args(action)
+        action_dict = self.actions.action2args(action)
         self.model.actvars(action_dict)
         self.model.fast_forward(self.intervention_timedelta)
         observation = self._get_obs()
@@ -3766,10 +3828,15 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         kwargs.setdefault("exclusive", True)
         kwargs.setdefault("allow_donothing", True)
         kwargs.setdefault("require_think", False)
-        if "action_map" not in kwargs:
-            kwargs["actions"] = kwargs.get("actions", []) + list(
-                cls.MODEL_ENGINE_CLASS.CONTROL_ACTION_MAP.keys())
-        return cls(**kwargs)
+        actions = kwargs.pop("actions", list(
+            cls.MODEL_ENGINE_CLASS.AVAILABLE_ACTION_MAP.keys()))
+        if isinstance(actions, list):
+            actions = actions + [
+                k for k in
+                cls.MODEL_ENGINE_CLASS.CONTROL_ACTION_MAP.keys()
+                if k not in actions
+            ]
+        return cls(actions=actions, **kwargs)
 
     def run_interactive_for_human(self):
         r"""Run the environment asking for human input on what actions
@@ -3777,7 +3844,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
         prompt_generator = self.get_llm_prompt_generator(for_human=True)
         raw_obs, _ = self.reset()
         prompt_suffix = '\n\nWhat would you like to do? [CONTINUE]'
-        donothin_action = prompt_generator.action_map.donothin_action
+        donothin_action = prompt_generator.actions.donothin_action
         assert donothin_action is not None  # DEBUG
         while self.model.is_running and not self.model.is_complete:
             response = promptuser(
@@ -3796,7 +3863,7 @@ class BaseModelEnv(BaseModel, gym.Env, metaclass=_ModelEnvMeta):
                         response = promptuser(
                             f"Invalid response. {prompt_suffix}: ")
                 self.model.actvars(
-                    self.action_map.action2args(action_id))
+                    self.actions.action2args(action_id))
                 if action_id != donothin_action:
                     action_id = None
                     response = promptuser("Anything else? [CONTINUE]: ")

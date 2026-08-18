@@ -3,31 +3,158 @@ import os
 import json
 import argparse
 import logging
+import typing
+import datetime
+from functools import cached_property
 from typing import Any, Optional, List
 from . import (
     logger, registered_simulators, get_simulator_class, n8n, server,
 )
-from .utils import cfg
-from pydantic_settings import CliSettingsSource
+from .utils import cfg, FieldHandler, FieldSource
+
+
+class OverrideExtendAction(argparse.Action):
+    r"""Action class to prevent extending default values."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(self, '_overwritten', False):
+            current_values = getattr(namespace, self.dest)
+            current_values.extend(values)
+        else:
+            setattr(namespace, self.dest, list(values))
+            setattr(self, '_overwritten', True)
+
+
+class CliArgHandler(FieldHandler):
+
+    @cached_property
+    def names(self) -> list:
+        r"""list: Argument names for the field"""
+        out = [self.field_name]
+        if self.field_info.alias:
+            out.append(self.field_info.alias)
+        out = [x.replace("_", "-") for x in out]
+        if not self.field_info.is_required():
+            out = ["--" + x for x in out]
+        return tuple(out)
+
+    def type_kwargs(self, annotation: type) -> dict:
+        r"""Get the kwargs defining the type for a command line argument
+        that should accept the provided annotation.
+
+        Args:
+            annotation: Type hint.
+
+        Returns:
+            dict: Keyword arguments for add_argument defining the type.
+
+        """
+        types = self.extract_type(annotation)
+        if isinstance(types, list):
+            if len(types) == 2 and bool in types:
+                other = types[1] if types[0] == bool else types[0]
+                out = self.type_kwargs(other)
+                assert ("type" in out and "nargs" not in out
+                        and "action" not in out)
+                out.update(
+                    nargs="?",
+                    const=True,
+                )
+                if not self.field_info.default:
+                    out["default"] = False
+                return out
+            elif datetime.timedelta in types:
+                for x in [int, float]:
+                    if x in types:
+                        types.remove(x)
+            if isinstance(types, list) and len(types) == 1:
+                types = types[0]
+            if isinstance(types, list):
+                raise RuntimeError(
+                    f"More than one type for {self.field_name}: "
+                    f"{types}")
+        if types == bool:
+            return {"action": "store_true"}
+        elif types in [str, int, float]:
+            return {"type": types}
+        elif types in [datetime.datetime, datetime.date]:
+            return {"type": str}
+        elif types in [datetime.timedelta]:
+            return {"type": float}
+        elif typing.get_origin(types) is list:
+            args = typing.get_args(types)
+            if len(args) != 1:
+                raise RuntimeError(
+                    f"More than one type in list for "
+                    f"{self.field_name}: {args}")
+            out = self.type_kwargs(args[0])
+            assert "type" in out and "nargs" not in out and "action" not in out
+            out.update(
+                nargs="+",
+                action=OverrideExtendAction,
+            )
+            return out
+        raise NotImplementedError(
+            f"Handling of type {types} for field {self.field_name}")
+
+    def __call__(self, parser: argparse.ArgumentParser):
+        r"""Add an argument to the parser for this field.
+
+        Args:
+            parser: Parse to add the argument to.
+
+        """
+        kwargs = self.type_kwargs(self.field_info.annotation)
+        if self.field_info.description:
+            # TODO: Remove/add field name prefix for forms
+            kwargs["help"] = self.field_info.description
+        if self.field_info.default is not None:
+            kwargs["default"] = self.field_info.default
+        if self.enum is not None:
+            kwargs["choices"] = self.enum
+        parser.add_argument(
+            *self.names,
+            **kwargs
+        )
+
+    @classmethod
+    def add_subparser(cls, root_parser: argparse.ArgumentParser,
+                      name: str, model: Any,
+                      skip_fields: Optional[List[str]] = None,
+                      overwrite_kws: Optional[dict] = None,
+                      **kwargs) -> argparse.ArgumentParser:
+        r"""Add a subparser with arguments based on a pydantic model's
+        fields.
+
+        Args:
+            root_parser: Parser that the subparser should be added to.
+            name: Name for the subparser.
+            model: Pydantic models with fields that should be added to
+                the subparser as arguments.
+            skip_fields: Set of fields that should not be added.
+            overwrite_kws: Mapping of argument keyword args that should
+                be overridden for each field.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                call to add_parser.
+
+        Returns:
+            argparse.ArgumentParser: Subparser.
+
+        """
+        parser = root_parser.add_parser(name, **kwargs)
+        cli_src = FieldSource(model=model, skip_fields=skip_fields,
+                              overwrite_kws=overwrite_kws,
+                              field_handler=cls)
+        cli_src(parser)
+        return parser
 
 
 def _add_args_from_engine(simulator: str,
                           root_parser: argparse.ArgumentParser,
-                          omit_fields: Optional[List[str]] = None,
-                          **kwargs: Any) -> CliSettingsSource:
-    # TODO:
-    # - Skip fields
-    # - Use extend for lists
-    # - Allow for choices
-    parser = root_parser.add_parser(simulator, **kwargs)
+                          **kwargs: Any) -> argparse.ArgumentParser:
     engine = get_simulator_class(simulator)
-    return CliSettingsSource(
-        engine,
-        root_parser=parser,
-        cli_parse_args=False,
-        cli_hide_none_type=True,
-        cli_kebab_case=True,
-    )
+    return CliArgHandler.add_subparser(
+        root_parser, simulator, engine, **kwargs)
 
 
 def run(simulator: str, timestep: int = 0,
@@ -128,7 +255,6 @@ def main() -> None:
     for k in simulators:
         create_parsers[k] = _add_args_from_engine(
             k, parser_create_sim,
-            # TODO: omit_fields=[],
             help=f"Create an {k} input file",
         )
     # create_parsers["apsimx"].add_argument(
@@ -139,8 +265,7 @@ def main() -> None:
     #     ],
     #     help="Crop name to create an input file for",
     # )
-    for setting_x in create_parsers.values():
-        parser_x = setting_x.root_parser
+    for parser_x in create_parsers.values():
         parser_x.add_argument(
             "--dst", type=str,
             help="Path to where the new file should be saved",
@@ -162,7 +287,7 @@ def main() -> None:
             k, parser_run_sim,
             help=f"Run a {k} simulation",
         )
-        parser_x = run_parsers[k].root_parser
+        parser_x = run_parsers[k]
         parser_x.add_argument(
             "--log-file", type=str, nargs="?", const=True,
             help="File where log message should be written",
@@ -177,8 +302,10 @@ def main() -> None:
     parser_server = subparsers.add_parser(
         "serve", help="Launch simulator(s) as fastapi application")
     parser_server.add_argument(
-        "--simulator", type=str, nargs="+", action="extend",
+        "--simulator", type=str, nargs="+",
+        action=OverrideExtendAction,
         choices=installed_simulators,
+        default=installed_simulators,
         help=(
             "Name of the simulator(s) to create application endpoints "
             "for. If not specified, all of the installed simulators "
@@ -340,8 +467,6 @@ def main() -> None:
                             level=getattr(logging, args.log_level))
         run(args.simulator, **kws)
     elif args.action == "serve":
-        if not args.simulator:
-            args.simulator = installed_simulators
         server.run_server(
             args.simulator,
             host=args.host, port=args.port,

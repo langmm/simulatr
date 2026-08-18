@@ -10,9 +10,7 @@ import subprocess
 import contextlib
 import datetime
 from functools import cached_property
-import sqlite3
 import numpy as np
-import pandas as pd
 from typing import (
     Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar
 )
@@ -544,6 +542,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
             object: File contents.
 
         """
+        import pandas as pd
         out = {
             "constants": {},
             "units": {},
@@ -625,6 +624,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
         """
         if not isinstance(src, NASAPOWERWeatherFile):
             return super()._from_base(src)
+        import pandas as pd
         fill_value = float(src.contents["header"]["fill_value"])
         out = {"units": cls._units.copy()}
         out["constants"] = {
@@ -1941,6 +1941,8 @@ class ApsimXEngine(CropModelEngine):
     in another process."""
 
     _MODEL_NAME: ClassVar[str] = "apsimx"
+    _allow_bulk_set: ClassVar[bool] = True
+    _allow_bulk_get: ClassVar[bool] = True
     MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
         days=1)
     STATUS_MESSAGES: ClassVar[list] = [
@@ -2178,7 +2180,7 @@ class ApsimXEngine(CropModelEngine):
             return self.INPUT_FILE_TYPE.from_example(
                 src, dst=self.model_file,
                 interactive=True,
-                actions=list(self.action_map.keys()),
+                actions=list(self.actions.keys()),
             )
         return super().create_model_file()
 
@@ -2238,9 +2240,12 @@ class ApsimXEngine(CropModelEngine):
     def get_results(self) -> Any:
         r"""Get the simulation results."""
         if os.path.isfile(self.output_file):
+            import pandas as pd
+            import sqlite3
             # This currently errors due to missing report
             conn = sqlite3.connect(self.output_file)
             df = pd.read_sql_query("SELECT * FROM Report", conn)
+            conn.close()
             return df.to_json()
         return None
 
@@ -2285,6 +2290,7 @@ class ApsimXEngine(CropModelEngine):
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
                     raise
+                time.sleep(0.01)
         if self._status != "connect":
             logger.error(f"Failed to connect after {timeout} seconds")
             self._status = "never connected"
@@ -2442,56 +2448,75 @@ class ApsimXEngine(CropModelEngine):
             error_cls = ModelEngineError
         return error_cls
 
-    def _get(self, name: str):
+    def _get(self, name: str | list):
         r"""Send a request to get the current value of a simulation state
         variable.
 
         Args:
-            name: Name of variable to get the value of.
+            name: Name(s) of variable to get the value of.
 
         Returns:
             object: Current variable value.
 
         """
         reply = None
+        expect_list = isinstance(name, list)
+        orig_names = (name if isinstance(name, list) else [name])
+        names = []
         try:
-            name = self.model._get_internal_name(name)
+            for name in orig_names:
+                name = self.model._get_internal_name(name)
+                names.append(name)
         except KeyError as e:
             raise InvalidActionError(e)
-        self.send_command("get", [name])
+        self.send_command("get", names)
         reply = self.recv_reply(unpack=True)
         if reply in self.ERROR_MESSAGES:
             raise self._reply_error(reply)(
                 f"get for \"{name}\" received error reply "
                 f"\"{reply}\""
             )
-        if isinstance(reply, msgpack.ext.Timestamp):
-            reply = reply.to_datetime().replace(tzinfo=None)
-        return reply
+        assert isinstance(reply, list) and len(reply) == len(names)
+        out = {}
+        for k, v in zip(orig_names, reply):
+            if isinstance(v, msgpack.ext.Timestamp):
+                v = v.to_datetime().replace(tzinfo=None)
+            out[k] = v
+        if not expect_list:
+            return out[orig_names[0]]
+        return out
 
-    def _set(self, name: str, value):
-        r"""Send a request to set a simulation state variable.
+    def _set(self, name: str | dict, value: Any = None) -> None:
+        r"""Send a request to set simulation state variable(s).
 
         Args:
             name: Name of the variable to update.
             value: New value for the named variable.
 
         """
+        if isinstance(name, dict):
+            values = name
+            assert value is None
+        else:
+            values = {name: value}
+        args = []
         try:
-            name = self.model._get_internal_name(name)
+            for name, value in values.items():
+                name = self.model._get_internal_name(name)
+                if isinstance(value, (datetime.datetime, datetime.date)):
+                    value = value.isoformat()
+                args += [name, value]
         except KeyError as e:
             raise InvalidActionError(e)
-        if isinstance(value, (datetime.datetime, datetime.date)):
-            value = value.isoformat()
-        self.send_command("set", [name, value])
+        self.send_command("set", args)
         reply = self.recv_reply()
         if reply != "ok":
             raise self._reply_error(reply)(
-                f"set for \"{name}\" received non-ok reply "
+                f"set for {values} received non-ok reply "
                 f"\"{reply}\""
             )
 
-    def _act(self, action: str, param: dict):
+    def _act(self, action: str | dict, param: dict = None) -> None:
         r"""Perform an action.
 
         Args:
@@ -2499,17 +2524,25 @@ class ApsimXEngine(CropModelEngine):
             param: Action parameters.
 
         """
-        args_flat = []
-        for k, v in param.items():
-            args_flat += [k, v]
-        logger.debug(f"_act: {[action] + args_flat}")
-        self.send_command("act", [action] + args_flat)
+        if isinstance(action, dict):
+            values = action
+            assert param is None
+        else:
+            values = {action: param}
+        args = []
+        for action, param in values.items():
+            args_flat = []
+            for k, v in param.items():
+                args_flat += [k, v]
+            args += [action] + args_flat
+        logger.debug(f"_act: {args}")
+        self.send_command("act", args)
         logger.debug("_act: recv_reply")
         reply = self.recv_reply()
         logger.debug(f"_act: recv_reply returned {reply}")
         if reply != "ok":
             raise self._reply_error(reply)(
-               f"act for \"{action}\" received non-ok reply "
+               f"act for {values} received non-ok reply "
                f"\"{reply}\""
             )
 

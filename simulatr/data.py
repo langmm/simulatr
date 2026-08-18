@@ -1,7 +1,6 @@
 import os
 import glob
 import numpy as np
-import pandas as pd
 import datetime
 import requests
 from abc import abstractmethod
@@ -398,6 +397,7 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
     @readonly_cached_property
     def dates(self) -> np.ndarray:
         r"""np.ndarray: Dates covered by this file."""
+        import pandas as pd
         dates = pd.Series(
             self.contents["properties"]["parameter"][self.parameters[0]])
         return pd.to_datetime(dates.index, format="%Y%m%d")

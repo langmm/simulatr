@@ -3,7 +3,14 @@ import threading
 import subprocess
 import signal
 import logging
-from typing import Optional, Union, Any, List
+import typing
+import argparse
+import datetime
+from functools import cached_property
+from typing import Optional, Union, Any, List, ClassVar, Tuple, Dict
+from pydantic import BaseModel, PrivateAttr, ConfigDict, Field
+from pydantic.json_schema import SkipJsonSchema
+from collections import OrderedDict
 from io import BufferedReader
 from . import logger
 from .config import PackageConfig, _pkgdir
@@ -46,7 +53,7 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
     """
     try:
         process.kill()
-        process.wait(timeout=1)
+        process.wait(timeout=0.1)
     except subprocess.TimeoutExpired:
         os.kill(process.pid, signal.SIGINT)
         process.wait(timeout=timeout)
@@ -171,3 +178,276 @@ class LogPipe(threading.Thread):
             if self.terminated.is_set():
                 break
         self.terminated.set()
+
+
+class SkipFieldType(BaseException):
+    r"""Error to raise for fields that are skipped by a field handler."""
+    pass
+
+
+class FieldHandler(BaseModel):
+    r"""Base class for performing operations for each field in a
+    pydantic model subclass."""
+
+    field_name: str = Field(description="Field name")
+    field_info: Any = Field(description="Field information")
+    skip_fields: Optional[List[str]] = Field(
+        None,
+        description="Names of fields to skip")
+    skip_annotation_values: Optional[list] = Field(
+        [argparse.SUPPRESS],
+        description="Annotation values that should be skipped")
+    skip_annotation_types: Optional[List[type]] = Field(
+        [SkipJsonSchema],
+        description="Annotation types that should be skipped")
+
+    def skip_field(self, reason: str):
+        r"""Raise a SkipFieldType error to skip this field.
+
+        Args:
+            reason: Reason field is skipped.
+
+        Raises:
+            SkipFieldType
+
+        """
+        raise SkipFieldType(f"{self.field_name}: {reason}")
+
+    def model_post_init(self, __context: Any) -> None:
+        r"""Initialize the handler."""
+        self.skip_fields = (self.skip_fields or [])
+        if self.field_name in self.skip_fields:
+            self.skip_field("in skip_fields")
+        if any(x in self.field_info.metadata for x in
+               self.skip_annotation_values):
+            self.skip_field("annotation in skip_annotation_values")
+        return super().model_post_init(__context)
+
+    def __call__(self, *args, **kwargs):
+        r"""Perform operation for the field."""
+        raise NotImplementedError
+
+    @cached_property
+    def annotation_types(self) -> typing.Union[list, type]:
+        r"""Type(s) indicated by the annotation after stripping
+        skipped annotations and merging nested unions."""
+        return self.extract_type(self.field_info.annotation)
+
+    @cached_property
+    def is_array(self) -> bool:
+        r"""True if the type indicates the field expects a list."""
+        return (typing.get_origin(self.annotation_types) == list)
+
+    @cached_property
+    def flattened_annotation(self) -> type:
+        r"""Type annotation for the field after stripping skipped
+        annotations and merging nested unions."""
+        out = self.annotation_types
+        if isinstance(out, list):
+            return typing.Union[tuple(out)]
+        return out
+
+    @cached_property
+    def enum(self) -> list:
+        r"""list: Enumerated values allowed by the field."""
+        if not self.field_info.json_schema_extra:
+            return None
+        if "enum" in self.field_info.json_schema_extra:
+            return self.field_info.json_schema_extra["enum"]
+        elif "enum" in self.field_info.json_schema_extra.get("items", {}):
+            return self.field_info.json_schema_extra["items"]["enum"]
+        return None
+
+    def extract_type_list(self, args: list) -> list:
+        r"""Extract type information from a list of type hints by
+        extracting skipped annotations and merging nested unions.
+
+        Args:
+            args: Set of annotations to get types from.
+
+        Returns:
+            list: Flattened type hints.
+
+        """
+        out = []
+        for x in args:
+            try:
+                xout = self.extract_type(x)
+                if isinstance(xout, list):
+                    out += [xx for xx in xout if xx not in out]
+                else:
+                    out.append(xout)
+            except SkipFieldType:
+                continue
+        if not out:
+            self.skip_field("Empty Union")
+        return out
+
+    def extract_type(self, annotation: type) -> type:
+        r"""Extract type information from a type hint by
+        extracting skipped annotations and merging nested unions.
+
+        Args:
+            annotaion: Type hint to extract a type from.
+
+        Returns:
+            list: Flattened type hints.
+
+        """
+        if annotation is type(None):
+            self.skip_field("None")
+        origin = typing.get_origin(annotation)
+        if origin is None:
+            return annotation
+        args = typing.get_args(annotation)
+        if origin == typing.Annotated:
+            if isinstance(args[1], tuple(self.skip_annotation_types)):
+                self.skip_field(f"{args[1]} in skip_annotation_types")
+            if args[1] in self.skip_annotation_values:
+                self.skip_field(f"{args[1]} in skip_annotation_values")
+            return self.extract_type(args[0])
+        elif origin == typing.Union:
+            out = self.extract_type_list(args)
+            if datetime.timedelta in out:
+                for x in [int, float]:
+                    if x in out:
+                        out.remove(x)
+            if len(out) == 1:
+                return out[0]
+            if len(out) == 2:
+                if ((typing.get_origin(out[0]) == list
+                     and out[0] == List[out[1]])):
+                    return out[0]
+                if ((typing.get_origin(out[1]) == list
+                     and out[1] == List[out[0]])):
+                    return out[1]
+            return out
+        elif origin == list:
+            args = self.extract_type_list(args)
+            return typing.List[tuple(args)]
+        raise NotImplementedError(
+            f"Extraction of type from annotation {annotation} "
+            f"for field {self.field_name} (origin = {origin}, "
+            f"args = {args})")
+
+
+class FieldSource(BaseModel):
+    r"""Wrapper for model to perform operations over fields on a
+    pydantic model subclass."""
+
+    model_config = ConfigDict(extra='allow')
+
+    model: Any = Field(description="Model providing fields")
+    field_handler: Optional[type] = Field(
+        FieldHandler,
+        description="Field handler")
+
+    _args: PrivateAttr(default_factory=OrderedDict)
+
+    def fields(self) -> typing.Iterator:
+        r"""Field iterator."""
+        for v in self._args.values():
+            yield v
+
+    def model_post_init(self, __context: Any) -> None:
+        r"""Initialize the class by creating handlers for each field."""
+        self._args = OrderedDict()
+        field_order = getattr(self.model, "FORM_FIELD_ORDER", []).copy()
+        field_order += [k for k in self.model.model_fields.keys()
+                        if k not in field_order]
+        for field_name in field_order:
+            field_info = self.model.model_fields[field_name]
+            try:
+                field_inst = self.field_handler(
+                    field_name=field_name,
+                    field_info=field_info,
+                    **self.model_extra,
+                )
+                self._args[field_name] = field_inst
+            except SkipFieldType:
+                continue
+        return super().model_post_init(__context)
+
+    def __call__(self, *args, **kwargs):
+        r"""Call handler for each field."""
+        for field in self.fields():
+            try:
+                field(*args, **kwargs)
+            except SkipFieldType:
+                continue
+
+
+def create_registry_metaclass(key_attr: str | tuple = "_NAME",
+                              base_type: type = object):
+    r"""Class factor for creating a metaclass for registering
+    classes.
+
+    Args:
+        key_attr: Attribute(s) that should be used to register classes.
+        base_type: Type that classes using this metaclass will inherit
+            from.
+
+    Returns:
+        type: New registr metaclass.
+
+    """
+
+    class RegistryMetaclass(type(base_type)):
+        r"""Metaclass that registers subclasses."""
+
+        _registry_attr = ClassVar[Optional[str | tuple]] = key_attr
+        _registry: ClassVar[OrderedDict] = OrderedDict()
+
+        def __new__(mcs, name: str, bases: Tuple[type, ...],
+                    namespace: Dict[str, Any], **kwargs: Any):
+            cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+            mcs._register(cls)
+            return cls
+
+        @classmethod
+        def _get_key(mcs, cls):
+            if isinstance(mcs._registry_attr, tuple):
+                return tuple([getattr(cls, k, None)
+                              for k in mcs._registry_attr])
+            return (getattr(cls, mcs._registry_attr, None), )
+
+        @classmethod
+        def _register(mcs, cls):
+            key = mcs._get_key(cls)
+            if None in key:
+                return
+            dst = mcs._registry
+            for k in key[:-1]:
+                dst.setdefault(k, OrderedDict())
+                dst = dst[k]
+            assert key[-1] not in dst
+            dst[key[-1]] = cls
+
+        @classmethod
+        def registered_classes(mcs) -> List[str]:
+            r"""Get the names of all registered classes.
+
+            Returns:
+                List[str]: Names of the registered classes.
+
+            """
+            return sorted(mcs._registry)
+
+        @classmethod
+        def get_class(mcs, *key: tuple) -> type:
+            r"""Get the registered class associated with a registry
+            key.
+
+            Args:
+                key: Registry key.
+
+            Returns:
+                type: Registered class.
+
+            """
+            out = mcs._registry
+            for k in key:
+                out = out[k]
+            return out
+
+    return RegistryMetaclass

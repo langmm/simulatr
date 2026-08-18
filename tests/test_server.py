@@ -39,7 +39,7 @@ def local_service(ping_address, pytestconfig, simulator):
                 cmd = (
                     f"python -m simulatr serve "
                     f"--host {host} --port {port} "
-                    f"--allow-shutdown"
+                    f"--allow-shutdown --log-level DEBUG"
                 )
             p = Popen(cmd.split())
             try:

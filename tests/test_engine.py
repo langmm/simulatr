@@ -1,4 +1,3 @@
-import sys
 import numpy as np
 import datetime
 import logging
@@ -262,28 +261,28 @@ class TestModelEnv(TestBase):
     @pytest.fixture(scope="class")
     @classmethod
     def sampled_action_id(cls, instance):
-        return instance.action_map.space.sample()
+        return instance.actions.space.sample()
 
     def test_description(self, instance):
         r"""Test description generation."""
-        instance.action_map.description
+        instance.actions.description
 
     def test_action_description(self, instance, action_id,
                                 sampled_action_id,
                                 assert_nested_allclose):
         r"""Test description generation."""
-        desc = instance.action_map.action2description(action_id)
-        assert instance.action_map.description2action(desc) == action_id
-        desc = instance.action_map.action2description(sampled_action_id)
+        desc = instance.actions.action2description(action_id)
+        assert instance.actions.description2action(desc) == action_id
+        desc = instance.actions.action2description(sampled_action_id)
         assert_nested_allclose(
-            instance.action_map.description2action(desc),
+            instance.actions.description2action(desc),
             sampled_action_id,
             atol=0.1
         )
 
     def test_invalid_action(self, instance, invalid_action_id):
         with pytest.raises(InvalidActionError):
-            instance.action_map.action2description(invalid_action_id)
+            instance.actions.action2description(invalid_action_id)
 
     def test_step(self, instance, sampled_action_id):
         r"""Test environment step."""

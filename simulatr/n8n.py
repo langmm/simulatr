@@ -6,8 +6,11 @@ import json
 import pprint
 import requests
 import warnings
+import datetime
+import typing
+from functools import cached_property
 from pydantic import BaseModel
-from .utils import cfg
+from .utils import cfg, FieldHandler, FieldSource
 from .server import EndPointRegistry
 # TODO: Update to use info from EndPointRegistry like endpoint path
 
@@ -100,94 +103,106 @@ def dump_to_scratch(payload: dict, output: str | bool | None,
     print(f"{default} written to \"{output}\"")
 
 
-def jsonschema_to_n8n(field_name: str, details: dict):
-    r"""Convert a JSON schema field definition into an n8n form field
-    definition.
+class N8nFieldHandler(FieldHandler):
+    r"""Convert a field to a n8n form definition."""
 
-    Args:
-        field_name: Name of the field.
-        details: JSON schema definition for the field.
-
-    Returns:
-        dict: n8n form field definition.
-
-    """
-    if "type" not in details:
-        assert "anyOf" in details
-        anyOf = details.pop("anyOf")
-        if {'type': 'null'} in anyOf:
-            anyOf.remove({'type': 'null'})
-        if {'format': 'duration', 'type': 'string'} in anyOf:
-            details.update({'format': 'duration', 'type': 'string'})
-        elif {'format': 'date-time', 'type': 'string'} in anyOf:
-            details.update({'format': 'date-time', 'type': 'string'})
-        elif len(anyOf) == 1:
-            details.update(anyOf[0])
-        elif all(x['type'] in ['integer', 'number'] for x in anyOf):
-            details.update({'type': 'number'})
-        else:
-            assert {'type': 'string'} in anyOf
-        # import pdb; pdb.set_trace()
-    pydantic_type = details.get("type", "string")
-    pydantic_enum = details.get("enum", None)
-    if isinstance(pydantic_type, list):
-        if 'null' in pydantic_type:
-            pydantic_type.remove('null')
-        assert len(pydantic_type) == 1
-        pydantic_type = pydantic_type[0]
-    if ((pydantic_type == "string"
-         and details.get("format", None) == "date-time")):
-        n8n_type = "date"
-    elif ((pydantic_type == "string"
-           and details.get("format", None) == "duration")):
-        n8n_type = "number"
-    elif pydantic_type == "array" and "enum" in details.get("items", {}):
-        n8n_type = _n8n_type_mapping.get(details["items"]["type"], "text")
-        pydantic_enum = details["items"]["enum"]
-    else:
-        n8n_type = _n8n_type_mapping.get(pydantic_type, "text")
-
-    # Special override for email strings
-    if field_name == "email" or details.get("format") == "email":
-        n8n_type = "email"
-    elif pydantic_enum:
-        if pydantic_type == "array":
-            n8n_type = "checkbox"
-        else:
-            n8n_type = "radio"
-
-    field_def = {
-        "fieldLabel": field_name,
-        "fieldName": field_name.replace("_", " ").title(),
-        "fieldType": n8n_type,
+    _type2n8n: typing.ClassVar[dict] = {
+        str: "text",
+        bool: "checkbox",
+        int: "number",
+        float: "number",
+        datetime.timedelta: "number",
+        datetime.datetime: "date",
+        datetime.date: "date",
     }
-    if n8n_type == "date":
-        field_def["formatDate"] = "YYYY-MM-DD"
-    if ((details.get("description", None) is not None
-         and n8n_type not in _n8n_type_noplaceholder)):
-        field_def["placeholder"] = details["description"]
-    if details.get("default", None) is not None:
-        field_default = details["default"]
-        if isinstance(field_default, list):
-            if n8n_type not in ["checkbox"]:
-                field_default = ",".join(field_default)
-        elif isinstance(field_default, dict):
-            field_default = json.dumps(field_default)
-        if n8n_type not in _n8n_type_noplaceholder:
-            field_def.setdefault("placeholder", "")
-            field_def["placeholder"] += f" (e.g. {field_default})"
-        if n8n_type not in _n8n_type_nodefault:
-            field_def["defaultValue"] = field_default
-    if pydantic_enum:
-        field_def["fieldOptions"] = {
-            "values": [{"option": k} for k in pydantic_enum]
+
+    def convert_type(self, annotations: list | type) -> str:
+        r"""Convert a type hint into a n8n field type.
+
+        Args:
+            annotation: Type hint(s).
+
+        Returns:
+            str: n8n field type.
+
+        """
+        if ((isinstance(annotations, list)
+             and len(annotations) == 2
+             and bool in annotations)):
+            if annotations[0] == bool:
+                return annotations[1]
+            return annotations[0]
+        assert not isinstance(annotations, list)
+        if typing.get_origin(annotations) == list:
+            return annotations
+        else:
+            return self._type2n8n.get(annotations, "text")
+
+    @cached_property
+    def n8n_type(self) -> str:
+        r"""n8n field type."""
+        if self.enum:
+            if self.is_array:
+                return "checkbox"
+            else:
+                return "radio"
+        if self.is_array:
+            return "text"
+        return self.convert_type(self.annotation_types)
+
+    @cached_property
+    def description(self) -> str:
+        r"""Field description with field name stripped from the front
+        of the field."""
+        if not self.field_info.description:
+            return None
+        out = self.field_info.description
+        field_name = self.field_name.replace("_", " ")
+        if out.lower().startswith(field_name.lower()):
+            out = out[len(field_name):].strip()
+        return out
+
+    def __call__(self, form_fields: list):
+        r"""Add a field entry to a list of form fields for this field.
+
+        Args:
+            form_fields: List to add the field to.
+
+        """
+        out = {
+            "fieldLabel": self.field_name,
+            "fieldName": self.field_name.replace("_", " ").title(),
+            "fieldType": self.n8n_type,
+            "requiredField": self.field_info.is_required(),
         }
-    if ((n8n_type == "number" and "defaultValue" not in field_def
-         and field_name not in _n8n_zero_indicates_null)):
-        raise RuntimeError(f"Default must be defined for number fields "
-                           f"to prevent the n8n form from autofilling "
-                           f"with 0 (field = \"{field_name}\")")
-    return field_def
+        if self.n8n_type == "date":
+            out["formatDate"] = "YYYY-MM-DD"
+        if ((self.description
+             and self.n8n_type not in _n8n_type_noplaceholder)):
+            out["placeholder"] = self.description
+        if self.field_info.default is not None:
+            field_default = self.field_info.default
+            if isinstance(field_default, list):
+                if self.n8n_type not in ["checkbox"]:
+                    field_default = ",".join(field_default)
+            elif isinstance(field_default, dict):
+                field_default = json.dumps(field_default)
+            if self.n8n_type not in _n8n_type_noplaceholder:
+                out.setdefault("placeholder", "")
+                out["placeholder"] += f" (e.g. {field_default})"
+            if self.n8n_type not in _n8n_type_nodefault:
+                out["defaultValue"] = field_default
+        if self.enum:
+            out["fieldOptions"] = {
+                "values": [{"option": k} for k in self.enum]
+            }
+        if ((self.n8n_type == "number" and "defaultValue" not in out
+             and self.field_name not in _n8n_zero_indicates_null)):
+            raise RuntimeError(
+                f"Default must be defined for number fields "
+                f"to prevent the n8n form from autofilling "
+                f"with 0 (field = \"{self.field_name}\")")
+        form_fields.append(out)
 
 
 def pydantic_to_n8n_fields(model: type[BaseModel]):
@@ -201,17 +216,12 @@ def pydantic_to_n8n_fields(model: type[BaseModel]):
         list: n8n form field definitions.
 
     """
-    schema = model.model_json_schema(union_format="primitive_type_array")
-    properties = schema.get("properties", {})
-    required_fields = set(schema.get("required", []))
     form_fields = []
-    order = getattr(model, "FORM_FIELD_ORDER", []).copy()
-    order += [k for k in properties.keys() if k not in order]
-    for field_name in order:
-        details = properties[field_name]
-        field_def = jsonschema_to_n8n(field_name, details)
-        field_def["requiredField"] = field_name in required_fields
-        form_fields.append(field_def)
+    field_src = FieldSource(
+        model=model,
+        field_handler=N8nFieldHandler,
+    )
+    field_src(form_fields)
     return form_fields
 
 

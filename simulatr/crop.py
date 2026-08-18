@@ -2,7 +2,7 @@ import os
 import numpy as np
 import datetime
 from abc import abstractmethod
-from typing import Optional, Union, List, Any, ClassVar
+from typing import Optional, List, Any, ClassVar
 from pydantic import ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 from .base import (
@@ -147,14 +147,11 @@ class CropModelEngine(BaseModelEngine):
         "duration": datetime.timedelta(365),
     }
     FORM_FIELD_ORDER: ClassVar[List[str]] = (
-        BaseModelEngine.FORM_FIELD_ORDER + [
+        [
             "crop_name", "crop_variety",
-        ]
+        ] + BaseModelEngine.FORM_FIELD_ORDER
     )
 
-    model_file: Optional[Union[str, List[str], BaseModelFile]] = Field(
-        default=None,
-        description="Path to one or more model input files.")
     crop_name: Optional[str | SkipJsonSchema[None]] = Field(
         default=None, examples=["Wheat"],
         description="Name of the crop that will be simulated")

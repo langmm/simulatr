@@ -15,6 +15,7 @@ from pydantic_settings import CLI_SUPPRESS
 from fastapi import HTTPException, FastAPI
 import uvicorn
 from . import registered_simulators, get_simulator_class
+from .utils import logger
 
 
 class InteractiveModelRegistry:
@@ -259,8 +260,6 @@ class EndPointRegistry(type(BaseModel)):
 
         """
         classes = cls.get_simulator_endpoints(simulator)
-        import pprint
-        pprint.pprint(classes)
         for v in classes.values():
             v.add_endpoint(app)
 
@@ -581,9 +580,11 @@ class InteractiveSimulator(ContinuousSimulator):
                     timeout=self.wait_time
                 )
                 self._model_accessed.clear()
-            except TimeoutError:
+            except (TimeoutError, asyncio.TimeoutError):
                 if is_running:
                     async with self._model_lock:
+                        logger.info(f"Stopping server model after "
+                                    f"{self.wait_time} seconds")
                         if self.is_running:
                             self.stop()
                         self.cleanup(remove_output=True)

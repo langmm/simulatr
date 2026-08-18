@@ -34,7 +34,6 @@ from .crop import (
 
 
 _apsimxdir = cfg['directories'].get('apsimx', None)
-_syncfile = os.path.join(cfg['directories']['data'], "Synchroniser.json")
 
 
 def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
@@ -142,7 +141,7 @@ class ApsimXFileNode:
             ApsimXFileNode: New node.
 
         """
-        fname = os.path.join(cfg['directories']['data'], f"{name}.json")
+        fname = os.path.join(ApsimXEngine.data_dir(), f"{name}.json")
         return cls.from_file(fname, **kwargs)
 
     def __str__(self) -> str:
@@ -727,8 +726,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Irrigation"},
             "required": True,
-            # "default":
-            # os.path.join(cfg['directories']['data'], "Irrigate.json"),
+            # "default": "Irrigate.json",
             "default": {
                 "$type": "Models.Irrigation, Models",
                 "Name": "Irrigation",
@@ -743,8 +741,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Fertiliser"},
             "required": True,
-            # "default":
-            # os.path.join(cfg['directories']['data'], "Fertilize.json"),
+            # "default": "Fertilize.json",
             "default": {
                 "$type": "Models.Fertiliser, Models",
                 "Name": "Fertiliser",
@@ -852,8 +849,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "SowingDate",
-            "default": os.path.join(
-                cfg['directories']['data'], "SowOrHarvestByDate.json"),
+            "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -870,8 +866,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "HarvestDate",
-            "default": os.path.join(
-                cfg['directories']['data'], "SowOrHarvestByDate.json"),
+            "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -1454,6 +1449,8 @@ class ApsimXFile(CropModelFile):
         self.disable_parameter_conflicts(name, info=info, node={})
         default = info.get("default", None)
         if isinstance(default, str):
+            if not os.path.isabs(default):
+                default = os.path.join(ApsimXEngine.data_dir, default)
             default = ApsimXFile(default).contents
         if not default:
             logger.warning(
@@ -1852,7 +1849,8 @@ class ApsimXFile(CropModelFile):
             actions: List of actions that should be enabled.
 
         """
-        sync = ApsimXFile(_syncfile)
+        sync = ApsimXFile(os.path.join(ApsimXEngine.data_dir(),
+                                       "Synchroniser.json"))
         field = self.find("Field", required=True)
         for k, v in self.ACTION_NODES.items():
             parent = None
@@ -2068,6 +2066,7 @@ class ApsimXEngine(CropModelEngine):
         """
         self.context = None
         self.socket = None
+        self.host = None
         self.port = None
         self.process = None
         self.stdout_pipe = None
@@ -2251,9 +2250,10 @@ class ApsimXEngine(CropModelEngine):
         self._current_time = None
         self._status = None
         self.context = zmq.Context()
+        self.host = "127.0.0.1"
         if self.socket is None:
             self.socket = self.context.socket(zmq.REP)
-            self.socket.bind("tcp://0.0.0.0:0")
+            self.socket.bind(f"tcp://{self.host}:0")
             self.port = self.socket.getsockopt(
                 zmq.LAST_ENDPOINT).decode().split(":")[-1]
         logger.info(f"Running model \"{self.model.fname}\"")
@@ -2274,6 +2274,7 @@ class ApsimXEngine(CropModelEngine):
         self.process = subprocess.Popen(
             [
                 "dotnet", self.apsim_srv(),
+                "-a", self.host,
                 "-p", self.port,
                 "-P", "interactive",
                 "-f", self.model.fname,

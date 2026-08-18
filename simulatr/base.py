@@ -2005,6 +2005,21 @@ class BaseModelEngine(BaseModel, ABC):
         return v
 
     @classmethod
+    def data_dir(cls) -> str:
+        r"""Get the directory containing model data.
+
+        Returns:
+            str: The directory containing model data.
+
+        """
+        from .utils import cfg
+        out = cfg["directories"].get(f'{cls._MODEL_NAME}_data', None)
+        if out is None:
+            out = os.path.join(cfg["directories"]["source"],
+                               f'{cls._MODEL_NAME}_data')
+        return out
+
+    @classmethod
     def model_dir(cls) -> str:
         r"""Get the directory containing the model.
 

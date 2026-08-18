@@ -28,7 +28,7 @@ cfg = PackageConfig(
 cfg.setdefaults(
     directories={
         'source': _pkgdir,
-        'data': os.path.join(_pkgdir, 'data'),
+        'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
     },
 )
 

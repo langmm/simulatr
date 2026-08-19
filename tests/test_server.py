@@ -6,8 +6,7 @@ import pytest
 import requests
 import datetime
 import contextlib
-from subprocess import Popen
-from simulatr import registered_simulators
+from simulatr import registered_simulators, utils
 
 
 @pytest.fixture(scope="session")
@@ -41,7 +40,7 @@ def local_service(ping_address, pytestconfig, simulator):
                     f"--host {host} --port {port} "
                     f"--allow-shutdown --log-level DEBUG"
                 )
-            p = Popen(cmd.split())
+            p = utils.start_subprocess(cmd.split())
             try:
                 while p.poll() is None and not ping_address(out):
                     time.sleep(1)
@@ -50,7 +49,7 @@ def local_service(ping_address, pytestconfig, simulator):
                 if p.poll() is None:
                     if docker:
                         import signal
-                        os.kill(p.pid, signal.SIGINT)
+                        p.send_signal(signal.CTRL_C_EVENT)
                         p.wait(timeout=1)
                     else:
                         requests.post(f"{out}/shutdown")

@@ -151,6 +151,7 @@ class CropModelEngine(BaseModelEngine):
             "crop_name", "crop_variety",
         ] + BaseModelEngine.FORM_FIELD_ORDER
     )
+    EXAMPLE_KWARGS: ClassVar[dict] = {"crop_name": "Wheat"}
 
     crop_name: Optional[str | SkipJsonSchema[None]] = Field(
         default=None, examples=["Wheat"],

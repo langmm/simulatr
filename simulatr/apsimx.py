@@ -2045,7 +2045,7 @@ class ApsimXEngine(CropModelEngine):
         0.043,
     )
     EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = (
-        "nitrogen", {"amount", 160.0},
+        "nitrogen", {"amount": 160.0},
     )
 
     from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
@@ -2266,7 +2266,7 @@ class ApsimXEngine(CropModelEngine):
         kws = {}
         flags = []
         timeout = 10
-        self.process = subprocess.Popen(
+        self.process = utils.start_subprocess(
             [
                 "dotnet", self.apsim_srv(),
                 "-a", self.host,
@@ -2277,7 +2277,8 @@ class ApsimXEngine(CropModelEngine):
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             **kws)
         self.stdout_pipe = LogPipe(
-            self.process.stdout, prefix="APSIMX: ")
+            self.process.stdout, prefix="APSIMX: ",
+            level=self.model_log_level)
         self.stderr_pipe = LogPipe(
             self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")

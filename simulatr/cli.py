@@ -9,6 +9,7 @@ from functools import cached_property
 from typing import Any, Optional, List
 from . import (
     logger, registered_simulators, get_simulator_class, n8n, server,
+    profile,
 )
 from .utils import cfg, FieldHandler, FieldSource
 
@@ -403,6 +404,20 @@ def main() -> None:
         "--update", action="store_true",
         help="Update any existing tool",
     )
+    # Profile
+    parser_profile = subparsers.add_parser(
+        "profile", help="Profile simulatr components")
+    parser_profile_target = parser_profile.add_subparsers(
+        dest="target", required=True,
+        help="Component(s) that should be profiled.",
+    )
+    CliArgHandler.add_subparser(
+        parser_profile_target, "all", profile.TargetBaseClass,
+        help="Profile all targets")
+    for k, v in profile.TargetRegistry._registry.items():
+        CliArgHandler.add_subparser(
+            parser_profile_target, k, v,
+            help=v._DESCRIPTION)
     # Parse
     args = parser.parse_args()
     if args.action == "config":
@@ -526,5 +541,17 @@ def main() -> None:
             else:
                 raise NotImplementedError(
                     f"n8n utility = \"{args.utility}\"")
+    elif args.action == "profile":
+        if args.target == "all":
+            targets = profile.TargetRegistry.registered_classes()
+        else:
+            targets = [args.target]
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "target"]
+        }
+        for target in targets:
+            profiler = profile.TargetRegistry.get_class(target)(**kws)
+            profiler.run()
     else:
         raise NotImplementedError(f"action = \"{args.action}\"")

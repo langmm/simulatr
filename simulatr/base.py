@@ -3,6 +3,7 @@ import re
 import json
 import copy
 import uuid
+import logging
 import pprint
 import datetime
 import contextlib
@@ -1883,6 +1884,7 @@ class BaseModelEngine(BaseModel, ABC):
     DEFAULT_PARAM: ClassVar[dict] = {}
     MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
         days=0)
+    EXAMPLE_KWARGS: ClassVar[dict] = None
     EXAMPLE_STATE: ClassVar[Tuple[str, float]] = ("INVALID", 0.5)
     EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = ("INVALID", {})
     FORM_FIELD_ORDER: ClassVar[List[str]] = []
@@ -1942,6 +1944,13 @@ class BaseModelEngine(BaseModel, ABC):
     action_param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Action parameters to use keyed to action names.")
+    model_log_level: CliSuppress[
+        Optional[str | int | SkipJsonSchema[None]]] = Field(
+            default=logging.INFO,
+            description="Level at which stdout from the model should "
+                        "be logged",
+            json_schema_extra={"hidden_for_server": True},
+        )
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the model engine."""
@@ -2837,8 +2846,7 @@ class BaseModelEngine(BaseModel, ABC):
         if self._allow_bulk_get:
             if not names:
                 return {}
-            with self.stop_on_error(("getvars", names, tuple([]), {}),
-                                    allow_error=allow_error):
+            with self.stop_on_error(allow_error=allow_error):
                 out = self._get(names)
             logger.debug(f"getvars: {names}")
             return out
@@ -3027,16 +3035,16 @@ class BaseModelEngine(BaseModel, ABC):
             for t in times:
                 if t > time:
                     break
-                self.fast_forward(t)
+                self.fast_forward(t, dont_record_trace=True)
                 if t in history:
                     for action in history[t]:
-                        logger.info(f"Replaying t={t}: {action}")
+                        logger.debug(f"Replaying t={t}: {action}")
                         getattr(self, action[0])(
                             action[1], *action[2], **action[3])
                 if t in trace:
                     self.record_trace()
         if time > self.current_time:
-            self.fast_forward(time)
+            self.fast_forward(time, dont_record_trace=True)
 
     def resume(self, wait: Optional[bool] = False,
                dont_record_trace: Optional[bool] = False) -> dict:

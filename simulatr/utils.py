@@ -1,4 +1,5 @@
 import os
+import platform
 import threading
 import subprocess
 import signal
@@ -42,6 +43,26 @@ cfg.setdefaults(
 )
 
 
+def start_subprocess(*args, **kwargs) -> subprocess.Popen:
+    r"""Start a subprocess, ensuring the correct flags are set so the
+    process can be managed.
+
+    Args:
+        \*args, \*\*kwargs: All arguments and keyword arguments are
+            passed to subprocess.Popen.
+
+    Returns:
+        subprocess.Popen: Subprocess.
+
+    """
+    if platform.system() == 'Windows':
+        if "creationflags" not in kwargs:
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
+    return subprocess.Popen(*args, **kwargs)
+
+
 def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
     r"""Kill a subprocess instance, first trying kill method, then
     falling back on SIGINT.
@@ -55,7 +76,7 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
         process.kill()
         process.wait(timeout=0.1)
     except subprocess.TimeoutExpired:
-        os.kill(process.pid, signal.SIGINT)
+        process.send_signal(signal.CTRL_C_EVENT)
         process.wait(timeout=timeout)
     # process2 = psutil.Process(process.pid)
     # for proc in process2.children(recursive=True):
@@ -378,7 +399,7 @@ class FieldSource(BaseModel):
 
 
 def create_registry_metaclass(key_attr: str | tuple = "_NAME",
-                              base_type: type = object):
+                              base_type: type = None):
     r"""Class factor for creating a metaclass for registering
     classes.
 
@@ -392,10 +413,15 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
 
     """
 
-    class RegistryMetaclass(type(base_type)):
+    if base_type is None:
+        meta_type = type
+    else:
+        meta_type = type(base_type)
+
+    class RegistryMetaclass(meta_type):
         r"""Metaclass that registers subclasses."""
 
-        _registry_attr = ClassVar[Optional[str | tuple]] = key_attr
+        _registry_attr: ClassVar[Optional[str | tuple]] = key_attr
         _registry: ClassVar[OrderedDict] = OrderedDict()
 
         def __new__(mcs, name: str, bases: Tuple[type, ...],

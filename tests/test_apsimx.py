@@ -1,4 +1,5 @@
 import os
+import datetime
 import pytest
 from simulatr.apsimx import ApsimXEngine
 
@@ -13,9 +14,18 @@ class TestApsimX:
         ({"crop_name": "Wheat"},
          "SimpleWheatUnmanaged.Report.csv.expected"),
         ("SimpleWheatUnmanagedChampaign.apsimx", None),
+        ({
+            "crop_name": "Wheat",
+            "start_time": datetime.datetime(year=1991, month=1, day=1),
+            "end_time": datetime.datetime(year=1991, month=11, day=5),
+            "latitude": 40.1164,
+            "longitude": -88.2434,
+          },
+         "SimpleWheatUnmanagedChampaign.Report.csv.expected"),
     ], ids=[
         "wheat", "wheat-unmanaged", "wheat-generated",
         "wheat-unmanaged-champaign",
+        "wheat-generated-champaign",
     ])
     @classmethod
     def parameters(cls, request):
@@ -72,14 +82,13 @@ class TestApsimX:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def compare_reports(cls, compare_bytes):
+    def compare_reports(cls):
+        import pandas as pd
 
         def _compare_reports(factual, fexpected):
-            with open(factual, "r") as fd:
-                actual = fd.read()
-            with open(fexpected, "r") as fd:
-                expected = fd.read()
-            compare_bytes(actual, expected)
+            actual = pd.read_csv(factual)
+            expected = pd.read_csv(fexpected)
+            pd.testing.assert_frame_equal(actual, expected)
 
         return _compare_reports
 

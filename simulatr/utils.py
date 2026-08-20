@@ -72,6 +72,7 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
         timeout: Number of seconds to wait after calling kill.
 
     """
+    import platform
     timeout_try = 0.1
     try:
         process.kill()
@@ -80,7 +81,11 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
         return
     except subprocess.TimeoutExpired:
         pass
-    for k in ["SIGINT", "SIGTERM", "CTRL_C_EVENT", "CTRL_BREAK_EVENT"]:
+    if platform.system() == 'Windows':
+        try_signals = ["CTRL_C_EVENT", "CTRL_BREAK_EVENT"]
+    else:
+        try_signals = ["SIGINT", "SIGTERM"]
+    for k in try_signals:
         if not hasattr(signal, k):
             continue
         try:

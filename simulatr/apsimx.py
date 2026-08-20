@@ -993,7 +993,8 @@ class ApsimXFile(CropModelFile):
     @classmethod
     def from_crop_name(cls, crop_name: str, dst: str | None = None,
                        interactive: bool = False,
-                       actions: List[str] | None = None) -> CropModelFile:
+                       actions: List[str] | None = None,
+                       **kwargs: Any) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
         Args:
@@ -1002,6 +1003,8 @@ class ApsimXFile(CropModelFile):
                 be saved.
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -1120,6 +1123,20 @@ class ApsimXFile(CropModelFile):
         out = cls(dst, generated=True, contents=contents.contents)
         if interactive or actions:
             out.make_interactive(actions)
+        for k, v in kwargs.items():
+            out.set(k, v)
+        if ((("latitude" in kwargs and "longitude" in kwargs)
+             or ("start_time" in kwargs and "end_time" in kwargs))):
+            if "weather_file" not in kwargs:
+                out.set(
+                    "weather_file",
+                    ApsimXWeatherFile.fetch_data(
+                        out.get("latitude"), out.get("longitude"),
+                        out.get("start_time"), out.get("end_time"),
+                    )
+                )
+            # if "soil_file" not in kwargs:
+            # TODO: Get soil file and replace the Soil node
         return out
 
     @property

@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 import pytest
 import os
 
@@ -96,7 +97,7 @@ def assert_nested_allclose(assert_allclose):
                             errors[f'{k}->{kerr}'] = verr
                     else:
                         errors[k] = e.args[0]
-        elif isinstance(b, (np.ndarray, float)):
+        elif isinstance(b, (np.ndarray, pd.DataFrame, float)):
             assert_allclose(a, b, **kwargs)
         else:
             assert a == b

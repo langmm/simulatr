@@ -241,7 +241,7 @@ class CropModelEngine(BaseModelEngine):
             self.crop_name,
             dst=self.model_file,
             interactive=True,
-            actions=list(self.action_map.keys()),
+            actions=list(self.actions.keys()),
         )
 
     def update_model_file(self) -> None:
@@ -303,9 +303,9 @@ class CropModelEngine(BaseModelEngine):
                 f"Downloaded weather data: \"{self.weather_file}\"")
         # TODO: Soil file?
         if self.sow_date is not None:
-            self.action_map.pop("sow", None)
+            self.actions.pop("sow", None)
         if self.harvest_date is not None:
-            self.action_map.pop("harvest", None)
+            self.actions.pop("harvest", None)
         super().update_model_file()
 
     def calc_param(self, name: str, default: Optional[Any] = NoDefault,

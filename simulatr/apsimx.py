@@ -5,6 +5,7 @@ import json
 import copy
 import time
 import zmq
+import platform
 import msgpack
 import subprocess
 import contextlib
@@ -2380,6 +2381,10 @@ class ApsimXEngine(CropModelEngine):
             self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
         timeout = 10
+        timewait = 0.01
+        if platform.system() == 'Windows':
+            timeout = 20
+            timewait = 0.1
         tstart = time.time()
         while time.time() - tstart < timeout and self.is_running:
             try:
@@ -2389,7 +2394,7 @@ class ApsimXEngine(CropModelEngine):
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
                     raise
-                time.sleep(0.01)
+                time.sleep(timewait)
         if self._status != "connect":
             logger.error(f"Failed to connect after {timeout} seconds "
                          f"(status = {self._status})")

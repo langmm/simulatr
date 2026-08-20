@@ -51,7 +51,7 @@ def local_service(ping_address, pytestconfig, simulator):
                         import signal
                         p.send_signal(signal.CTRL_C_EVENT)
                         p.wait(timeout=1)
-                    else:
+                    elif ping_address(out):
                         requests.post(f"{out}/shutdown")
                         p.wait(timeout=1)
                 if p.poll() is None:

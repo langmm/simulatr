@@ -1943,6 +1943,7 @@ class ApsimXEngine(CropModelEngine):
     _MODEL_NAME: ClassVar[str] = "apsimx"
     _allow_bulk_set: ClassVar[bool] = True
     _allow_bulk_get: ClassVar[bool] = True
+    _global_zmq_context: ClassVar[zmq.Context] = None
     MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
         days=1)
     STATUS_MESSAGES: ClassVar[list] = [
@@ -2272,6 +2273,16 @@ class ApsimXEngine(CropModelEngine):
         return None
 
     @classmethod
+    def global_zmq_context(cls) -> zmq.Context:
+        r"""Get a global zeromq context"""
+        if cls._global_zmq_context is None:
+            cls._global_zmq_context = zmq.Context()
+            cls._global_zmq_context.set(zmq.MAX_SOCKETS, 8000)
+            cls._global_zmq_context.setsockopt(zmq.LINGER, 0)
+            # cls._global_zmq_context.setsockopt(zmq.IMMEDIATE, 0)
+        return cls._global_zmq_context
+
+    @classmethod
     def start_direct_subprocess(cls, model_file: str,
                                 verbose: Optional[bool] = False,
                                 ncpu: Optional[int] = None,
@@ -2347,10 +2358,7 @@ class ApsimXEngine(CropModelEngine):
         r"""Start a listening server on a random port."""
         self._current_time = None
         self._status = None
-        self.context = zmq.Context()
-        self.context.set(zmq.MAX_SOCKETS, 8000)
-        self.context.setsockopt(zmq.LINGER, 0)
-        self.context.setsockopt(zmq.IMMEDIATE, 0)
+        self.context = self.global_zmq_context()
         self.host = "127.0.0.1"
         if self.socket is None:
             self.socket = self.context.socket(zmq.REP)
@@ -2438,8 +2446,8 @@ class ApsimXEngine(CropModelEngine):
             self.stderr_pipe.close()
         if self.stderr_pipe is not None:
             self.stderr_pipe.close()
-        if self.context is not None:
-            self.context.destroy()
+        # if self.context is not None:
+        #     self.context.destroy()
         if self._status != "error":
             self.context = None
             self.socket = None

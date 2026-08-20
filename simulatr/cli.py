@@ -11,7 +11,8 @@ from . import (
     logger, registered_simulators, get_simulator_class, n8n, server,
     profile,
 )
-from .utils import cfg, FieldHandler, FieldSource
+from .utils import cfg, FieldHandler
+from .apsimx import ApsimXEngine
 
 
 class OverrideExtendAction(argparse.Action):
@@ -98,23 +99,29 @@ class CliArgHandler(FieldHandler):
         raise NotImplementedError(
             f"Handling of type {types} for field {self.field_name}")
 
-    def __call__(self, parser: argparse.ArgumentParser):
+    def __call__(self, parser: argparse.ArgumentParser, **kws):
         r"""Add an argument to the parser for this field.
 
         Args:
             parser: Parse to add the argument to.
+            \*\*kwargs: Additional keyword arguments are passed to
+                add_argument.
 
         """
-        kwargs = self.type_kwargs(self.field_info.annotation)
+        kwargs = (
+            {} if "type" in kws
+            else self.type_kwargs(self.field_info.annotation)
+        )
         if self.field_info.description:
-            # TODO: Remove/add field name prefix for forms
             kwargs["help"] = self.field_info.description
         if self.field_info.default is not None:
             kwargs["default"] = self.field_info.default
         if self.enum is not None:
             kwargs["choices"] = self.enum
+        kwargs.update(**kws)
+        names = kwargs.pop("names", self.names)
         parser.add_argument(
-            *self.names,
+            *names,
             **kwargs
         )
 
@@ -122,7 +129,8 @@ class CliArgHandler(FieldHandler):
     def add_subparser(cls, root_parser: argparse.ArgumentParser,
                       name: str, model: Any,
                       skip_fields: Optional[List[str]] = None,
-                      overwrite_kws: Optional[dict] = None,
+                      only_fields: Optional[List[str]] = None,
+                      field_specific_kwargs: Optional[dict] = None,
                       **kwargs) -> argparse.ArgumentParser:
         r"""Add a subparser with arguments based on a pydantic model's
         fields.
@@ -133,8 +141,9 @@ class CliArgHandler(FieldHandler):
             model: Pydantic models with fields that should be added to
                 the subparser as arguments.
             skip_fields: Set of fields that should not be added.
-            overwrite_kws: Mapping of argument keyword args that should
-                be overridden for each field.
+            only_fields: Set of fields that should be added.
+            field_specific_kwargs: Mapping of argument keyword args
+                that should be overridden for each field.
             \*\*kwargs: Additional keyword arguments are passed to the
                 call to add_parser.
 
@@ -143,10 +152,12 @@ class CliArgHandler(FieldHandler):
 
         """
         parser = root_parser.add_parser(name, **kwargs)
-        cli_src = FieldSource(model=model, skip_fields=skip_fields,
-                              overwrite_kws=overwrite_kws,
-                              field_handler=cls)
-        cli_src(parser)
+        cls.handle_model(
+            model, parser,
+            skip_fields=skip_fields,
+            only_fields=only_fields,
+            field_specific_kwargs=field_specific_kwargs,
+        )
         return parser
 
 
@@ -418,6 +429,21 @@ def main() -> None:
         CliArgHandler.add_subparser(
             parser_profile_target, k, v,
             help=v._DESCRIPTION)
+    # ApsimX
+    parser_apsimx = subparsers.add_parser(
+        "apsimx", help="Run ApsimX model directly")
+    CliArgHandler.handle_model(
+        ApsimXEngine, parser_apsimx,
+        only_fields=[
+            "model_file",
+        ],
+        field_specific_kwargs={
+            "model_file": {
+                "type": str,
+                "names": ("model_file", ),
+            },
+        },
+    )
     # Parse
     args = parser.parse_args()
     if args.action == "config":
@@ -553,5 +579,11 @@ def main() -> None:
         for target in targets:
             profiler = profile.TargetRegistry.get_class(target)(**kws)
             profiler.run()
+    elif args.action == "apsimx":
+        process = ApsimXEngine.start_direct_subprocess(
+            args.model_file,
+            csv=True,
+        )
+        process.wait(60)
     else:
         raise NotImplementedError(f"action = \"{args.action}\"")

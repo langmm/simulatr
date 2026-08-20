@@ -215,6 +215,9 @@ class FieldHandler(BaseModel):
     skip_fields: Optional[List[str]] = Field(
         None,
         description="Names of fields to skip")
+    only_fields: Optional[List[str]] = Field(
+        None,
+        description="Names of fields to include (others will be skipped)")
     skip_annotation_values: Optional[list] = Field(
         [argparse.SUPPRESS],
         description="Annotation values that should be skipped")
@@ -239,6 +242,8 @@ class FieldHandler(BaseModel):
         self.skip_fields = (self.skip_fields or [])
         if self.field_name in self.skip_fields:
             self.skip_field("in skip_fields")
+        if self.only_fields and self.field_name not in self.only_fields:
+            self.skip_field("not in only_fields")
         if any(x in self.field_info.metadata for x in
                self.skip_annotation_values):
             self.skip_field("annotation in skip_annotation_values")
@@ -247,6 +252,25 @@ class FieldHandler(BaseModel):
     def __call__(self, *args, **kwargs):
         r"""Perform operation for the field."""
         raise NotImplementedError
+
+    @classmethod
+    def handle_model(cls, model: Any, *args: Any, **kwargs: Any):
+        r"""Call this handler for each fiedl on a model.
+
+        Args:
+            model: Pydantic model with fields that should be handled.
+            \*args: Arguments to pass to the FieldSource handler
+                __call__ method.
+            \*\*kwargs: Additional keyword arguments are used to
+                create a new FieldSource instance.
+
+        Returns:
+            The result of calling the FieldSource handler.
+
+        """
+        kwargs.setdefault("field_handler", cls)
+        src = FieldSource(model=model, **kwargs)
+        return src(*args)
 
     @cached_property
     def annotation_types(self) -> typing.Union[list, type]:
@@ -362,7 +386,11 @@ class FieldSource(BaseModel):
     field_handler: Optional[type] = Field(
         FieldHandler,
         description="Field handler")
-
+    field_specific_kwargs: Optional[dict] = Field(
+        None,
+        description="Map of field specific keyword arguments that "
+                    "should be passed to the field handler when the "
+                    "field is handled")
     _args: PrivateAttr(default_factory=OrderedDict)
 
     def fields(self) -> typing.Iterator:
@@ -392,8 +420,14 @@ class FieldSource(BaseModel):
     def __call__(self, *args, **kwargs):
         r"""Call handler for each field."""
         for field in self.fields():
+            field_kwargs = kwargs
+            if ((self.field_specific_kwargs
+                 and field.field_name in self.field_specific_kwargs)):
+                field_kwargs = dict(
+                    kwargs,
+                    **self.field_specific_kwargs[field.field_name])
             try:
-                field(*args, **kwargs)
+                field(*args, **field_kwargs)
             except SkipFieldType:
                 continue
 

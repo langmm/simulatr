@@ -2091,8 +2091,15 @@ class ApsimXEngine(CropModelEngine):
         ]
 
     @classmethod
+    def apsim_direct(cls) -> str:
+        r"""Path to the apsimx models executable."""
+        return os.path.join(
+            cls.model_dir(), "bin", "Debug", "net8.0",
+            "Models.dll")
+
+    @classmethod
     def apsim_srv(cls) -> str:
-        r"""Path to the apsimx server."""
+        r"""Path to the apsimx server executable."""
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "ApsimZMQServer.dll")
@@ -2231,11 +2238,26 @@ class ApsimXEngine(CropModelEngine):
                                           f"\"{self._status}\"")
         return self._status
 
+    @classmethod
+    def get_output_file(cls, model_file: str,
+                        ext: Optional[str] = ".db") -> str:
+        r"""Get the expected output file path based on the input
+        model file path.
+
+        Args:
+            model_file: Input model file path.
+            ext: File extension.
+
+        Returns:
+            str: The expected output file path.
+
+        """
+        return os.path.join(os.path.splitext(model_file)[0] + ext)
+
     @property
     def output_file(self) -> str:
         r"""str: Path to the .db output file that will be produced."""
-        return os.path.join(
-            os.path.splitext(self.model.fname)[0] + ".db")
+        return self.get_output_file(self.model.fname)
 
     def get_results(self) -> Any:
         r"""Get the simulation results."""
@@ -2248,6 +2270,79 @@ class ApsimXEngine(CropModelEngine):
             conn.close()
             return df.to_json()
         return None
+
+    @classmethod
+    def start_direct_subprocess(cls, model_file: str,
+                                verbose: Optional[bool] = False,
+                                ncpu: Optional[int] = None,
+                                csv: Optional[bool] = False,
+                                **kwargs) -> subprocess.Popen:
+        r"""Start an apsim model in a subprocess.
+
+        Args:
+            model_file: Path to model input file.
+            verbose: If True, the model should be run with verbose
+                output.
+            ncpu: Number of CPUs that the server should use.
+            csv: Output to a CSV.
+            \*\*kwargs: Additional keyword arguments are used to create
+                the subprocess.
+
+        Returns:
+            subprocess.Popen: Subprocess with the model running.
+
+        """
+        cmd = [
+            "dotnet", cls.apsim_direct(),
+            model_file,
+        ]
+        if verbose:
+            cmd += ["--verbose"]
+        if ncpu:
+            cmd += ["--cpu-count", str(ncpu)]
+        if csv:
+            cmd += ["--csv"]
+        print(cmd)
+        return utils.start_subprocess(cmd, **kwargs)
+
+    @classmethod
+    def start_server_subprocess(cls, model_file: str,
+                                protocol: Optional[str] = "interactive",
+                                host: Optional[str] = "127.0.0.1",
+                                port: Optional[str | int] = None,
+                                verbose: Optional[bool] = False,
+                                ncpu: Optional[int] = None,
+                                **kwargs) -> subprocess.Popen:
+        r"""Start the apsim server in a subprocess.
+
+        Args:
+            model_file: Path to model input file.
+            protocol: How the server should be run.
+            host: ZeroMQ host.
+            port: ZeroMQ port (required if portocol is "interactive").
+            verbose: If the server should be run with verbose output.
+            ncpu: Number of CPUs that the server should use.
+            \*\*kwargs: Additional keyword arguments are used to create
+                the subprocess.
+
+        Returns:
+            subprocess.Popen: Subprocess with the server running.
+
+        """
+        assert host and port
+        cmd = [
+            "dotnet", cls.apsim_srv(),
+            "-f", model_file,
+            "-P", protocol,
+            "-a", host,
+            "-p", str(port),
+        ]
+        assert protocol in ["oneshot", "interactive"]
+        if verbose:
+            cmd += ["-v"]
+        if ncpu:
+            cmd += ["-c", str(ncpu)]
+        return utils.start_subprocess(cmd, **kwargs)
 
     def _start(self):
         r"""Start a listening server on a random port."""
@@ -2263,25 +2358,18 @@ class ApsimXEngine(CropModelEngine):
         logger.info(f"Running model \"{self.model.fname}\"")
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
-        kws = {}
-        flags = []
-        timeout = 10
-        self.process = utils.start_subprocess(
-            [
-                "dotnet", self.apsim_srv(),
-                "-a", self.host,
-                "-p", self.port,
-                "-P", "interactive",
-                "-f", self.model.fname,
-            ] + flags,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            **kws)
+        self.process = self.start_server_subprocess(
+            self.model.fname,
+            host=self.host,
+            port=self.port,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.stdout_pipe = LogPipe(
             self.process.stdout, prefix="APSIMX: ",
             level=self.model_log_level)
         self.stderr_pipe = LogPipe(
             self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
+        timeout = 10
         tstart = time.time()
         while time.time() - tstart < timeout and self.is_running:
             try:
@@ -2293,7 +2381,8 @@ class ApsimXEngine(CropModelEngine):
                     raise
                 time.sleep(0.01)
         if self._status != "connect":
-            logger.error(f"Failed to connect after {timeout} seconds")
+            logger.error(f"Failed to connect after {timeout} seconds "
+                         f"(status = {self._status})")
             self._status = "never connected"
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "

@@ -27,7 +27,7 @@ def ping_address():
 def local_service(ping_address, pytestconfig, simulator):
 
     @contextlib.contextmanager
-    def _local_service(host="0.0.0.0", port=5000, docker=False):
+    def _local_service(host="127.0.0.1", port=5000, docker=False):
         out = f"http://{host}:{port}"
         if ping_address(out):
             yield out

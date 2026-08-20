@@ -4,8 +4,6 @@
 
 - [ ] Add soil file parsing
 - [ ] Improve human readable prompt for CLI and fix set/get description
-- [ ] Fix bugs in piecemeal construction of model
-- [ ] Update default for_example to False and add it to the n8n form
 
 ## Server
 

@@ -239,8 +239,9 @@ class ApsimXFileNode:
                 prev = "CROP"
             else:
                 prev = self.get_parameter(parameter_name)
-            self["Name"] = self["Name"].replace(prev, crop_name)
             self.set_parameter(parameter_name, crop_name)
+        if "CROP" in self["Name"]:
+            self["Name"] = self["Name"].replace("CROP", crop_name)
         for x in self.children:
             x.specialize_crop(crop_name)
 
@@ -1125,7 +1126,6 @@ class ApsimXFile(CropModelFile):
     @property
     def formal_crop_name(self) -> str:
         r"""str: Crop name used for resources."""
-        # return self.crop_name.title()
         return self.validate_crop_name(self.crop_name)
 
     def _get_external_name(self, name: str) -> str:
@@ -2051,7 +2051,7 @@ class ApsimXEngine(CropModelEngine):
     )
 
     from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
-        default=True,  # TODO: Update this
+        default=False,
         description="If True, copy the bundled example for the crop to "
                     "use as the model file. If a string, the path to "
                     "the example file to copy.",

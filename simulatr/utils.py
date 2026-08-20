@@ -96,10 +96,13 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
         pass
     try:
         import psutil
-        psutil_process = psutil.Process(process.pid)
-        for proc in psutil_process.children(recursive=True):
-            proc.kill()
-        psutil_process.kill()
+        try:
+            psutil_process = psutil.Process(process.pid)
+            for proc in psutil_process.children(recursive=True):
+                proc.kill()
+            psutil_process.kill()
+        except psutil.NoSuchProcess:
+            pass
         process.wait(timeout=timeout_try)
         logger.info("Success via psutil.kill()")
         return

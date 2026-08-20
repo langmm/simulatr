@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - CLI for managine simulator applications and n8n tools
 - Support for soil file input to crop models
 - Utilities for iterating over pydantic fields that checks for annotations that should be skipped (used for n8n forms and CLI)
+- Ability to create ApsimX models piecewise from components
 
 ### Added
 

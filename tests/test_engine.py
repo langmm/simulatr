@@ -1,3 +1,4 @@
+import platform
 import numpy as np
 import datetime
 import logging
@@ -8,7 +9,12 @@ from simulatr.base import (
     InvalidActionError, RecoverableError,
     RecoverableModelEngineError,
 )
-logger.setLevel(logging.INFO)
+if platform.system() == 'Windows':
+    logging.basicConfig(level=logging.DEBUG)
+    logger.setLevel(logging.DEBUG)
+else:
+    logging.basicConfig(level=logging.INFO)
+    logger.setLevel(logging.INFO)
 
 
 ##########################################################

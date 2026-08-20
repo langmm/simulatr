@@ -1044,9 +1044,7 @@ class ApsimXFile(CropModelFile):
                     f"[{crop_name}].Total.Wt"
                 ],
                 EventNames=[
-                    # TODO: Daily?
-                    # "[Clock].DoReport",
-                    f"[{crop_name}].Harvesting",
+                    "[Clock].EndOfDay",
                 ],
                 GroupByVariableName=None,
             ),
@@ -1058,6 +1056,8 @@ class ApsimXFile(CropModelFile):
                 "Models.Irrigation, Models",
                 # ResourceName="Irrigation",
             ),
+            ApsimXFileNode.from_data("Soil"),
+            ApsimXFileNode.from_data("SurfaceOrganicMatter"),
             # SOIL:
             # "Models.Soils.Soil, Models"
             #    "Models.Soils.Physical, Models"
@@ -1387,7 +1387,7 @@ class ApsimXFile(CropModelFile):
         if isinstance(contents, ApsimXFileNode):
             contents = contents.contents
         with open(fname, "w") as fd:
-            json.dump(contents, fd, indent="    ")
+            json.dump(contents, fd, indent="  ")
 
     @readonly_cached_property
     def is_interactive(self) -> bool:
@@ -2302,7 +2302,6 @@ class ApsimXEngine(CropModelEngine):
             cmd += ["--cpu-count", str(ncpu)]
         if csv:
             cmd += ["--csv"]
-        print(cmd)
         return utils.start_subprocess(cmd, **kwargs)
 
     @classmethod

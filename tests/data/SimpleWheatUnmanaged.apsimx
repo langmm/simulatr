@@ -101,14 +101,6 @@
               "ReadOnly": false
             },
             {
-              "$type": "Models.Fertiliser, Models",
-              "Name": "Fertiliser",
-              "ResourceName": "Fertiliser",
-              "Children": [],
-              "Enabled": true,
-              "ReadOnly": false
-            },
-            {
               "$type": "Models.Soils.Soil, Models",
               "RecordNumber": 104,
               "ASCOrder": "Vertosol",
@@ -596,7 +588,6 @@
                 "    public class Script : Model",
                 "    {",
                 "        [Link] private Clock Clock;",
-                "        [Link] private Fertiliser Fertiliser;",
                 "        [Link] private Summary Summary;",
                 "        [Link] private Soil Soil;",
                 "        private Accumulator accumulatedRain;",
@@ -700,61 +691,6 @@
                 }
               ],
               "Name": "Sow using a variable rule",
-              "ResourceName": null,
-              "Children": [],
-              "Enabled": true,
-              "ReadOnly": false
-            },
-            {
-              "$type": "Models.Manager, Models",
-              "CodeArray": [
-                "using Models.Soils;",
-                "using System;",
-                "using System.Linq;",
-                "using Models.Core;",
-                "using Models.PMF;",
-                "namespace Models",
-                "{",
-                "    [Serializable]",
-                "    public class Script : Model",
-                "    {",
-                "        [Link] Clock Clock;",
-                "        [Link] Fertiliser Fertiliser;",
-                "        ",
-                "        [Description(\"Crop to be fertilised\")]",
-                "        public IPlant Crop { get; set; }",
-                "",
-                "        [Description(\"Type of fertiliser to apply? \")] ",
-                "        public Fertiliser.Types FertiliserType { get; set; }",
-                "    ",
-                "        [Description(\"Amount of fertiliser to be applied (kg/ha)\")]",
-                "        public double Amount { get; set; }",
-                "        ",
-                "        [EventSubscribe(\"Sowing\")]",
-                "        private void OnSowing(object sender, EventArgs e)",
-                "        {",
-                "            Model crop = sender as Model;",
-                "            if (Crop != null && crop.Name.ToLower() == (Crop as IModel).Name.ToLower())",
-                "                Fertiliser.Apply(Amount: Amount, Type: FertiliserType);",
-                "        }",
-                "    }",
-                "}"
-              ],
-              "Parameters": [
-                {
-                  "Key": "Crop",
-                  "Value": "Wheat"
-                },
-                {
-                  "Key": "FertiliserType",
-                  "Value": "NO3N"
-                },
-                {
-                  "Key": "Amount",
-                  "Value": "160.0"
-                }
-              ],
-              "Name": "Fertilise at sowing",
               "ResourceName": null,
               "Children": [],
               "Enabled": true,

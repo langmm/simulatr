@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import os
 
 
 _markers_disabled_by_default = ["slow", "unstable"]
@@ -37,6 +38,13 @@ class NestedAssertionError(AssertionError):
         for k, v in nested.items():
             msg += f'\n\n{k}\n\t' + v.replace('\n', '\n\t')
         super(NestedAssertionError, self).__init__(msg)
+
+
+@pytest.fixture(scope="session")
+def data_dir() -> str:
+    r"""Directory containing test data."""
+    return os.path.join(
+        os.path.abspath(os.path.dirname(__file__)), "data")
 
 
 @pytest.fixture(scope="session")
@@ -96,3 +104,34 @@ def assert_nested_allclose(assert_allclose):
             raise NestedAssertionError(errors)
 
     return _assert_nested_allclose
+
+
+@pytest.fixture(scope="session")
+def compare_bytes():
+    r"""Compare bytes in chunks.
+
+    Args:
+        actual (bytes): Actual bytes.
+        expected (bytes): Expected bytes.
+
+    """
+
+    def _compare_bytes(actual, expected):
+        chunk_size = 1000
+        len_actual = len(actual)
+        len_expected = len(expected)
+        pos = 0
+        maxpos = max([len_actual, len_expected])
+        while pos < maxpos:
+            pos_act = min(pos, len_actual)
+            pos_exp = min(pos, len_expected)
+            chunk_act = actual[
+                pos_act:min(pos_act + chunk_size, len_actual)]
+            chunk_exp = expected[
+                pos_exp:min(pos_exp + chunk_size, len_expected)]
+            assert chunk_act == chunk_exp
+            pos += chunk_size
+        assert len_actual == len_expected
+        assert actual == expected
+
+    return _compare_bytes

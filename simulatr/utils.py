@@ -1,5 +1,4 @@
 import os
-import platform
 import threading
 import subprocess
 import signal
@@ -55,11 +54,12 @@ def start_subprocess(*args, **kwargs) -> subprocess.Popen:
         subprocess.Popen: Subprocess.
 
     """
-    if platform.system() == 'Windows':
-        if "creationflags" not in kwargs:
-            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-        else:
-            kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
+    # import platform
+    # if platform.system() == 'Windows':
+    #     if "creationflags" not in kwargs:
+    #         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    #     else:
+    #         kwargs["creationflags"] |= subprocess.CREATE_NEW_PROCESS_GROUP
     return subprocess.Popen(*args, **kwargs)
 
 
@@ -72,16 +72,40 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
         timeout: Number of seconds to wait after calling kill.
 
     """
+    timeout_try = 0.1
     try:
         process.kill()
-        process.wait(timeout=0.1)
+        process.wait(timeout=timeout_try)
+        logger.info("Success via process.kill()")
+        return
     except subprocess.TimeoutExpired:
+        pass
+    try:
         process.send_signal(signal.CTRL_C_EVENT)
-        process.wait(timeout=timeout)
-    # process2 = psutil.Process(process.pid)
-    # for proc in process2.children(recursive=True):
-    #     proc.kill()
-    # process2.kill()
+        process.wait(timeout=timeout_try)
+        logger.info("Success via CTRL_C_EVENT")
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        process.send_signal(signal.CTRL_BREAK_EVENT)
+        process.wait(timeout=timeout_try)
+        logger.info("Success via CTRL_BREAK_EVENT")
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        import psutil
+        psutil_process = psutil.Process(process.pid)
+        for proc in psutil_process.children(recursive=True):
+            proc.kill()
+        psutil_process.kill()
+        process.wait(timeout=timeout_try)
+        logger.info("Success via psutil.kill()")
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    process.wait(timeout=timeout)
 
 
 def partialclone(repourl: str, dst: str = None,

@@ -190,4 +190,4 @@ exclude = '''
 template = "keepachangelog"
 bump = "auto"
 output = "CHANGELOG.md"
-# in-place = true
+in-place = true

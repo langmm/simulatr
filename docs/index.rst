@@ -9,6 +9,7 @@
    server
    dev
    models
+   history
 
 Indices and tables
 ==================

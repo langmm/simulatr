@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
 <!-- insertion marker -->
-## [v0.1.0](https://github.com/langmm/simulatr/releases/tag/v0.1.0) - 2026-08-18
+## [v0.1.0](https://github.com/langmm/simulatr/releases/tag/v0.1.0) - 2026-08-20
 
 <small>[Compare with v0.0.1](https://github.com/langmm/simulatr/compare/v0.0.1...v0.1.0)</small>
 
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Tools for creating n8n tools for simulator engine applications
 - CLI for managine simulator applications and n8n tools
 - Support for soil file input to crop models
+- Utilities for iterating over pydantic fields that checks for annotations that should be skipped (used for n8n forms and CLI)
 
 ### Added
 
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 - Added apsimx conda dependencies to recipe ([caa6fa2](https://github.com/langmm/simulatr/commit/caa6fa23c7b50596556b732206b0ff288f3043bf) by Meagan Lang).
 - Added summary job to conda build GHA workflow for use in rulesets Set python_min in recipe context to allow building outside conda-forge Lint ([a5509c1](https://github.com/langmm/simulatr/commit/a5509c149440a2dc9fa53c0aaf685ab60a58ff01) by Meagan Lang).
 - Added docs on release process and added badges to README.md ([0ce6982](https://github.com/langmm/simulatr/commit/0ce69826c7705a7b532a2bc012f800df822e100c) by Meagan Lang).
+- Added CHANGELOG ([79a894d](https://github.com/langmm/simulatr/commit/79a894d9eb5e6726e0b4292afa0de02b58385541) by Meagan Lang).
 
 ## [v0.0.1](https://github.com/langmm/simulatr/releases/tag/v0.0.1) - 2026-08-07
 

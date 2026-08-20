@@ -2348,6 +2348,9 @@ class ApsimXEngine(CropModelEngine):
         self._current_time = None
         self._status = None
         self.context = zmq.Context()
+        self.context.set(zmq.MAX_SOCKETS, 8000)
+        self.context.setsockopt(zmq.LINGER, 0)
+        self.context.setsockopt(zmq.IMMEDIATE, 0)
         self.host = "127.0.0.1"
         if self.socket is None:
             self.socket = self.context.socket(zmq.REP)

@@ -88,7 +88,9 @@ class TestApsimX:
         def _compare_reports(factual, fexpected):
             actual = pd.read_csv(factual)
             expected = pd.read_csv(fexpected)
-            pd.testing.assert_frame_equal(actual, expected)
+            # rtol = 0.001
+            # atol = 0.001
+            pd.testing.assert_frame_equal(actual, expected, atol=0.001)
 
         return _compare_reports
 

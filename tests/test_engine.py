@@ -155,8 +155,7 @@ class TestModelEngine(TestBase):
             "set", "get", "act", "set_value", "act_value",
         ]
     )
-    def test_engine_invalid(self,
-                            new_instance,
+    def test_engine_invalid(self, new_instance,
                             command, error, command_args):
         r"""Test error & cleanup on setting a variable that causes
         re-initialization."""

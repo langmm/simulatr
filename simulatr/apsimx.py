@@ -2456,19 +2456,21 @@ class ApsimXEngine(CropModelEngine):
         if self.socket is not None:
             self.socket.close()
         logger.debug("Terminating process")
-        if self.process is not None and self.process.poll() is None:
-            logger.debug("Calling kill")
-            utils.kill_subprocess(self.process)
-            logger.debug("Kill returned")
-            logger.debug(f"Poll = {self.process.poll()}")
-            assert self.process.poll() is not None
-        logger.debug("Process closed")
-        if self.stderr_pipe is not None:
-            self.stderr_pipe.close()
-        if self.stderr_pipe is not None:
-            self.stderr_pipe.close()
-        # if self.context is not None:
-        #     self.context.destroy()
+        try:
+            if self.process is not None and self.process.poll() is None:
+                logger.debug("Calling kill")
+                utils.kill_subprocess(self.process)
+                logger.debug("Kill returned")
+                logger.debug(f"Poll = {self.process.poll()}")
+                assert self.process.poll() is not None
+            logger.debug("Process closed")
+        finally:
+            if self.stderr_pipe is not None:
+                self.stderr_pipe.close()
+            if self.stderr_pipe is not None:
+                self.stderr_pipe.close()
+            # if self.context is not None:
+            #     self.context.destroy()
         if self._status != "error":
             self.context = None
             self.socket = None

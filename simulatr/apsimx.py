@@ -235,10 +235,9 @@ class ApsimXFileNode:
 
         """
         if self.has_parameter(parameter_name):
-            if "CROP" in self["Name"]:
-                prev = "CROP"
-            else:
+            if "CROP" not in self["Name"]:
                 prev = self.get_parameter(parameter_name)
+                self["Name"] = self["Name"].replace(prev, crop_name)
             self.set_parameter(parameter_name, crop_name)
         if "CROP" in self["Name"]:
             self["Name"] = self["Name"].replace("CROP", crop_name)

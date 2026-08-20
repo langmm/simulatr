@@ -116,15 +116,22 @@ class TestModelEngine(TestBase):
 
         return _new_instance
 
-    @pytest.fixture  # (scope="class")
+    @pytest.fixture(scope="class")
     @classmethod
-    def instance(cls, new_instance):
+    def reusable_instance(cls, new_instance):
         with new_instance(model_suffix="-Prime") as instance:
             yield instance
 
-    def test_attributes(self, instance):
+    @pytest.fixture(scope="class")
+    @classmethod
+    def running_instance(cls, reusable_instance):
+        if not reusable_instance.is_operable:
+            raise RuntimeError("Reusable instance is not running.")
+        return reusable_instance
+
+    def test_attributes(self, reusable_instance):
         r"""Test instance attributes."""
-        print(instance.output_vars)
+        print(reusable_instance.output_vars)
 
     @pytest.mark.parametrize(
         "command,error,command_args", [
@@ -148,12 +155,18 @@ class TestModelEngine(TestBase):
             "set", "get", "act", "set_value", "act_value",
         ]
     )
-    def test_engine_invalid(self,  # instance,
+    def test_engine_invalid(self,
                             new_instance,
                             command, error, command_args):
         r"""Test error & cleanup on setting a variable that causes
         re-initialization."""
         with new_instance() as instance2:
+            if issubclass(error, RecoverableError):
+                getattr(instance2, command)(
+                    *command_args, allow_error=True)
+                assert instance2.is_running
+                assert not instance2.is_complete
+                assert instance2.status == "paused"
             with pytest.raises(error):
                 getattr(instance2, command)(*command_args)
             if issubclass(error, RecoverableError):
@@ -164,11 +177,6 @@ class TestModelEngine(TestBase):
                 assert not instance2.is_running
                 assert not instance2.is_complete
                 assert instance2.status == "error"
-        # if issubclass(error, RecoverableError):
-        #     getattr(instance, command)(*command_args, allow_error=True)
-        #     assert instance.is_running
-        #     assert not instance.is_complete
-        #     assert instance.status == "paused"
 
 
 class TestModelEnv(TestBase):
@@ -224,11 +232,18 @@ class TestModelEnv(TestBase):
 
         return _new_instance
 
-    @pytest.fixture  # (scope="class")
+    @pytest.fixture(scope="class")
     @classmethod
-    def instance(cls, new_instance):
+    def reusable_instance(cls, new_instance):
         with new_instance(model_suffix="-Prime") as instance:
             yield instance
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def running_instance(cls, reusable_instance):
+        if not reusable_instance.model.is_operable:
+            raise RuntimeError("Reusable instance is not running.")
+        return reusable_instance
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -265,43 +280,44 @@ class TestModelEnv(TestBase):
         else:
             return action_id_base
 
-    @pytest.fixture  # (scope="class")
+    @pytest.fixture(scope="class")
     @classmethod
-    def sampled_action_id(cls, instance):
-        return instance.actions.space.sample()
+    def sampled_action_id(cls, reusable_instance):
+        return reusable_instance.actions.space.sample()
 
-    def test_description(self, instance):
+    def test_description(self, reusable_instance):
         r"""Test description generation."""
-        instance.actions.description
+        reusable_instance.actions.description
 
     def test_action_description(self, action_id,
                                 sampled_action_id,
                                 assert_nested_allclose,
-                                instance):
+                                reusable_instance):
         r"""Test description generation."""
-        desc = instance.actions.action2description(action_id)
-        assert instance.actions.description2action(desc) == action_id
-        desc = instance.actions.action2description(sampled_action_id)
+        desc = reusable_instance.actions.action2description(action_id)
+        assert reusable_instance.actions.description2action(desc) == action_id
+        desc = reusable_instance.actions.action2description(sampled_action_id)
         assert_nested_allclose(
-            instance.actions.description2action(desc),
+            reusable_instance.actions.description2action(desc),
             sampled_action_id,
             atol=0.1
         )
 
-    def test_invalid_action(self, invalid_action_id, instance):
+    def test_invalid_action(self, invalid_action_id,
+                            reusable_instance):
         with pytest.raises(InvalidActionError):
-            instance.actions.action2description(invalid_action_id)
+            reusable_instance.actions.action2description(invalid_action_id)
 
-    def test_step(self, sampled_action_id, instance):
+    def test_step(self, sampled_action_id, running_instance):
         r"""Test environment step."""
-        instance.step(sampled_action_id)
-        instance.reset()
+        running_instance.step(sampled_action_id)
+        running_instance.reset()
 
     def test_prompt_generator(self, action_id, sampled_action_id,
                               assert_nested_allclose,
-                              instance):
+                              reusable_instance):
         r"""Test creation of prompt generator."""
-        prompt = instance.get_llm_prompt_generator()
+        prompt = reusable_instance.get_llm_prompt_generator()
         prompt.get_system_prompt()
         desc = prompt.describe_action(action_id)
         assert prompt.parse_action_response(desc) == action_id
@@ -340,13 +356,13 @@ class TestApsimXEngine(TestModelEngine):
             "end_time": datetime.datetime(year=1981, month=11, day=5),
         }
 
-    def test_attributes(self, instance):
-        r"""Test instance attributes."""
-        assert instance.crop_name == "Wheat"
-        assert instance.crop_variety == "Hartog"
-        assert instance.location != "the field"
-        assert instance.field_area == 1.0
-        print(instance.output_vars)
+    def test_attributes(self, reusable_instance):
+        r"""Test reusable_instance attributes."""
+        assert reusable_instance.crop_name == "Wheat"
+        assert reusable_instance.crop_variety == "Hartog"
+        assert reusable_instance.location != "the field"
+        assert reusable_instance.field_area == 1.0
+        print(reusable_instance.output_vars)
 
     def test_run(self, new_instance):
         with new_instance(actions=["irrigate"]) as instance:
@@ -407,43 +423,43 @@ class TestApsimXEngine(TestModelEngine):
                 instance.fast_forward(datetime.timedelta(days=10))
                 i += 1
 
-    def test_scrub(self, instance):
+    def test_scrub(self, running_instance):
         r"""Test rewind/fast-forward."""
-        start_time = instance.start_time
-        end_time = instance.end_time
+        start_time = running_instance.start_time
+        end_time = running_instance.end_time
         # start_time = datetime.datetime(year=1981, month=1, day=1)
         # end_time = datetime.datetime(year=1981, month=11, day=5)
         time = start_time.replace(month=5, day=23)
         # Run complete simulation without fertilizing
-        assert instance.current_time == start_time
-        instance.fast_forward()
-        assert instance.current_time == end_time
-        assert instance.is_running
-        value_none = instance.get("[Wheat].Grain.Total.Wt")
-        # print("NONE", instance.current_time, value_none)
+        assert running_instance.current_time == start_time
+        running_instance.fast_forward()
+        assert running_instance.current_time == end_time
+        assert running_instance.is_running
+        value_none = running_instance.get("[Wheat].Grain.Total.Wt")
+        # print("NONE", running_instance.current_time, value_none)
         # Rewind and run again with full
-        instance.rewind()
-        instance.rewind(datetime.timedelta(days=20))
-        assert instance.current_time == start_time
-        while instance.is_running and not instance.is_complete:
-            instance.act("nitrogen", 0.001)
-            instance.fast_forward(datetime.timedelta(days=20))
-        assert instance.current_time == end_time
-        value_full = instance.get("[Wheat].Grain.Total.Wt")
-        # print("FULL", instance.current_time, value_full)
+        running_instance.rewind()
+        running_instance.rewind(datetime.timedelta(days=20))
+        assert running_instance.current_time == start_time
+        while running_instance.is_running and not running_instance.is_complete:
+            running_instance.act("nitrogen", 0.001)
+            running_instance.fast_forward(datetime.timedelta(days=20))
+        assert running_instance.current_time == end_time
+        value_full = running_instance.get("[Wheat].Grain.Total.Wt")
+        # print("FULL", running_instance.current_time, value_full)
         # Rewind halfway and run without from there
-        instance.rewind(time)
-        assert instance.current_time == time
-        instance.fast_forward()
-        assert instance.current_time == end_time
-        instance.fast_forward(datetime.timedelta(days=20))
-        value_half = instance.get("[Wheat].Grain.Total.Wt")
-        # print("HALF", instance.current_time, value_half)
+        running_instance.rewind(time)
+        assert running_instance.current_time == time
+        running_instance.fast_forward()
+        assert running_instance.current_time == end_time
+        running_instance.fast_forward(datetime.timedelta(days=20))
+        value_half = running_instance.get("[Wheat].Grain.Total.Wt")
+        # print("HALF", running_instance.current_time, value_half)
         # Compare
         assert value_half > value_none
         assert value_full > value_half
-        instance.rewind()
-        assert instance.current_time == start_time
+        running_instance.rewind()
+        assert running_instance.current_time == start_time
 
     def test_action_param(self, new_instance):
         r"""Test actions with parameters."""

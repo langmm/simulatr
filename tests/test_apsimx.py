@@ -12,8 +12,10 @@ class TestApsimX:
         ("SimpleWheatUnmanaged.apsimx", None),
         ({"crop_name": "Wheat"},
          "SimpleWheatUnmanaged.Report.csv.expected"),
+        ("SimpleWheatUnmanagedChampaign.apsimx", None),
     ], ids=[
         "wheat", "wheat-unmanaged", "wheat-generated",
+        "wheat-unmanaged-champaign",
     ])
     @classmethod
     def parameters(cls, request):

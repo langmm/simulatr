@@ -114,7 +114,7 @@ filterwarnings = [
 ]
 markers = [
   "slow: marks tests as slow (enable with '--run-slow')",
-  "unstable: marks tests as being unstable (enable with --run-unstable)",
+  "download: marks tests as executing a data download (enable with --run-download)",
 ]
 addopts = ["-p", "pytest_cov"]
 

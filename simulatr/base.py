@@ -1,9 +1,7 @@
 import os
 import re
 import time
-import json
 import copy
-import uuid
 import logging
 import pprint
 import datetime
@@ -12,9 +10,8 @@ import itertools
 from collections import defaultdict
 from abc import ABC, abstractmethod
 from typing import (
-    Optional, Union, Dict, List, Tuple, Any, Callable, Iterator, ClassVar,
+    Optional, Union, Dict, List, Tuple, Any, Iterator, ClassVar,
 )
-from functools import cached_property
 import numpy as np
 import gymnasium as gym
 from pydantic import (
@@ -27,6 +24,7 @@ from . import logger
 from .utils import (
     promptuser, NoDefault, readonly_cached_property, CachedPropertyMixin
 )
+from .data import BaseFile
 
 
 class RecoverableError(RuntimeError):
@@ -1498,214 +1496,10 @@ class ModelActionSet(CachedPropertyMixin):
         return lines if return_lines else "\n".join(lines)
 
 
-class _ModelFileMeta(type(ABC)):
-    r"""Metaclass that registers file subclasses."""
-
-    _registry: Dict[str, Dict[str, type]] = {}
-
-    def __new__(mcs, name: str, bases: Tuple[type, ...],
-                namespace: Dict[str, Any], **kwargs: Any):
-        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        category = namespace.get('CATEGORY', None)
-        name = namespace.get('NAME', None)
-        if name is not None and category is None and bases:
-            category = getattr(bases[0], "CATEGORY", None)
-        if category is not None:
-            mcs._registry.setdefault(category, {})
-            assert name not in mcs._registry[category]
-            mcs._registry[category][name] = cls
-        return cls
-
-    @classmethod
-    def get_filetype_registry(mcs, category: str) -> dict:
-        r"""Get the file class registery for a file category.
-
-        Args:
-            category: Name of the file category.
-
-        Returns:
-            dict: File class registery for the category.
-
-        """
-        try:
-            return mcs._registry[category]
-        except KeyError:
-            raise ValueError(f"Unsupported file category \"{category}\"") \
-                from None
-
-    @classmethod
-    def get_filetype(mcs, category: str, name: str) -> type:
-        r"""Get the file class registered for a file category & name.
-
-        Args:
-            category: Name of the file category.
-            name: Name of the file type.
-
-        Returns:
-            type: File class registered for the category/name.
-
-        """
-        try:
-            return mcs._registry[category][name]
-        except KeyError:
-            raise ValueError(f"Unsupported {category} file \"{name}\"") \
-                from None
-
-
-class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
-    r"""Base class for managing model input files.
-
-    Args:
-        fname: Path to a model file.
-        generated: If True, this file was generated.
-        contents: Contents to initialize the file with.
-        fname_orig: Original model file that this one was generated from.
-
-    """
+class BaseModelFile(BaseFile):
+    r"""Base class for managing model input files."""
 
     CATEGORY: ClassVar[str] = "input"
-    NAME: ClassVar[str] = None
-    CACHED: ClassVar[bool] = False
-    EXAMPLE: ClassVar[str] = None
-    _default_ext: ClassVar[str] = ".json"
-
-    def __init__(self, fname: str, generated: Optional[bool] = False,
-                 contents: Optional[dict] = None,
-                 fname_orig: Optional[str] = None) -> None:
-        r"""Initialize a model file wrapper.
-
-        Args:
-            fname: Path to a model file.
-            generated: If True, this file was generated.
-            contents: Contents to initialize the file with.
-            fname_orig: Original model file that this one was generated
-                from.
-
-        """
-        self.fname = fname
-        self.fname_orig = fname_orig or fname
-        self.generated = generated
-        if contents is not None:
-            self.contents = contents
-        super().__init__()
-
-    def __del__(self) -> None:
-        r"""Cleanup any generated file."""
-        self.cleanup()
-
-    def cleanup(self) -> None:
-        r"""Cleanup any generated file."""
-        if self.generated and self.exists and not self.CACHED:
-            os.remove(self.fname)
-            self.generated = False
-            self._clear_cached_properties()
-
-    @classmethod
-    def from_file(
-            cls, fname: Union[str, "BaseModelFile"]) -> "BaseModelFile":
-        r"""Create an instance by loading it from a file.
-
-        Args:
-            fname: File or file instance to create an instance from. If
-                an instance of this class is provided, it will be
-                returned.
-
-        Returns:
-            File instance.
-
-        """
-        if isinstance(fname, cls):
-            return fname
-        return cls(fname)
-
-    @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        if cls._default_ext.endswith(".json"):
-            with open(fname, "r") as fd:
-                return json.load(fd)
-        raise NotImplementedError  # pragma: no cover
-
-    @classmethod
-    def _write(cls, fname: str, contents: Any):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-            contents: File contents to write.
-
-        """
-        if cls._default_ext.endswith(".json"):
-            with open(fname, "w") as fd:
-                json.dump(contents, fd, indent=4)
-                fd.write("\n")
-            return
-        raise NotImplementedError  # pragma: no cover
-
-    def _get(self, name: str):
-        r"""Get a parameter from the model file.
-
-        Args:
-            name: Parameter name.
-
-        Returns:
-            Parameter value.
-
-        Raises:
-            KeyError: If name is not a valid parameter name.
-
-        """
-        raise KeyError(name)
-
-    def _set(self, name: str, value: Any) -> Any:
-        r"""Set a parameter in the model file.
-
-        Args:
-            name: Parameter name.
-            value: Parameter value.
-
-        Raises:
-            KeyError: If name is not a valid parameter name.
-
-        """
-        raise KeyError(name)
-
-    @staticmethod
-    def parameter_property(method: Callable) -> property:
-        r"""Decorator for a BaseModelFile method that produces the default
-        value that should be used if a KeyError is not raised by
-        BaseModelFile.get(<property name>).
-
-        Args:
-            method: BaseModelFile method being wrapped.
-
-        """
-
-        name = method.__qualname__.rsplit('.', 1)[-1]
-
-        @property
-        def _parameter_property(self):
-            r"""Get the parameter value, computing it if missing."""
-            try:
-                return self.get(name)
-            except KeyError:
-                self._cached_properties[name] = method(self)
-                return self._cached_properties[name]
-
-        return _parameter_property
-
-    @cached_property
-    def contents(self) -> Any:
-        r"""object: File contents."""
-        return self._read(self.fname)
 
     @readonly_cached_property
     @abstractmethod
@@ -1713,139 +1507,10 @@ class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
         r"""bool: True if the model file is interactive."""
         raise NotImplementedError  # pragma: no cover
 
-    @contextlib.contextmanager
-    def prevent_overwrite(self, suffix: Optional[str] = "-Modified"
-                          ) -> Iterator[None]:
-        r"""Context to ensure that a duplicate is made if the context
-        exits successfully during modification of the file contents.
-
-        Args:
-            suffix: File suffix to add if a new file name is generated.
-
-        """
-        assert self.contents  # Ensure contents loaded
-        yield
-        if self.exists:
-            self.move(suffix=suffix)
-        self.generated = False
-        self._clear_cached_properties()
-
-    @parameter_property
+    @BaseFile.parameter_property
     def output_vars(self) -> list:
         r"""list: Output variables."""
         return []
-
-    @property
-    def exists(self) -> bool:
-        r"""bool: True if the file exists."""
-        return os.path.isfile(self.fname)
-
-    def get(self, name: str, default: Any = NoDefault) -> Any:
-        r"""Get a parameter from the model file.
-
-        Args:
-            name: Parameter name.
-            default: Value to return if the parameter can't be found.
-
-        Returns:
-            Parameter value.
-
-        """
-        if name in self._cached_properties:
-            return self._cached_properties[name]
-        try:
-            out = self._get(name)
-            self._cached_properties[name] = out
-            return out
-        except KeyError:
-            if default is not NoDefault:
-                return default
-            raise
-
-    def set(self, name: str, value: Any) -> None:
-        r"""Set a parameter in the model file.
-
-        Args:
-            name: Parameter name.
-            value: Parameter value.
-
-        Raises:
-            KeyError: If name is not a valid parameter name.
-
-        """
-        with self.prevent_overwrite():
-            self._set(name, value)
-
-    def write(self, new_contents: Optional[dict] = None,
-              overwrite: Optional[bool] = False) -> None:
-        r"""Write a new set of contents to the file.
-
-        Args:
-            new_contents: New contents to write.
-            overwrite: If True, overwrite the existing file.
-
-        """
-        if (not overwrite) and os.path.isfile(self.fname):
-            raise RuntimeError(f"Model file already exists: "
-                               f"\"{self.fname}\"")
-        if new_contents is not None:
-            self.contents = new_contents
-            self._clear_cached_properties()
-        self._write(self.fname, self.contents)
-        self.generated = True
-
-    def move(self, dst: Optional[str] = None,
-             suffix: Optional[str] = None,
-             directory: Optional[str] = None) -> str:
-        r"""Change the path to the file the contents will be written to
-        when write is called.
-
-        Args:
-            dst: Path to the new location where the model should be
-                saved when write is called.
-            suffix: Suffix to add to the current filename if dst is
-                not provided.
-            directory: Path to the directory that the model should be
-                written to when write is called.
-
-        Returns:
-            str: The new model file path.
-
-        """
-        assert self.contents
-        if dst is None:
-            if suffix:
-                dst = suffix.join(os.path.splitext(self.fname))
-            else:
-                dst = self.fname
-        if directory is not None:
-            dst = os.path.join(directory, os.path.basename(dst))
-        while os.path.isfile(dst):
-            dst = str(uuid.uuid4()).join(os.path.splitext(dst))
-        if dst != self.fname:
-            self.generated = False
-        self.fname = dst
-        if self.exists:
-            raise ValueError(f"Cannot move to a file that already exists: "
-                             f"\"{self.fname}\"")
-        return self.fname
-
-    def copy(self, **kwargs: Any) -> "BaseModelFile":
-        r"""Create a copy of this .apsimx model.
-
-        Args:
-            **kwargs: Addiitonal keyword arguments are passed to move.
-
-        Returns:
-            ApsimXFile: Copied .apsimx model.
-
-        """
-        out = type(self)(self.fname, generated=self.generated,
-                         fname_orig=self.fname_orig)
-        out.contents = copy.deepcopy(self.contents)
-        if kwargs:
-            out.move(**kwargs)
-        return out
 
     def make_interactive(self, actions: list) -> None:
         r"""Modify this file to make it interactive.

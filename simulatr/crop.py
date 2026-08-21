@@ -19,6 +19,8 @@ from .utils import NoDefault
 class CropModelFile(BaseModelFile):
     r"""Base class for managing crop model input files."""
 
+    NAME: ClassVar[str] = "crop"
+
     @classmethod
     @abstractmethod
     def available_crops(cls) -> List[str]:

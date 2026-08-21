@@ -572,8 +572,20 @@ class ApsimXFileNode:
 class ApsimXWeatherFile(BaseWeatherFile):
     r"""Container for ApsimX weather data."""
 
-    NAME: ClassVar[str] = "apsimx"
+    NAME: ClassVar[str] = "apsimx_met"
+    DESC: ClassVar[str] = "ApsimX Weather"
+    DEFAULT_EXTERNAL_TYPE: ClassVar[type] = NASAPOWERWeatherFile
     _default_ext: ClassVar[str] = ".met"
+    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
+        "nasa_power_weather_data": [
+            "TOA_SW_DWN",
+            "ALLSKY_SFC_SW_DWN",  # MJ
+            "T2M", "T2M_MIN", "T2M_MAX",  # C
+            "T2MDEW",  # C
+            "WS2M",  # wind
+            "PRECTOTCORR",  # mm
+        ],
+    }
     _power_names: ClassVar[dict] = {
         "radn": "ALLSKY_SFC_SW_DWN",
         "maxt": "T2M_MAX",
@@ -588,6 +600,11 @@ class ApsimXWeatherFile(BaseWeatherFile):
         #     requirements, FAO irrigation and drainage paper 56)
         "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
     }
+    _inv_conv: ClassVar[dict] = {
+        "T2MDEW": lambda vp: (
+            -237.3 * np.log(vp / 6.108)
+            / (np.log(vp / 6.108) - 17.27)),
+    }
     _units: ClassVar[dict] = {
         "radn": "MJ/m^2",
         "maxt": "oC",
@@ -600,6 +617,14 @@ class ApsimXWeatherFile(BaseWeatherFile):
         "longitude": "decimal degrees",
         "elevation": "m",
     }
+
+    @property
+    def parameters(self) -> list:
+        r"""list: Set of power parameters contained by this file."""
+        return (
+            list(self.contents["constants"].keys())
+            + list(self.contents["columns"].columns)
+        )
 
     @classmethod
     def _read(cls, fname: str):
@@ -624,9 +649,9 @@ class ApsimXWeatherFile(BaseWeatherFile):
             for line in fd:
                 if line.startswith("!"):
                     continue
-                elif line.startswith("year"):
-                    names = line.split()
-                    for k, x in zip(names, fd.readline().split()):
+                elif line.lstrip().startswith("year"):
+                    names = line.strip().split()
+                    for k, x in zip(names, fd.readline().strip().split()):
                         out["units"][k] = x.strip("()")
                     out["columns"] = pd.read_csv(
                         fd, sep=r"\s+", names=names,
@@ -643,7 +668,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
                     match = match.groupdict()
                     if match["units"]:
                         out["units"][match["name"]] = match["units"]
-                    out["constants"][match["name"]] = match["value"]
+                    out["constants"][match["name"]] = float(match["value"])
         return out
 
     @classmethod
@@ -681,7 +706,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
             fd.write("\n".join(out))
 
     @classmethod
-    def _from_base(cls, src: BaseWeatherFile):
+    def _from_nasa_power_weather_data(cls, src: NASAPOWERWeatherFile):
         r"""Convert weather data from another file format into the
         correct format for this file.
 
@@ -692,8 +717,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
             Converted data.
 
         """
-        if not isinstance(src, NASAPOWERWeatherFile):
-            return super()._from_base(src)
         import pandas as pd
         fill_value = float(src.contents["header"]["fill_value"])
         out = {"units": cls._units.copy()}
@@ -721,15 +744,42 @@ class ApsimXWeatherFile(BaseWeatherFile):
         out["columns"] = columns
         return out
 
+    def _to_nasa_power_weather_data(self):
+        out = {
+            "header": {
+                "start": self.start_date.strftime("%Y%m%d"),
+                "end": self.end_date.strftime("%Y%m%d"),
+            },
+            "geometry": {
+                "coordinates": [
+                    self.contents["constants"]["longitude"],
+                    self.contents["constants"]["latitude"],
+                    self.contents["constants"]["elevation"],
+                ]
+            },
+            "properties": {
+                "parameter": {
+                    "T2M": self.contents["constants"]["tav"],
+                },
+            },
+        }
+        for k, v in self._power_names.items():
+            x = self.contents["columns"][k]
+            if v in self._inv_conv:
+                x = self._inv_conv[v](x)
+            out["properties"]["parameter"][v] = x.tolist()
+        return out
+
     @readonly_cached_property
     def dates(self) -> np.ndarray:
         r"""np.ndarray: Dates covered by this file."""
-        return (
+        out = (
             (self.contents["columns"]["year"].to_numpy() - 1970).astype(
                 "datetime64[Y]")
             + (self.contents["columns"]["day"].to_numpy() - 1).astype(
                 "timedelta64[D]")
         )
+        return out
 
     @readonly_cached_property
     def latitude(self) -> float:
@@ -767,8 +817,31 @@ class ApsimXSoilFile(BaseSoilFile):
     (e.g. ``simulatr/apsimx_data/Soil.json``)
     """
 
-    NAME: ClassVar[str] = "apsimx"
+    NAME: ClassVar[str] = "apsimx_soil"
+    DESC: ClassVar[str] = "ApsimX Soil"
+    # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = ISRICSoilGridsFile
+    # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = SSURGOSoilFile
     _default_ext: ClassVar[str] = ".soil.json"
+    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
+        "isric_soil_data": [
+            "bdod",  # Bulk density of the fine earth fraction
+            "cec",  # Cation exchange capacity
+            "cfvo",  # Coarse fragment content
+            "clay",
+            # "landmask",
+            "nitrogen",
+            # "ocd",
+            # "ocs",
+            "phh2o",  # Soil pH
+            "sand",
+            "silt",
+            "soc",  # Soil organic carbon
+            # "wrb",
+            "wv0010",  # Volumetric water content at 10 kPa (mm/mm)
+            "wv0033",  # Volumetric water content at 33 kPa (mm/mm)
+            "wv1500",  # Volumetric water content at 1500 kPa (mm/mm)
+        ]
+    }
     _layer_nodes: ClassVar[OrderedDict] = OrderedDict([
         # ("SoilPhysical", [
         ("Models.Soils.Physical, Models", [
@@ -1276,30 +1349,6 @@ class ApsimXSoilFile(BaseSoilFile):
         return super().calculate_missing()
 
     @classmethod
-    def _from_base(cls, src: BaseSoilFile):
-        r"""Convert soil data from another file format into the
-        correct format for this file.
-
-        Args:
-            src: Base class data.
-
-        Returns:
-            Converted data.
-
-        """
-        if isinstance(src, ISRICSoilGridsFile):
-            out = cls._from_soilgrids(src)
-        elif isinstance(src, SSURGOSoilFile):
-            out = cls._from_ssurgo(src)
-        else:
-            out = super()._from_base(src)
-        if out["Comments"] is None:
-            out["Comments"] = (
-                f"Generated by simulatr from {src.NAME} data"
-            )
-        return out
-
-    @classmethod
     def create_solute(cls, name: str,
                       thickness: list,
                       initial: list,
@@ -1335,7 +1384,7 @@ class ApsimXSoilFile(BaseSoilFile):
         return out.contents
 
     @classmethod
-    def _from_ssurgo(cls, src: SSURGOSoilFile) -> dict:
+    def _from_ssurgo_soil_data(cls, src: SSURGOSoilFile) -> dict:
         r"""Convert SSURGO data into the correct format for this file.
 
         Args:
@@ -1400,17 +1449,22 @@ class ApsimXSoilFile(BaseSoilFile):
         #     "Original source is ISRIC SoilGrids data "
         #     f"(https://soilgrids.org/) retrieved on {now}"
         # )
-        # return ApsimXFileNode.from_data(
+        # out = ApsimXFileNode.from_data(
         #     "Soil",
         #     Latitude=latitude,
         #     Longitude=longitude,
         #     DataSource=source,
         #     Children=children,
         # ).contents
+        # if out["Comments"] is None:
+        #     out["Comments"] = (
+        #         f"Generated by simulatr from {src.DESC} data"
+        #     )
+        # return out
         raise NotImplementedError
 
     @classmethod
-    def _from_soilgrids(cls, src: ISRICSoilGridsFile) -> dict:
+    def _from_isric_soil_data(cls, src: ISRICSoilGridsFile) -> dict:
         r"""Convert ISRIC SoilGrids data into the correct format for
         this file.
 
@@ -1507,13 +1561,18 @@ class ApsimXSoilFile(BaseSoilFile):
             "Original source is ISRIC SoilGrids data "
             f"(https://soilgrids.org/) retrieved on {now}"
         )
-        return ApsimXFileNode.from_data(
+        out = ApsimXFileNode.from_data(
             "Soil",
             Latitude=latitude,
             Longitude=longitude,
             DataSource=source,
             Children=children,
         ).contents
+        if out["Comments"] is None:
+            out["Comments"] = (
+                f"Generated by simulatr from {src.DESC} data"
+            )
+        return out
 
 
 class ApsimXFile(CropModelFile):

@@ -4,7 +4,9 @@ import pytest
 import os
 
 
-_markers_disabled_by_default = ["slow", "unstable"]
+_markers_disabled_by_default = [
+    "slow", "download",
+]
 
 
 def pytest_addoption(parser):
@@ -14,14 +16,18 @@ def pytest_addoption(parser):
         default="local",
         help="Location where the test server is running or should be run",
     )
-    for k in _markers_disabled_by_default:
+    for k in _markers_disabled_by_default + ["slow_download"]:
         parser.addoption(
-            f'--run-{k}', action='store_true', dest=f"run_{k}",
+            f'--run-{k.replace("_", "-")}',
+            action='store_true', dest=f"run_{k}",
             default=False,
             help=f"enable tests marked as {k}")
 
 
 def pytest_configure(config):
+    if getattr(config.option, "run_slow_download"):
+        config.option.run_download = True
+        config.option.run_slow = True
     for k in _markers_disabled_by_default:
         if not getattr(config.option, f"run_{k}"):
             if not config.getoption("markexpr"):

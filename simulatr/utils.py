@@ -28,14 +28,6 @@ cfg = PackageConfig(
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
             'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
             'scratch': os.path.join(os.getcwd(), 'scratch'),
-            'nasa_power_weather_data': os.path.join(
-                os.getcwd(), 'nasa_power_weather_data'),
-            'isric_soil_data': os.path.join(
-                os.getcwd(), 'isric_soil_data'),
-            'humeris_soil_data': os.path.join(
-                os.getcwd(), 'HUMERIS'),
-            'ssurgo_soil_data': os.path.join(
-                os.getcwd(), 'ssurgo_soil_data'),
         },
         'urls': {
             'n8n_api': "https://tools.uiuc.chat/api/v1",
@@ -556,8 +548,10 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
 
         @classmethod
         def _register(mcs, cls):
+            if hasattr(cls, "_on_registration"):
+                cls._on_registration(cls)
             key = mcs._get_key(cls)
-            if None in key:
+            if None in key[:-1]:
                 return
             dst = mcs._registry
             for k in key[:-1]:
@@ -565,6 +559,40 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
                 dst = dst[k]
             assert key[-1] not in dst
             dst[key[-1]] = cls
+
+        @classmethod
+        def get_registry(mcs, *partial_key: Any):
+            out = mcs._registry
+            for k in partial_key:
+                out = out[k]
+            return out
+
+        @classmethod
+        def _recurse_items(mcs, key, value):
+            if isinstance(value, OrderedDict):
+                for k, v in value.items():
+                    knested = tuple(*key, k)
+                    for knext, vnext in mcs._recurse_items(knested, v):
+                        yield knext, vnext
+            else:
+                assert key
+                yield key, value
+
+        @classmethod
+        def items(mcs, *partial_key: Any):
+            registry = mcs.get_registry(*partial_key)
+            for k, v in mcs._recurse_items(tuple(), registry):
+                yield (k, v)
+
+        @classmethod
+        def keys(mcs, *partial_key: Any):
+            for k, v in mcs.items(*partial_key):
+                yield k
+
+        @classmethod
+        def values(mcs, *partial_key: Any):
+            for k, v in mcs.items(*partial_key):
+                yield v
 
         @classmethod
         def registered_classes(mcs) -> List[str]:

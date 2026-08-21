@@ -1,0 +1,11 @@
+{
+    "$type": "Models.Soils.SoilTemp.SoilTemperature, Models",
+    "Thickness": null,
+    "InitialValues": null,
+    "InteractionsPerDay": 8,
+    "Name": "Temperature",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

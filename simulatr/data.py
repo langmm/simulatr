@@ -4,7 +4,7 @@ import numpy as np
 import datetime
 import requests
 from abc import abstractmethod
-from typing import Optional, Union, List, Any, Tuple
+from typing import Optional, Union, List, Any, Tuple, ClassVar
 from .base import (
     readonly_cached_property,
     _ModelFileMeta, BaseModelFile,
@@ -16,12 +16,14 @@ from .utils import cfg
 class BaseDataFile(BaseModelFile):
     r"""Base class for external data files."""
 
-    CACHED = True
-    DEFAULT_EXTERNAL_TYPE = None
-    REQUIRED_EXTERNAL_PARAMETERS = {}
-    DEFAULT_DATE_RANGE = None
-    DEFAULT_CACHE_DIR = None
-    DATE_LIMITS = None
+    CACHED: ClassVar[bool] = True
+    DEFAULT_EXTERNAL_TYPE: ClassVar[str] = None
+    DEFAULT_DOWNLOAD_PARAMTERS: ClassVar[List[str]] = []
+    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {}
+    DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = None
+    DEFAULT_CACHE_DIR: ClassVar[str] = None
+    DATE_LIMITS: ClassVar[Tuple[datetime.date, datetime.date]] = None
+    _EXPECTS_DIRECTORY: ClassVar[bool] = False
     _make_interactive = None
 
     @classmethod
@@ -68,10 +70,13 @@ class BaseDataFile(BaseModelFile):
             return x.isoformat()
         elif isinstance(x, float):
             return str(x).replace(".", "p").replace("-", "n")
+        elif isinstance(x, tuple):
+            return "-".join([cls._f2str(xx) for xx in x])
         return x
 
     @classmethod
-    def format_filename(cls, latitude: float, longitude: float,
+    def format_filename(cls, latitude: float | Tuple[float, float],
+                        longitude: float | Tuple[float, float],
                         start_date: Optional[datetime.date] = None,
                         end_date: Optional[datetime.date] = None,
                         cache_dir: Optional[str] = None) -> str:
@@ -161,7 +166,7 @@ class BaseDataFile(BaseModelFile):
                     base_cls.NAME, None)
             fbase = base_cls.from_location(
                 latitude, longitude, start_date, end_date,
-                parameters=parameters, cache_dir=cache_dir)
+                parameters=parameters)
             return cls.from_base(fbase)
         cache_dir = cache_dir or cls.DEFAULT_CACHE_DIR
         if cls.time_specific():
@@ -197,7 +202,7 @@ class BaseDataFile(BaseModelFile):
         fname = cls.format_filename(latitude, longitude,
                                     start_date, end_date,
                                     cache_dir=cache_dir)
-        if os.path.isfile(fname):
+        if cls.path_exists(fname):
             assert not cls.time_specific()
             out = cls(fname)
             if parameters:
@@ -213,6 +218,44 @@ class BaseDataFile(BaseModelFile):
         return out
 
     @classmethod
+    def path_exists(cls, fpath: str) -> bool:
+        r"""Check if a file/directory exists according to the path
+        expected by this file type.
+
+        Args:
+            fpath: File or directory.
+
+        Returns:
+            bool: True if the file or directory exists.
+
+        """
+        if cls._EXPECTS_DIRECTORY:
+            return os.path.isdir(fpath)
+        return os.path.isfile(fpath)
+
+    def calculate_missing(self):
+        r"""Calculate missing parameters that are required."""
+        pass
+
+    @classmethod
+    def from_file(cls, fname: str | BaseModelFile) -> BaseModelFile:
+        r"""Create an instance by loading it from a file.
+
+        Args:
+            fname: File or file instance to create an instance from. If
+                an instance of this class is provided, it will be
+                returned.
+
+        Returns:
+            File instance.
+
+        """
+        if ((isinstance(fname, BaseModelFile)
+             and fname.CATEGORY == cls.CATEGORY)):
+            return cls.from_base(fname)
+        return super().from_file(fname)
+
+    @classmethod
     def from_base(cls, fbase: Union[str, "BaseDataFile"],
                   fname: Optional[str] = None) -> "BaseDataFile":
         r"""Create a data file from another file of the same category.
@@ -226,22 +269,24 @@ class BaseDataFile(BaseModelFile):
             fbase = cls.base_cls()(fbase)
         if fname is None:
             fname = os.path.splitext(fbase.fname)[0] + cls._default_ext
-        if os.path.isfile(fname):
+        if cls.path_exists(fname):
             return cls(fname)
         if isinstance(fbase, cls):
             contents = fbase.contents
         else:
-            fbase.add_missing_param(
-                cls.REQUIRED_EXTERNAL_PARAMETERS[fbase.NAME])
+            if fbase.NAME in cls.REQUIRED_EXTERNAL_PARAMETERS:
+                fbase.add_missing_param(
+                    cls.REQUIRED_EXTERNAL_PARAMETERS[fbase.NAME])
             contents = cls._from_base(fbase)
         out = cls(fname, contents=contents)
+        out.calculate_missing()
         out.write()
         return out
 
     @classmethod
     def _from_base(cls, src: "BaseDataFile"):
-        r"""Convert NASA power data into the correct format for this
-        file.
+        r"""Convert data from another file format into the correct
+        format for this file.
 
         Args:
             src: Base class data.
@@ -255,9 +300,42 @@ class BaseDataFile(BaseModelFile):
         raise NotImplementedError(
             f"Conversion from {type(src)} to {cls}")  # pragma: no cover
 
+    @classmethod
+    def _check_inside_range(
+            cls,
+            a: float | datetime.date | None | Tuple[Any, Any],
+            b: float | datetime.date | None | Tuple[Any, Any],
+            inclusive_left: Optional[bool] = True,
+            inclusive_right: Optional[bool] = False,
+    ) -> bool:
+        if isinstance(a, tuple):
+            if a == (None, None):
+                return True
+            if isinstance(b, tuple):
+                if not cls._check_inside_range(a[0], b):
+                    return False
+                return cls._check_inside_range(
+                    a[1], b,
+                    inclusive_left=False,
+                    inclusive_right=True,
+                )
+            return ((a[0] is None or a[0] == b)
+                    and (a[1] is None or a[1] == b))
+        elif not isinstance(b, tuple):
+            return (a is None or b is None or a == b)
+        if a is None or b == (None, None):
+            return True
+        if ((b[0] is not None
+             and (a < b[0] or ((not inclusive_left) and a == b[0])))):
+            return False
+        if ((b[1] is not None
+             and (a > b[1] or ((not inclusive_right) and a == b[1])))):
+            return False
+        return True
+
     def covers_location(
-            self, latitude: Optional[float] = None,
-            longitude: Optional[float] = None,
+            self, latitude: Optional[float | Tuple[float, float]] = None,
+            longitude: Optional[float | Tuple[float, float]] = None,
             start: Union[datetime.date, datetime.datetime] = None,
             end: Union[datetime.date, datetime.datetime] = None) -> bool:
         r"""Check if the file contains data for the specified location.
@@ -276,19 +354,14 @@ class BaseDataFile(BaseModelFile):
             start = start.date()
         if isinstance(end, datetime.datetime):
             end = end.date()
-        if ((latitude is not None and self.latitude is not None
-             and self.latitude != latitude)):
+        if not self._check_inside_range(latitude, self.latitude):
             return False
-        if ((longitude is not None and self.longitude is not None
-             and self.longitude != longitude)):
+        if not self._check_inside_range(longitude, self.longitude):
             return False
-        if self.time_specific():
-            if ((start is not None and self.start_date is not None
-                 and (start < self.start_date or start >= self.end_date))):
-                return False
-            if ((end is not None and self.end_date is not None
-                 and (end <= self.start_date or end > self.end_date))):
-                return False
+        if ((self.time_specific()
+             and not self._check_inside_range(
+                 (start, end), (self.start_date, self.end_date)))):
+            return False
         return True
 
     def add_missing_param(self, parameters: List[str]) -> None:
@@ -342,11 +415,11 @@ class BaseDataFile(BaseModelFile):
 class BaseWeatherFile(BaseDataFile):
     r"""Base class for weather files."""
 
-    CATEGORY = "weather"
-    NAME = None
-    CACHED = True
-    DEFAULT_EXTERNAL_TYPE = "NASA POWER"
-    REQUIRED_EXTERNAL_PARAMETERS = {
+    CATEGORY: ClassVar[str] = "weather"
+    NAME: ClassVar[str] = None
+    CACHED: ClassVar[bool] = True
+    DEFAULT_EXTERNAL_TYPE: ClassVar[str] = "NASA POWER"
+    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
         "NASA POWER": [
             "TOA_SW_DWN",
             "ALLSKY_SFC_SW_DWN",  # MJ
@@ -356,9 +429,10 @@ class BaseWeatherFile(BaseDataFile):
             "PRECTOTCORR",  # mm
         ],
     }
-    DEFAULT_DATE_RANGE = (
+    DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = (
         datetime.date(1981, 1, 1), datetime.date(2026, 5, 8))
-    DATE_LIMITS = (datetime.date(1981, 1, 1), datetime.date.today())
+    DATE_LIMITS: ClassVar[Tuple[datetime.date, datetime.date]] = (
+        datetime.date(1981, 1, 1), datetime.date.today())
 
     @property
     def parameters(self) -> list:
@@ -385,9 +459,10 @@ class BaseWeatherFile(BaseDataFile):
 class NASAPOWERWeatherFile(BaseWeatherFile):
     r"""Wrapper for loading NASA POWER data."""
 
-    NAME = "NASA POWER"
-    CACHED = True
-    DEFAULT_CACHE_DIR = cfg["directories"]["nasa_power_weather_data"]
+    NAME: ClassVar[str] = "NASA POWER"
+    CACHED: ClassVar[bool] = True
+    DEFAULT_CACHE_DIR: ClassVar[str] = (
+        cfg["directories"]["nasa_power_weather_data"])
 
     @readonly_cached_property
     def parameters(self) -> list:
@@ -482,11 +557,11 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
 class BaseSoilFile(BaseDataFile):
     r"""Base class for soil files."""
 
-    CATEGORY = "soil"
-    NAME = None
-    CACHED = True
-    DEFAULT_EXTERNAL_TYPE = "ISRIC SoilGrids"
-    REQUIRED_EXTERNAL_PARAMETERS = {
+    CATEGORY: ClassVar[str] = "soil"
+    NAME: ClassVar[str] = None
+    CACHED: ClassVar[bool] = True
+    DEFAULT_EXTERNAL_TYPE: ClassVar[str] = "ISRIC SoilGrids"
+    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
         "ISRIC SoilGrids": [
             "bdod",  # Bulk density of the fine earth fraction
             "cec",  # Cation exchange capacity
@@ -501,6 +576,9 @@ class BaseSoilFile(BaseDataFile):
             "silt",
             "soc",  # Soil organic carbon
             # "wrb",
+            "wv0010",  # Volumetric water content at 10 kPa (mm/mm)
+            "wv0033",  # Volumetric water content at 33 kPa (mm/mm)
+            "wv1500",  # Volumetric water content at 1500 kPa (mm/mm)
         ]
     }
 
@@ -515,13 +593,14 @@ class BaseSoilFile(BaseDataFile):
 class ISRICSoilGridsFile(BaseSoilFile):
     r"""Wrapper for loading ISRIC SoilGrids data from REST API."""
 
-    NAME = "ISRIC SoilGrids"
-    CACHED = True
-    SOIL_GRIDS_DEPTHS = {
+    NAME: ClassVar[str] = "ISRIC SoilGrids"
+    CACHED: ClassVar[bool] = True
+    SOIL_GRIDS_DEPTHS: ClassVar[dict] = {
         f"{start}-{end}cm": (start, end) for start, end in
         [(0, 5), (5, 15), (15, 30), (30, 60), (60, 100), (100, 200)]
     }
-    DEFAULT_CACHE_DIR = cfg["directories"]["isric_soil_data"]
+    DEFAULT_CACHE_DIR: ClassVar[str] = (
+        cfg["directories"]["isric_soil_data"])
 
     @readonly_cached_property
     def parameters(self) -> list:
@@ -538,8 +617,10 @@ class ISRICSoilGridsFile(BaseSoilFile):
         out = []
         for layer in self.contents["properties"]["layers"]:
             for depth in layer["depths"]:
-                depth_range = tuple(
-                    map(int, depth["range"].replace("cm", "").split("-")))
+                depth_range = (
+                    depth["range"]["top_depth"],
+                    depth["range"]["bottom_depth"]
+                )
                 if depth_range not in out:
                     out.append(depth_range)
         return sorted(out)
@@ -626,3 +707,286 @@ class ISRICSoilGridsFile(BaseSoilFile):
         #     )
         logger.debug("Successfully retrieved data from ISRIC SoilGrids")
         return req.json()
+
+
+class SSURGOSoilFile(BaseSoilFile):
+    r"""Wrapper for loading soil data from SSURGO.
+
+    """
+
+    NAME: ClassVar[str] = "SSURGO"
+    CACHED: ClassVar[bool] = True
+    _default_ext: ClassVar[str] = ".xml"
+    DEFAULT_CACHE_DIR: ClassVar[str] = (
+        cfg["directories"]["ssurgo_soil_data"])
+    REQUIRED_DOWNLOAD_PARAMTERS: ClassVar[List[str]] = [
+        "co.cokey",       # cokey
+        "ch.chkey",       # chkey
+        "comppct_r",      # prcent
+        "hzdept_r",       # topdepth,
+        "hzdepb_r",       # bottomdepth,
+        "muname",         # muname,
+    ]
+    STRING_FIELDS: ClassVar[List[str]] = [
+        "co.cokey",       # cokey
+        "ch.chkey",       # chkey
+        "compkind",
+        "compname",
+        "muname",
+        "musym",
+        "hzname",
+    ]
+    DEFAULT_DOWNLOAD_PARAMTERS: ClassVar[List[str]] = [
+        "co.cokey",       # cokey
+        "ch.chkey",       # chkey
+        "comppct_r",      # prcent
+        "compkind",       # compkind_series
+        "wsatiated_r",    # wat_r,
+        "partdensity",    # pd,
+        "dbthirdbar_h",   # bb,
+        "musym",          # musymbol,
+        "compname",       # componentname,
+        "muname",         # muname,
+        "slope_r",
+        "slope_h",        # slope,
+        "hzname",
+        "hzdept_r",       # topdepth,
+        "hzdepb_r",       # bottomdepth,
+        "awc_r",          # PAW,
+        "ksat_l",         # KSAT,
+        "claytotal_r",    # clay,
+        "silttotal_r",    # silt,
+        "sandtotal_r",    # sand,
+        "om_r",           # OM,
+        "iacornsr",       # CSR,
+        "dbthirdbar_r",   # BD,
+        "wfifteenbar_r",  # L15,
+        "wthirdbar_h",    # DUL,
+        "ph1to1h2o_r",    # pH,
+        "ksat_r",         # sat_hidric_cond,
+        # (dbthirdbar_r-wthirdbar_r)/100 as bd
+    ]
+
+    @classmethod
+    def base_cls(cls):
+        r"""type: Default base class that should be used to fetch data
+        for this class."""
+        return cls
+
+    @classmethod
+    def _read(cls, fname: str):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+
+        Returns:
+            object: File contents.
+
+        """
+        import xml.etree.ElementTree as ET
+        return ET.parse(fname)
+
+    @classmethod
+    def _write(cls, fname: str, contents: Any):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+            contents: File contents to write.
+
+        """
+        import xml.etree.ElementTree as ET
+        assert isinstance(contents, ET.ElementTree)
+        contents.write(fname)
+
+    @classmethod
+    def download_data(
+            cls, latitude: float, longitude: float,
+            start_date: Optional[datetime.date] = None,
+            end_date: Optional[datetime.date] = None,
+            parameters: Optional[List[str]] = None,
+    ) -> dict:
+        r"""Use SDMTabularService to get SSURGO data via query.
+
+        Args:
+            latitude: Location latitude (degrees).
+            longitude: Location longitude (degrees).
+            start_date: Starting date for data [UNUSED].
+            end_date: Ending date for data [UNUSED].
+            parameters: Set of parameters to request.
+
+        Returns:
+            dict: JSON result.
+
+        """
+        if parameters is None:
+            parameters = cls.DEFAULT_DOWNLOAD_PARAMTERS.copy()
+        parameters = [
+            x for x in cls.REQUIRED_DOWNLOAD_PARAMTERS
+            if x not in parameters
+        ] + parameters
+        lonLat = f"{longitude} {latitude}"
+        url = (
+            "https://SDMDataAccess.nrcs.usda.gov/Tabular/"
+            "SDMTabularService.asmx"
+        )
+        headers = {'Content-Type': 'application/soap+xml; charset=utf-8'}
+        body = """<?xml version="1.0" encoding="utf-8"?>
+        <soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope"
+        xmlns:sdm="http://SDMDataAccess.nrcs.usda.gov/Tabular/SDMTabularService.asmx">
+        <soap:Header/>
+        <soap:Body>
+           <sdm:RunQuery>
+              <sdm:Query>SELECT """
+        body += ", ".join(parameters) + """ FROM sacatalog sc
+        FULL OUTER JOIN legend lg  ON sc.areasymbol=lg.areasymbol
+        FULL OUTER JOIN mapunit mu ON lg.lkey=mu.lkey
+        FULL OUTER JOIN component co ON mu.mukey=co.mukey
+        FULL OUTER JOIN chorizon ch ON co.cokey=ch.cokey
+        FULL OUTER JOIN chtexturegrp ctg ON ch.chkey=ctg.chkey
+        FULL OUTER JOIN chtexture ct ON ctg.chtgkey=ct.chtgkey
+        FULL OUTER JOIN copmgrp pmg ON co.cokey=pmg.cokey
+        FULL OUTER JOIN corestrictions rt ON co.cokey=rt.cokey
+        WHERE mu.mukey IN (SELECT * from
+        SDA_Get_Mukey_from_intersection_with_WktWgs84('point("""
+        body += lonLat + """)'))
+        AND sc.areasymbol != 'US'
+        order by co.cokey, ch.chkey, comppct_r, hzdept_r, hzdepb_r, muname
+        </sdm:Query>
+        </sdm:RunQuery>
+        </soap:Body>
+        </soap:Envelope>"""
+        req = requests.post(
+            url, data=body, headers=headers, timeout=140)
+        req.raise_for_status()
+        logger.debug("Successfully retrieved data from SSURGO")
+        import xml.etree.ElementTree as ET
+        import io
+        fd = io.BytesIO(req.content)
+        out = ET.parse(fd)
+        root = out.getroot()
+        ET.SubElement(root, "location", attrib={
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+        })
+        # out = ET.fromstring(req.content)
+        # out[0][0][0][1][0]
+        # Array of arrays of fields?
+        # import pdb; pdb.set_trace()
+        return out
+
+    @property
+    def parameters(self) -> list:
+        r"""list: Set of parameters contained by this file."""
+        root = self.contents.getroot()
+        return [x.tag for x in root[0][0][0][1][0][0]]
+
+    @property
+    def data_frame(self):
+        root = self.contents.getroot()
+        data = {k: [] for k in self.parameters}
+        for row in root[0][0][0][1][0]:
+            for x in row:
+                if x.tag in self.STRING_FIELDS or x.text is None:
+                    data[x.tag].append(x.text)
+                else:
+                    data[x.tag].append(float(x.text))
+        import pandas as pd
+        out = pd.DataFrame.from_dict(data)
+        return out
+
+    @property
+    def latitude(self) -> float:
+        r"""float: Latitude (degrees)."""
+        root = self.contents.getroot()
+        return float(root[1].attrib["latitude"])
+
+    @property
+    def longitude(self) -> float:
+        r"""float: Longitude (degrees)."""
+        root = self.contents.getroot()
+        return float(root[1].attrib["longitude"])
+
+    @property
+    def depths(self) -> list:
+        r"""list: List of (start, end) depth pairs covered by this
+        file."""
+        raise NotImplementedError  # pragma: no cover
+
+    def update_param(self, contents: Any) -> None:
+        r"""Merge downloaded parameters into the current data.
+
+        Args:
+            contents: New data to incorporate.
+
+        """
+        raise NotImplementedError  # pragma: no cover
+
+
+class HUMERISSoilData(BaseSoilFile):
+    r"""Wrapper for loading soil data from the HUMERIS data set.
+
+    Dalle Vaglie, Matteo; Francini, Saverio; Chirici, Gherardo;
+        martellozzo, federico (2026), “HUMERIS Global Soil Dataset”,
+        Mendeley Data, V2, doi: 10.17632/z8v8m579z4.2
+
+    M. Dalle Vaglie, S. Francini, G. Chirici, & F. Martellozzo, A
+        large-scale framework for estimating soil carbon, nitrogen,
+        pH, and salinity dynamics for 1985–2023, Proc. Natl. Acad. Sci.
+        U.S.A. 123 (22) e2534913123,
+        https://doi.org/10.1073/pnas.2534913123 (2026).
+
+    Documentation: https://matteodallevaglie.com/works/humeris/
+
+    """
+    NAME: ClassVar[str] = "HUMERIS"
+    CACHED: ClassVar[bool] = True
+    _default_ext: ClassVar[str] = ""
+    _EXPECTS_DIRECTORY: ClassVar[bool] = True
+    DEFAULT_CACHE_DIR: ClassVar[str] = (
+        cfg["directories"]["humeris_soil_data"])
+
+    @classmethod
+    def base_cls(cls):
+        r"""type: Default base class that should be used to fetch data
+        for this class."""
+        return cls
+
+    @classmethod
+    def _read(cls, fname: str):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+
+        Returns:
+            object: File contents.
+
+        """
+        import rasterio
+        files = sorted(glob.glob(os.path.join(fname, "Mean", "*.tif")))
+        assert files
+        return {
+            os.path.splitext(os.path.basename(x))[0]: rasterio.open(x)
+            for x in files
+        }
+
+    @readonly_cached_property
+    def parameters(self) -> list:
+        r"""list: Set of soil parameters contained by this file."""
+        return list(self.contents.keys())
+
+    @readonly_cached_property
+    def latitude(self) -> Tuple[float, float]:
+        r"""tuple: Latitude range (degrees)."""
+        first = self.parameters[0]
+        return (self.contents[first].bounds.bottom,
+                self.contents[first].bounds.top)
+
+    @readonly_cached_property
+    def longitude(self) -> Tuple[float, float]:
+        r"""tuple: Longitude (degrees)."""
+        first = self.parameters[0]
+        return (self.contents[first].bounds.left,
+                self.contents[first].bounds.right)

@@ -7,7 +7,9 @@ import typing
 import argparse
 import datetime
 from functools import cached_property
-from typing import Optional, Union, Any, List, ClassVar, Tuple, Dict
+from typing import (
+    Optional, Union, Any, List, ClassVar, Tuple, Dict, Callable
+)
 from pydantic import BaseModel, PrivateAttr, ConfigDict, Field
 from pydantic.json_schema import SkipJsonSchema
 from collections import OrderedDict
@@ -20,26 +22,31 @@ cfg = PackageConfig(
     'simulatr',
     defaults={
         'directories': {
+            'source': _pkgdir,
             'output': os.path.join(os.getcwd(), 'output'),
             'models': os.path.join(os.getcwd(), 'models'),
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
+            'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
             'scratch': os.path.join(os.getcwd(), 'scratch'),
             'nasa_power_weather_data': os.path.join(
                 os.getcwd(), 'nasa_power_weather_data'),
             'isric_soil_data': os.path.join(
                 os.getcwd(), 'isric_soil_data'),
+            'humeris_soil_data': os.path.join(
+                os.getcwd(), 'HUMERIS'),
+            'ssurgo_soil_data': os.path.join(
+                os.getcwd(), 'ssurgo_soil_data'),
         },
         'urls': {
             'n8n_api': "https://tools.uiuc.chat/api/v1",
         },
     },
 )
-cfg.setdefaults(
-    directories={
-        'source': _pkgdir,
-        'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
-    },
-)
+
+
+class NoDefault:
+    r"""Dummy class for defaults."""
+    pass
 
 
 def start_subprocess(*args, **kwargs) -> subprocess.Popen:
@@ -227,6 +234,54 @@ class LogPipe(threading.Thread):
             if self.terminated.is_set():
                 break
         self.terminated.set()
+
+
+def readonly_cached_property(method: Callable) -> Callable:
+    r"""Decorator for a read-only cached property.
+
+    Args:
+        method: Method to wrap.
+
+    """
+
+    name = method.__qualname__.rsplit('.', 1)[-1]
+
+    @property
+    def _readonly_cached_property(self) -> Any:
+        r"""Get the cached property value, computing it if needed."""
+        if name not in self._cached_properties:
+            self._cached_properties[name] = method(self)
+        return self._cached_properties[name]
+
+    return _readonly_cached_property
+
+
+class CachedPropertyMixin:
+    r"""Mixin class for enabling read-only cached properties."""
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        r"""Initialize the cached property mixin.
+
+        Args:
+            *args: Positional arguments passed to the parent class.
+            **kwargs: Keyword arguments passed to the parent class.
+
+        """
+        self._cached_properties = {}
+        super().__init__(*args, **kwargs)
+
+    def _clear_cached_property(self, name: str) -> None:
+        r"""Remove a cached property value.
+
+        Args:
+            name: Name of the property to clear.
+
+        """
+        self._cached_properties.pop(name, None)
+
+    def _clear_cached_properties(self) -> None:
+        r"""Clear all cached property values."""
+        self._cached_properties.clear()
 
 
 class SkipFieldType(BaseException):

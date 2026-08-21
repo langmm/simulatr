@@ -1,0 +1,19 @@
+{
+    "$type": "Models.Soils.Chemical, Models",
+    "Thickness": [],
+    "PH": [],
+    "PHUnits": 0,
+    "EC": null,
+    "ESP": null,
+    "CEC": null,
+    "ECMetadata": null,
+    "CLMetadata": null,
+    "CECMetadata": null,
+    "ESPMetadata": null,
+    "PHMetadata": null,
+    "Name": "Chemical",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

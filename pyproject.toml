@@ -17,6 +17,7 @@ dynamic = [
 dependencies = [
     "fastapi",
     "gymnasium",
+    "matplotlib",
     "msgpack",
     "numpy>=1.13.0",
     "pandas",
@@ -24,6 +25,7 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "pyzmq",
+    "rasterio",
     "requests",
 ]
 

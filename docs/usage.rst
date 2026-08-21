@@ -178,6 +178,36 @@ location.
    ``from_location`` caches downloaded data on disk and reuses it if a
    cached file already covers the requested dates.
 
+Soil files
+==========
+
+:class:`~simulatr.apsimx.ApsimXSoilFile` reads and writes ApsimX soil
+files (``.soil.json``, e.g. ``simulatr/data/Soil.json``) and can
+generate a synthetic soil profile for any location from ISRIC SoilGrids
+data.
+
+.. code-block:: python
+
+   from simulatr.apsimx import ApsimXSoilFile
+
+   soil = ApsimXSoilFile.from_location(
+       latitude=-27.58,
+       longitude=151.32,
+   )
+   print(soil.fname)
+   print(soil.depths)   # [(0, 5), (5, 15), (15, 30), (30, 60), ...]
+   print(soil.latitude, soil.longitude)
+
+   # Load the example soil file bundled with simulatr
+   example = ApsimXSoilFile("simulatr/data/Soil.json")
+   print(example.depths)
+
+.. note::
+   ``from_location`` downloads ISRIC SoilGrids data, converts it to the
+   ApsimX soil format using the Saxton and Rawls (2006) pedotransfer
+   functions, and caches the result on disk so it is only generated
+   once per location.
+
 Running a simulation
 ====================
 

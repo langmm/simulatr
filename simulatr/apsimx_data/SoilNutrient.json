@@ -1,0 +1,8 @@
+{
+    "$type": "Models.Soils.Nutrients.Nutrient, Models",
+    "Name": "Nutrient",
+    "ResourceName": "Nutrient",
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

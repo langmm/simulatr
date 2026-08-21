@@ -15,6 +15,7 @@ from pydantic_settings import CLI_SUPPRESS
 from fastapi import HTTPException, FastAPI
 import uvicorn
 from . import registered_simulators, get_simulator_class
+from .base import _SimulatorEngineMeta
 from .utils import logger
 
 
@@ -198,7 +199,7 @@ def _json_schema_extra_server(schema: dict):
     return schema
 
 
-class EndPointRegistry(type(BaseModel)):
+class EndPointRegistry(_SimulatorEngineMeta):
     r"""Metaclass for registerying and managing simulator endpoint
     classes."""
 

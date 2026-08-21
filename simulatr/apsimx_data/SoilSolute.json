@@ -1,0 +1,20 @@
+{
+    "$type": "Models.Soils.Solute, Models",
+    "Thickness": [],
+    "InitialValues": [],
+    "InitialValuesUnits": 0,
+    "WaterTableConcentration": 0.0,
+    "D0": 0.0,
+    "Exco": null,
+    "FIP": null,
+    "DepthConstant": 0.0,
+    "MaxDepthSoluteAccessible": 0.0,
+    "RunoffEffectivenessAtMovingSolute": 0.0,
+    "MaxEffectiveRunoff": 0.0,
+    "ConcInSolution": null,
+    "Name": "NO3",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

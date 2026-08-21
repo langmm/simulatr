@@ -1,0 +1,11 @@
+{
+    "$type": "Models.Soils.Water, Models",
+    "Thickness": [],
+    "InitialValues": [],
+    "FilledFromTop": false,
+    "Name": "Water",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

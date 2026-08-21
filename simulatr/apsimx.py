@@ -11,6 +11,7 @@ import subprocess
 import contextlib
 import datetime
 from functools import cached_property
+from collections import OrderedDict
 import numpy as np
 from typing import (
     Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar
@@ -18,38 +19,58 @@ from typing import (
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 from . import logger, utils
-from .utils import cfg, LogPipe
+from .utils import cfg, LogPipe, readonly_cached_property
 from .base import (
-    readonly_cached_property,
     RecoverableError, ModelEngineError, InvalidActionError,
     RecoverableModelEngineError,
+    SimulatorNotInstalled,
 )
-from .data import BaseWeatherFile, NASAPOWERWeatherFile
+from .data import (
+    BaseWeatherFile, BaseSoilFile,
+    NASAPOWERWeatherFile,
+    ISRICSoilGridsFile,
+    SSURGOSoilFile
+)
 from .crop import (
     CropModelFile,
     CropModelEngine, CropModelLLMPromptGenerator, CropModelEnv
 )
 
 
-_apsimxdir = cfg['directories'].get('apsimx', None)
-
-
-def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
+def _read_resource(name: str) -> dict:
     r"""Read a resource file from the APSIMX resources directory.
 
     Args:
         name: Name of the resource to read.
-        apsimx_dir: Directory containing the APSIMX installation.
 
     Returns:
         dict: Resource node matching the specified name.
 
     """
-    if not (isinstance(apsimx_dir, str) and os.path.isdir(apsimx_dir)):
-        return {}
-    resource = ApsimXFile(os.path.join(apsimx_dir, "Models", "Resources",
-                                       f"{name}.json"))
-    return resource.find(name)
+    try:
+        resource = ApsimXFileNode.from_resource(name, required=True)
+        if resource is not None:
+            return resource.contents
+    except SimulatorNotInstalled:
+        pass
+    return {}
+
+
+def _replace_root(x: str) -> str:
+    r"""Replace the %root% placeholder in a file path.
+
+    Args:
+        x: Path to make replacement in.
+
+    Returns:
+        str: Modified path.
+
+    """
+    root = cfg['directories']['apsimx']
+    if platform.system() == "Windows":
+        from pathlib import PureWindowsPath
+        root = str(PureWindowsPath(root).as_posix())
+    return x.replace("%root%", root)
 
 
 class ApsimXFileNode:
@@ -140,6 +161,48 @@ class ApsimXFileNode:
 
         """
         fname = os.path.join(ApsimXEngine.data_dir(), f"{name}.json")
+        return cls.from_file(fname, **kwargs)
+
+    @classmethod
+    def from_resource(cls, name: str, **kwargs: Any) -> "ApsimXFileNode":
+        r"""Create a new node by loading code from an ApsimX resource
+        file.
+
+        Args:
+            name: Name of the resource file.
+            **kwargs: Additional keyword arguments are passed to the
+                class constructor.
+
+        Returns:
+            ApsimXFileNode: New node.
+
+        """
+        if not os.path.isdir(cfg['directories']['apsimx']):
+            raise SimulatorNotInstalled(cfg['directories']['apsimx'])
+        fname = os.path.join(
+            cfg['directories']['apsimx'],
+            "Models", "Resources",
+            f"{name}.json")
+        return cls.from_file(fname, **kwargs)
+
+    @classmethod
+    def from_example(cls, name: str, **kwargs: Any) -> "ApsimXFileNode":
+        r"""Create a new node by loading code from an ApsimX example.
+
+        Args:
+            name: Name of the example file.
+            **kwargs: Additional keyword arguments are passed to the
+                class constructor.
+
+        Returns:
+            ApsimXFileNode: New node.
+
+        """
+        if not os.path.isdir(cfg['directories']['apsimx']):
+            raise SimulatorNotInstalled(cfg['directories']['apsimx'])
+        fname = os.path.join(
+            cfg['directories']['apsimx'], "Examples",
+            f"{name}.apsimx")
         return cls.from_file(fname, **kwargs)
 
     def __str__(self) -> str:
@@ -358,7 +421,7 @@ class ApsimXFileNode:
             return self
         for x in self.children:
             out = x.find(name=name, requirements=requirements)
-            if out.contents:
+            if out is not None:
                 return out
         if required:
             msg = ""
@@ -367,7 +430,7 @@ class ApsimXFileNode:
             if requirements:
                 msg += f" matching requirements {requirements}"
             raise KeyError(f"Could not locate a node{msg}")
-        return ApsimXFileNode({})
+        return None
 
     def matches(self,
                 errors: Optional[list] = None,
@@ -402,12 +465,14 @@ class ApsimXFileNode:
                 checked. If the node satisfies any of these requirements,
                 True will be returned.
             nested: Set of requirements for individual fields.
+            $type: Type that the node should have.
             **kwargs: Additional keyword arguments are ignored.
 
         Returns:
             bool: True if the node matches, False otherwise.
 
         """
+        ntype = kwargs.pop("$type", None)
 
         def add_error(msg: str) -> bool:
             r"""Add an error message to the errors list.
@@ -436,6 +501,9 @@ class ApsimXFileNode:
         if name is not None and self.get("Name", None) != name:
             if not add_error(f"{self} name is not {name}"):
                 return False
+        if ntype is not None and self.get("$type", None) != ntype:
+            if not add_error(f"{self} $type is not {ntype}"):
+                return False
         if field is not None and field not in self:
             if not add_error(f"{self} is missing field \"{field}\""):
                 return False
@@ -444,7 +512,8 @@ class ApsimXFileNode:
             if not add_error(f"{self} is missing parameter \"{parameter}\""):
                 return False
         if internal:
-            if not self.matches(**ApsimXFile.PARAM_NODES[internal]):
+            if not self.matches(
+                    **ApsimXEngine.get_field_metadata(internal)):
                 return False
         if contains:
             if isinstance(contains, str):
@@ -503,23 +572,23 @@ class ApsimXFileNode:
 class ApsimXWeatherFile(BaseWeatherFile):
     r"""Container for ApsimX weather data."""
 
-    NAME = "apsimx"
-    _default_ext = ".met"
-    _power_names = {
+    NAME: ClassVar[str] = "apsimx"
+    _default_ext: ClassVar[str] = ".met"
+    _power_names: ClassVar[dict] = {
         "radn": "ALLSKY_SFC_SW_DWN",
         "maxt": "T2M_MAX",
         "mint": "T2M_MIN",
         "rain": "PRECTOTCORR",
         "vp": "T2MDEW",
     }
-    _conv = {
+    _conv: ClassVar[dict] = {
         # From PCSE
         # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
         #     evapotranspiration. Guidelines for computing crop water
         #     requirements, FAO irrigation and drainage paper 56)
         "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
     }
-    _units = {
+    _units: ClassVar[dict] = {
         "radn": "MJ/m^2",
         "maxt": "oC",
         "mint": "oC",
@@ -693,6 +762,760 @@ class ApsimXWeatherFile(BaseWeatherFile):
         pass
 
 
+class ApsimXSoilFile(BaseSoilFile):
+    r"""Container for ApsimX soil data.
+    (e.g. ``simulatr/apsimx_data/Soil.json``)
+    """
+
+    NAME: ClassVar[str] = "apsimx"
+    _default_ext: ClassVar[str] = ".soil.json"
+    _layer_nodes: ClassVar[OrderedDict] = OrderedDict([
+        # ("SoilPhysical", [
+        ("Models.Soils.Physical, Models", [
+            "ParticleSizeSand", "ParticleSizeSilt", "ParticleSizeClay",
+            "Rocks", "BD", "AirDry", "LL15", "DUL", "SAT", "KS",
+        ]),
+        # ("SoilCrop", [  # No thickness
+        ("Models.Soils.SoilCrop, Models", [
+            "LL", "KL", "XF",
+        ]),
+        # ("SoilWaterBalance", [
+        ("Models.WaterModel.WaterBalance, Models", [
+            "SWCON",
+        ]),
+        # ("SoilOrganic", [
+        ("Models.Soils.Organic, Models", [
+            "Carbon",
+            "SoilCNRatio",
+            "FBiom",
+            "FInert",
+            "FOM",
+        ]),
+        # ("SoilChemical", [
+        ("Models.Soils.Chemical, Models", [
+            "PH", "CEC",
+        ]),
+        # ("SoilSolute", [
+        ("Models.Soils.Solute, Models", [
+            "InitialValues",
+        ]),
+    ])
+
+    @cached_property
+    def root(self) -> ApsimXFileNode:
+        r"""Root soil node."""
+        return ApsimXFileNode(self.contents)
+
+    @cached_property
+    def physical(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.Physical, Models")
+
+    @cached_property
+    def crop_soil(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.SoilCrop, Models",
+                           root=self.physical)
+
+    @cached_property
+    def water_balance(self) -> ApsimXFileNode:
+        return self._child("Models.WaterModel.WaterBalance, Models")
+
+    @cached_property
+    def organic(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.Organic, Models")
+
+    @cached_property
+    def chemical(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.Chemical, Models")
+
+    @cached_property
+    def water(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.Water, Models")
+
+    @cached_property
+    def nutrient(self) -> ApsimXFileNode:
+        return self._child("Models.Soils.Nutrients.Nutrient, Models")
+
+    @cached_property
+    def solutes(self) -> ApsimXFileNode:
+        # This one will match multiple
+        return {x.contents["Name"]: x for x in self.root.findall(
+            requirements={"$type": "Models.Soils.Solute, Models"},
+        )}
+
+    @cached_property
+    def temperature(self) -> ApsimXFileNode:
+        self._child("Models.Soils.SoilTemp.SoilTemperature, Models")
+
+    def _child(self, node_type: str,
+               root: Optional[ApsimXFileNode] = None) -> dict:
+        r"""Get the child node of the specified type.
+
+        Args:
+            node_type: Node type name.
+            root: Node to start looking from.
+
+        Returns:
+            dict: Child node contents.
+
+        """
+        root = (root or self.root)
+        return root.find(
+            requirements={"$type": node_type},
+            required=True,
+        )
+
+    @readonly_cached_property
+    def depths(self) -> list:
+        r"""list: List of (start, end) depth pairs covered by this
+        file."""
+        physical = self._child("Models.Soils.Physical")
+        return self.node_depths(physical)
+
+    def node_depths(self, node: ApsimXFileNode) -> list:
+        r"""list: List of (start, end) depth pairs covered by this node
+        (in cm)"""
+        out, start = [], 0
+        for thickness in node["Thickness"]:
+            end = start + thickness // 10  # mm -> cm
+            out.append((start, end))
+            start = end
+        return out
+
+    @classmethod
+    def depths2thickness(cls, depths: list) -> list:
+        r"""Convert a list of (start, end) depth pairs (in cm) to
+        thicknesses (in mm).
+
+        Args:
+            depths: (start, end) depth pairs (in cm).
+
+        Returns:
+            list: Thicknesses (in mm).
+
+        """
+        return [(end - start) * 10 for start, end in depths]
+
+    @property
+    def latitude(self) -> float:
+        r"""float: Latitude (degrees)."""
+        return self.contents["Latitude"]
+
+    @property
+    def longitude(self) -> float:
+        r"""float: Longitude (degrees)."""
+        return self.contents["Longitude"]
+
+    @readonly_cached_property
+    def parameters(self) -> list:
+        r"""list: Set of soil parameters contained by this file."""
+        out = []
+        for v in self._layer_nodes.values():
+            out += v
+        return out
+
+    def update_param(self, contents: Any) -> None:
+        r"""Merge downloaded parameters into the current data.
+
+        Args:
+            contents: New data to incorporate.
+
+        """
+        for k, v in contents.items():
+            for node, param in self._layer_nodes.items():
+                if k in param:
+                    self._child(node)[k] = v
+
+    @staticmethod
+    def _var_profile(layers: int | np.ndarray,
+                     a: Optional[float] = 0.5,
+                     b: Optional[float] = 0.5) -> np.ndarray:
+        r"""Create a variable profile that following an exponential
+        dependency on layer depth via a * x * e^(-b * x) if a > 0 and
+        .
+
+        This was adapted from apsimNGpy.
+
+        Args:
+            layers: Array of layer depths or number of even layers.
+            a: Scale factor for the profile.
+            b: Exponential scale factor for the profile.
+
+        Returns:
+            np.ndarray: Array of profile values at each layer.
+
+        """
+        if isinstance(layers, list):
+            layers = np.array(layers)
+        if isinstance(layers, int):
+            depthn = np.arange(1, layers + 1, 1)
+        elif isinstance(layers, np.ndarray):
+            depthn = 1 + (
+                len(layers)
+                * (layers - layers.min())
+                / (layers.max() - layers.min())
+            )
+        if a < 0:
+            raise RuntimeError(f"a cannot be negative (a = {a})")
+        elif (a > 0 and b != 0):
+            ep = -b * depthn
+            result = (a * depthn) * np.exp(ep)
+            return result / result.max()
+        elif (a == 0 and b != 0):
+            ep = -b * depthn
+            result = np.exp(ep) / np.exp(-b)
+            return result
+        elif (a == 0 or b == 0):
+            out = depthn.copy()
+            out[1:] -= out[:-1]
+            return out
+        raise RuntimeError(f"Invalid parameters a = {a}, b = {b}")
+
+    @staticmethod
+    def _sr_dul(clay_pct: float, sand_pct: float,
+                om_pct: float) -> float:
+        r"""Estimate drained upper limit (field capacity) from soil
+        texture and organic matter using the Saxton and Rawls (2006)
+        pedotransfer function Eq. 2 (Theta_33).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+            om_pct: Organic matter content (%).
+
+        Returns:
+            float: Drained upper limit (m3/m3).
+
+        """
+        clay = clay_pct / 100
+        sand = sand_pct / 100
+        ans0 = (-0.251 * sand + 0.195 * clay + 0.011 * om_pct
+                + 0.006 * sand * om_pct - 0.027 * clay * om_pct
+                + 0.452 * sand * clay + 0.299)
+        return ans0 + (1.283 * ans0**2 - 0.374 * ans0 - 0.015)
+
+    @staticmethod
+    def _sr_ll(clay_pct: float, sand_pct: float,
+               om_pct: float) -> float:
+        r"""Estimate lower limit (wilting point) from soil texture and
+        organic matter using the Saxton and Rawls (2006) pedotransfer
+        function Eq. 1 (Theta_1500).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+            om_pct: Organic matter content (%).
+
+        Returns:
+            float: Lower limit (m3/m3).
+
+        """
+        clay = clay_pct / 100
+        sand = sand_pct / 100
+        ans0 = (-0.024 * sand + 0.487 * clay + 0.006 * om_pct
+                + 0.005 * sand * om_pct - 0.013 * clay * om_pct
+                + 0.068 * sand * clay + 0.031)
+        return ans0 + (0.14 * ans0 - 0.02)
+
+    @staticmethod
+    def _sr_dul_s(clay_pct: float, sand_pct: float,
+                  om_pct: float) -> float:
+        r"""Estimate saturated water content from soil texture and
+        organic matter using the Saxton and Rawls (2006) pedotransfer
+        function Eq. 3 (Theta_{S-33}).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+            om_pct: Organic matter content (%).
+
+        Returns:
+            float: Saturated water content (m3/m3).
+
+        """
+        clay = clay_pct / 100
+        sand = sand_pct / 100
+        ans0 = (0.278 * sand + 0.034 * clay + 0.022 * om_pct
+                - 0.018 * sand * om_pct - 0.027 * clay * om_pct
+                - 0.584 * sand * clay + 0.078)
+        return ans0 + (0.636 * ans0 - 0.107)
+
+    @staticmethod
+    def _sr_sat(sand_pct: float, dul: float, dul_s: float) -> float:
+        r"""Estimate saturated water content from the drained upper
+        limit using the Saxton and Rawls (2006) pedotransfer function
+        Eq. 5 (Theta_S).
+
+        Args:
+            sand_pct: Sand content (%).
+            dul: Drained upper limit (m3/m3).
+            dul_s: Saturated water content estimate (m3/m3).
+
+        Returns:
+            float: Saturated water content (m3/m3).
+
+        """
+        return dul + dul_s - 0.097 * (sand_pct / 100) + 0.043
+
+    @classmethod
+    def _sr_ks(cls, clay_pct: float, sand_pct: float,
+               om_pct: float) -> float:
+        r"""Estimate saturated hydraulic conductivity from soil texture
+        and organic matter using the Saxton and Rawls (2006)
+        pedotransfer function (Eq. 16 K_s).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+            om_pct: Organic matter content (%).
+
+        Returns:
+            float: Saturated hydraulic conductivity (mm/day).
+
+        """
+        dul = cls._sr_dul(clay_pct, sand_pct, om_pct)
+        dul_s = cls._sr_dul_s(clay_pct, sand_pct, om_pct)
+        ll15 = cls._sr_ll(clay_pct, sand_pct, om_pct)
+        sat = cls._sr_sat(sand_pct, dul, dul_s)
+        b = (np.log(1500) - np.log(33)) / (np.log(dul) - np.log(ll15))
+        return 1930 * (sat - dul) ** (3 - 1 / b) * 24  # mm/day
+
+    @staticmethod
+    def _texture_class(clay_pct: float, sand_pct: float) -> str:
+        r"""Get the soil texture class from the USDA clay and sand
+        fractions converted to the international system (Minasny et
+        al., 2001).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+
+        Returns:
+            str: Texture class name.
+
+        """
+        clay = clay_pct / 100
+        silt = (100 - clay_pct - sand_pct) / 100
+        intl_clay = clay
+        intl_silt = max(
+            0.0,
+            -0.0041 - 0.127 * clay + 0.553 * silt
+            + 0.17 * clay**2 - 0.19 * silt**2 + 0.59 * clay * silt)
+        intl_sand = 1 - intl_clay - intl_silt
+        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.40:
+            return "silty clay"
+        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.26:
+            return "silty clay loam"
+        if intl_sand < 0.75 - intl_clay:
+            return "silty loam"
+        if (intl_clay >= 0.40 + (0.305 - 0.40) / (0.635 - 0.35)
+                * (intl_sand - 0.35)
+                and intl_clay < 0.50 + (0.305 - 0.50) / (0.635 - 0.50)
+                * (intl_sand - 0.50)):
+            return "clay"
+        if (intl_clay >= 0.26 + (0.305 - 0.26) / (0.635 - 0.74)
+                * (intl_sand - 0.74)):
+            return "sandy clay"
+        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
+                * (intl_sand - 0.49)
+                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
+                * (intl_sand - 0.775)):
+            return "clay loam"
+        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
+                * (intl_sand - 0.49)):
+            return "sandy clay loam"
+        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
+                * (intl_sand - 0.775)
+                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
+                * (intl_sand - 0.775)):
+            return "loam"
+        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
+                * (intl_sand - 0.775)):
+            return "sandy loam"
+        if (intl_clay < 0.0 + (0.08 - 0.0) / (0.88 - 0.93)
+                * (intl_sand - 0.93)):
+            return "loamy sand"
+        return "sand"
+
+    def calculate_missing(self):
+        r"""Calculate missing parameters that are required."""
+        curveparam_a = 0.0
+        curveparam_b = 0.2
+        # TODO: Check for scalars and interpolate?
+        if (((not self.physical.contents.get("ParticleSizeSilt", None))
+             and self.physical.contents.get("ParticleSizeClay", None)
+             and self.physical.contents.get("ParticleSizeSand", None))):
+            self.physical.contents["ParticleSizeSilt"] = [
+                100 - s - c for s, c in zip(
+                    self.physical.contents["ParticleSizeSand"],
+                    self.physical.contents["ParticleSizeClay"]
+                )
+            ]
+        if (((not self.physical.contents.get("LL15", None))
+             and self.physical.contents.get("ParticleSizeClay", None)
+             and self.physical.contents.get("ParticleSizeSand", None)
+             and self.organic.contents.get("Carbon", None))):
+            self.physical.contents["LL15"] = [
+                self._sr_ll(c, s, o)
+                for c, s, o in zip(
+                        self.physical.contents["ParticleSizeClay"],
+                        self.physical.contents["ParticleSizeSand"],
+                        self.organic.contents["Carbon"]
+                )
+            ]
+        if (((not self.physical.contents.get("DUL", None))
+             and self.physical.contents.get("ParticleSizeClay", None)
+             and self.physical.contents.get("ParticleSizeSand", None)
+             and self.organic.contents.get("Carbon", None))):
+            self.physical.contents["DUL"] = [
+                self._sr_dul(c, s, o)
+                for c, s, o in zip(
+                        self.physical.contents["ParticleSizeClay"],
+                        self.physical.contents["ParticleSizeSand"],
+                        self.organic.contents["Carbon"]
+                )
+            ]
+        if (((not self.physical.contents.get("AirDry", None))
+             and self.physical.contents.get("LL15", None))):
+            self.physical.contents["AirDry"] = [
+                0.5 * x   # if i < 3 else x
+                for i, x in enumerate(self.physical.contents["LL15"])
+            ]
+        if (((not self.physical.contents.get("KS", None))
+             and self.physical.contents.get("ParticleSizeClay", None)
+             and self.physical.contents.get("ParticleSizeSand", None)
+             and self.organic.contents.get("Carbon", None))):
+            self.physical.contents["KS"] = [
+                self._sr_ks(c, s, o)
+                for c, s, o in zip(
+                        self.physical.contents["ParticleSizeClay"],
+                        self.physical.contents["ParticleSizeSand"],
+                        self.organic.contents["Carbon"]
+                )
+            ]
+            if not np.isfinite(self.physical.contents["KS"]).all():
+                raise ValueError(
+                    "Failed to compute saturated hydraulic "
+                    "conductivity from clay, sand, and carbon data")
+        if (((not self.water.contents.get("InitialValues", None))
+             and self.physical.contents.get("LL15", None)
+             and self.physical.contents.get("DUL", None))):
+            self.water.contents["InitialValues"] = [
+                0.5 * (d + l) for d, l in zip(
+                    self.physical.contents["DUL"],
+                    self.physical.contents["LL15"]
+                )
+            ]
+        if (((not self.root.contents.get("SoilType", None))
+             and self.physical.contents.get("ParticleSizeClay", None)
+             and self.physical.contents.get("ParticleSizeSand", None))):
+            self.root.contents["SoilType"] = self._texture_class(
+                self.physical.contents["ParticleSizeClay"][0],
+                self.physical.contents["ParticleSizeSand"][0]
+            )
+        if (((not self.crop_soil.contents.get("LL", None))
+             and self.physical.contents.get("LL15", None))):
+            self.crop_soil.contents["LL"] = (
+                self.physical.contents["LL15"]
+            )
+        layers = np.array(self.physical.contents["Thickness"]).cumsum()
+        nlayers = len(layers)
+        if not self.crop_soil.contents.get("KL", None):
+            self.crop_soil.contents["KL"] = (
+                0.06 * self._var_profile(
+                    layers, a=curveparam_a, b=curveparam_b)
+            ).tolist()
+        if not self.crop_soil.contents.get("XF", None):
+            self.crop_soil.contents["XF"] = (
+                self._var_profile(layers, a=curveparam_a, b=0)
+            ).tolist()
+        if not self.organic.contents.get("FOMCNRatio", None):
+            self.organic.contents["FOMCNRatio"] = 40.0
+        if not self.organic.contents.get("SoilCNRatio", None):
+            self.organic.contents["SoilCNRatio"] = nlayers * [12.0]
+        if not self.organic.contents.get("FBiom", None):
+            self.organic.contents["FBiom"] = (
+                0.045 * self._var_profile(
+                    layers, a=curveparam_a, b=curveparam_b)
+            ).tolist()
+            # TODO: Scale?
+            self.organic.contents["FBiom"][0] = 0.0395
+            self.organic.contents["FBiom"][1] = 0.035
+        if not self.organic.contents.get("FInert", None):
+            self.organic.contents["FInert"] = (
+                0.83 * self._var_profile(
+                    layers, a=curveparam_a, b=-0.01)
+            ).tolist()
+            # TODO: Scale?
+            self.organic.contents["FInert"][0] = 0.65
+            self.organic.contents["FInert"][1] = 0.668
+        if not self.organic.contents.get("FOM", None):
+            self.organic.contents["FOM"] = (
+                160 * self._var_profile(
+                    layers, a=curveparam_a, b=curveparam_b)
+            ).tolist()
+        if (("NO3" in self.solutes
+             and not self.solutes["NO3"].contents.get(
+                 "InitialValues", None))):
+            self.solutes["NO3"].contents["InitialValues"] = (
+                0.5 * self._var_profile(
+                    layers, a=curveparam_a, b=0.01)
+            ).tolist()
+        if (("NH4" in self.solutes
+             and not self.solutes["NH4"].contents.get(
+                 "InitialValues", None))):
+            self.solutes["NH4"].contents["InitialValues"] = (
+                0.05 * self._var_profile(
+                    layers, a=curveparam_a, b=0.01)
+            ).tolist()
+        if (("Urea" in self.solutes
+             and not self.solutes["Urea"].contents.get(
+                 "InitialValues", None))):
+            self.solutes["Urea"].contents["InitialValues"] = nlayers * [0.0]
+        if not self.water_balance.contents.get("SWCON", None):
+            self.water_balance.contents["SWCON"] = nlayers * [0.3]
+        return super().calculate_missing()
+
+    @classmethod
+    def _from_base(cls, src: BaseSoilFile):
+        r"""Convert soil data from another file format into the
+        correct format for this file.
+
+        Args:
+            src: Base class data.
+
+        Returns:
+            Converted data.
+
+        """
+        if isinstance(src, ISRICSoilGridsFile):
+            out = cls._from_soilgrids(src)
+        elif isinstance(src, SSURGOSoilFile):
+            out = cls._from_ssurgo(src)
+        else:
+            out = super()._from_base(src)
+        if out["Comments"] is None:
+            out["Comments"] = (
+                f"Generated by simulatr from {src.NAME} data"
+            )
+        return out
+
+    @classmethod
+    def create_solute(cls, name: str,
+                      thickness: list,
+                      initial: list,
+                      units: str | int) -> dict:
+        r"""Create a solute node.
+
+        Args:
+            name: Solute name.
+            thickness: Layer thickness.
+            initial: Initial solute concentration at each later.
+            units: Solute contentration units. 0 indicates ppm, 1
+                indicates kg/ha.
+
+        Returns:
+            dict: Solute node.
+
+        """
+        # TODO: Use actual units from yggdrasil_rapidjson?
+        if isinstance(units, str):
+            if units == "ppm":
+                units = 0
+            elif units == "kg/ha":
+                units = 1
+            else:
+                raise RuntimeError(f"Unsupported units: \"{units}\"")
+        assert len(initial) == 0 or len(thickness) == len(initial)
+        out = ApsimXFileNode.from_data("SoilSolute")
+        out.contents.update(
+            Name=name,
+            Thickness=thickness,
+            InitialValues=initial,
+            InitialValuesUnits=units)
+        return out.contents
+
+    @classmethod
+    def _from_ssurgo(cls, src: SSURGOSoilFile) -> dict:
+        r"""Convert SSURGO data into the correct format for this file.
+
+        Args:
+            src: SSURGO data.ISRIC SoilGrids data.
+
+        Returns:
+            dict: Converted data.
+
+        """
+        # latitude = src.latitude
+        # longitude = src.longitude
+        # # TODO
+        # children = [
+        #     ApsimXFileNode.from_data(
+        #         "SoilPhysical",
+        #         Thickness=thickness,
+        #         ParticleSizeSand=sand,
+        #         ParticleSizeClay=clay,
+        #         Rocks=cfvo,
+        #         BD=bdod,
+        #         LL15=ll15,
+        #         DUL=dul,
+        #         SAT=sat,
+        #         Children=[
+        #             ApsimXFileNode.from_data(
+        #                 "SoilCrop",
+        #             ).contents,
+        #         ],
+        #     ).contents,
+        #     ApsimXFileNode.from_data(
+        #         "SoilWaterBalance",
+        #         Thickness=thickness,
+        #     ).contents,
+        #     ApsimXFileNode.from_data(
+        #         "SoilOrganic",
+        #         Thickness=thickness,
+        #         Carbon=1.72 * soc,
+        #         CarbonUnits=0,  # 0: "Total %", 1: "Walkley Black %"
+        #     ).contents,
+        #     ApsimXFileNode.from_data(
+        #         "SoilChemical",
+        #         Thickness=thickness,
+        #         PH=phh2o,
+        #         PHUnits=0,  # 0: "1:5 water", 1: "CaCl2"
+        #         CEC=cec,
+        #     ).contents,
+        #     ApsimXFileNode.from_data(
+        #         "SoilWater",
+        #         Thickness=thickness,
+        #     ).contents,
+        #     ApsimXFileNode.from_param(
+        #         "Models.Soils.Nutrients.Nutrient, Models",
+        #         ResourceName="Nutrient",
+        #     ).contents,
+        #     cls.create_solute("NO3", thickness, [], "ppm"),
+        #     cls.create_solute("NH4", thickness, [], "ppm"),
+        #     cls.create_solute("Urea", thickness, [], "kg/ha"),
+        #     ApsimXFileNode.from_data("SoilTemperature").contents,
+        # ]
+        # now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # source = (
+        #     "Original source is ISRIC SoilGrids data "
+        #     f"(https://soilgrids.org/) retrieved on {now}"
+        # )
+        # return ApsimXFileNode.from_data(
+        #     "Soil",
+        #     Latitude=latitude,
+        #     Longitude=longitude,
+        #     DataSource=source,
+        #     Children=children,
+        # ).contents
+        raise NotImplementedError
+
+    @classmethod
+    def _from_soilgrids(cls, src: ISRICSoilGridsFile) -> dict:
+        r"""Convert ISRIC SoilGrids data into the correct format for
+        this file.
+
+        Args:
+            src: ISRIC SoilGrids data.
+
+        Returns:
+            dict: Converted data.
+
+        """
+        latitude = src.latitude
+        longitude = src.longitude
+        depths = src.depths
+        data = {}
+        for layer in src.contents["properties"]["layers"]:
+            data[layer["name"]] = {}
+            for depth in layer["depths"]:
+                start = depth["range"]["top_depth"]
+                end = depth["range"]["bottom_depth"]
+                # TODO: Check quantiles
+                data[layer["name"]][(int(start), int(end))] = depth[
+                    "values"]["mean"]
+            if any(value is None for value in data[layer["name"]].values()):
+                raise ValueError("Some ISRIC SoilGrids data are missing")
+
+        def column(param: str, factor: float) -> list:
+            r"""Get the converted value for each depth of the requested
+            parameter."""
+            return [float(data[param][r] * factor) for r in depths]
+
+        bdod = column("bdod", 1e-2)  # -> g/cm3
+        soc = column("soc", 1e-2)  # -> %
+        phh2o = column("phh2o", 1e-1)  # -> pH
+        sand = column("sand", 1e-1)  # -> %
+        clay = column("clay", 1e-1)  # -> %
+        cec = column("cec", 1e-1)  # -> cmol/kg
+        cfvo = column("cfvo", 1e-3)  # -> fraction
+        sat = column("wv0010", 1e-3)  # -> mm/mm
+        dul = column("wv0033", 1e-3)  # -> mm/mm
+        ll15 = column("wv1500", 1e-3)  # -> mm/mm
+        for idx in range(len(dul)):
+            if dul[idx] > sat[idx]:
+                dul[idx] = sat[idx] - 0.002
+        thickness = [(end - start) * 10 for start, end in depths]
+        children = [
+            ApsimXFileNode.from_data(
+                "SoilPhysical",
+                Thickness=thickness,
+                ParticleSizeSand=sand,
+                ParticleSizeClay=clay,
+                Rocks=cfvo,
+                BD=bdod,
+                LL15=ll15,
+                DUL=dul,
+                SAT=sat,
+                Children=[
+                    ApsimXFileNode.from_data(
+                        "SoilCrop",
+                    ).contents,
+                ],
+            ).contents,
+            ApsimXFileNode.from_data(
+                "SoilWaterBalance",
+                Thickness=thickness,
+            ).contents,
+            ApsimXFileNode.from_data(
+                "SoilOrganic",
+                Thickness=thickness,
+                Carbon=[1.72 * x for x in soc],
+                CarbonUnits=0,  # 0: "Total %", 1: "Walkley Black %"
+            ).contents,
+            ApsimXFileNode.from_data(
+                "SoilChemical",
+                Thickness=thickness,
+                PH=phh2o,
+                PHUnits=0,  # 0: "1:5 water", 1: "CaCl2"
+                CEC=cec,
+            ).contents,
+            ApsimXFileNode.from_data(
+                "SoilWater",
+                Thickness=thickness,
+            ).contents,
+            ApsimXFileNode.from_param(
+                "Models.Soils.Nutrients.Nutrient, Models",
+                ResourceName="Nutrient",
+            ).contents,
+            cls.create_solute("NO3", thickness, [], "ppm"),
+            cls.create_solute("NH4", thickness, [], "ppm"),
+            cls.create_solute("Urea", thickness, [], "kg/ha"),
+            ApsimXFileNode.from_data("SoilTemperature").contents,
+        ]
+        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        source = (
+            "Original source is ISRIC SoilGrids data "
+            f"(https://soilgrids.org/) retrieved on {now}"
+        )
+        return ApsimXFileNode.from_data(
+            "Soil",
+            Latitude=latitude,
+            Longitude=longitude,
+            DataSource=source,
+            Children=children,
+        ).contents
+
+
 class ApsimXFile(CropModelFile):
     r"""Container for manipulating .apsimx model files.
 
@@ -703,9 +1526,9 @@ class ApsimXFile(CropModelFile):
 
     """
 
-    NAME = "apsimx"
-    EXAMPLE = os.path.join("Examples", "Wheat.apsimx")
-    ACTION_NODES = dict({
+    NAME: ClassVar[str] = "apsimx"
+    EXAMPLE: ClassVar[str] = os.path.join("Examples", "Wheat.apsimx")
+    ACTION_NODES: ClassVar[dict] = dict({
         "sow": {
             "conflicts": [
                 {
@@ -753,133 +1576,6 @@ class ApsimXFile(CropModelFile):
         }
         for k in ["fertilize", "nitrogen", "calcium", "phosphorus"]
     })
-    PARAM_NODES = {
-        "duration": False,
-        "season_length": False,
-        "output_vars": {
-            "contains": {
-                "$type": "Models.Report, Models",
-            },
-            # "nested": {
-            #     "EventNames": {"contains": "EndOfDay"},
-            # },
-            "field": "VariableNames",
-            "fget": lambda x: [xx for xx in x if " as " not in xx],
-        },
-        "crop_name": {
-            "anyOf": [
-                {
-                    "contains": {
-                        "$type": "Models.PMF.Plant, Models"
-                    },
-                    "field": "Name",  # "ResourceName"?
-                },
-                {
-                    "contains": {"Name": "SowOrHarvestByDate"},
-                    "parameter": "CropName",
-                },
-                {
-                    "calls": "Sow",
-                    "parameter": "Crop",
-                },
-                {
-                    "calls": "Harvest",
-                    "parameter": "Crop",
-                },
-            ],
-            "fget": lambda x: x.lower(),
-        },
-        "crop_variety": {
-            "contains": {
-                "$type": "Models.Manager, Models",
-            },
-            "calls": "Sow",
-            "parameter": "CultivarName",
-        },
-        "year": {
-            "fget": lambda x: x.year,
-            "anyOf": [
-                {"internal": "start_time",
-                 "fset_prev": lambda x, prev: prev.replace(year=x)},
-                {"internal": "end_time",
-                 "fset_prev": lambda x, prev: prev.replace(year=x)},
-                {"internal": "sow_date",
-                 "fset_prev": lambda x, prev: prev.replace(year=x)},
-                {"internal": "harvest_date",
-                 "fset_prev": lambda x, prev: prev.replace(year=x)},
-            ],
-        },
-        "start_time": {
-            "contains": {"Name": "Clock"},
-            "field": "Start",
-            "fget": datetime.datetime.fromisoformat,
-        },
-        "end_time": {
-            "contains": {"Name": "Clock"},
-            "field": "End",
-            "fget": datetime.datetime.fromisoformat,
-        },
-        "weather_file": {
-            "contains": {
-                "$type": "Models.Climate.Weather, Models",
-            },
-            "field": "FileName",
-            "fget": lambda x: x.replace("%root%", _apsimxdir),
-        },
-        "soil_file": False,
-        "latitude": {
-            "contains": {
-                "$type": "Models.Soils.Soil, Models",
-            },
-            "field": "Latitude"
-        },
-        "longitude": {
-            "contains": {
-                "$type": "Models.Soils.Soil, Models",
-            },
-            "field": "Longitude",
-        },
-        "field_area": {
-            "contains": {
-                "$type": "Models.Core.Zone, Models",
-            },
-            "field": "Area",
-        },
-        "sow_date": {
-            "parent": {"contains": {"Name": "Field"}},
-            "contains": {"Name": "SowOrHarvestByDate"},
-            "parameter": "SowingDate",
-            "default": "SowOrHarvestByDate.json",
-            "fget": datetime.datetime.fromisoformat,
-            "conflicts": [
-                {
-                    "$type": "Models.Manager, Models",
-                    "calls": "Sow",
-                },
-            ],
-            "parameter_properties": {
-                "CropName": "formal_crop_name",
-                "CultivarName": "crop_variety",
-            },
-        },
-        "harvest_date": {
-            "parent": {"contains": {"Name": "Field"}},
-            "contains": {"Name": "SowOrHarvestByDate"},
-            "parameter": "HarvestDate",
-            "default": "SowOrHarvestByDate.json",
-            "fget": datetime.datetime.fromisoformat,
-            "conflicts": [
-                {
-                    "$type": "Models.Manager, Models",
-                    "calls": "Harvest",
-                },
-            ],
-            "parameter_properties": {
-                "CropName": "formal_crop_name",
-                "CultivarName": "crop_variety",
-            },
-        },
-    }
 
     @readonly_cached_property
     def parameter_nodes(self) -> dict:
@@ -887,28 +1583,65 @@ class ApsimXFile(CropModelFile):
         return {}
 
     @classmethod
-    def available_crops(cls) -> List[str]:
+    def available_crops(cls, category: Optional[str] = None) -> List[str]:
         r"""Get the crops that can be simulated via this model.
+
+        Args:
+            category: Get crops in a certain category (e.g. "oilseed").
 
         Returns:
             list: Available crop names.
 
         """
+        if category == "tree":
+            return ["Gliricidia", "Pinus", "Eucalyptus"]
+        elif category == "legume":
+            return ["Soybean", "Chickpea", "Peanut", "Mungbean"]
+        elif category == "oilseed":
+            return ["Canola", "Peanut", "Soybean", "OilPalm"]
+        elif category == "cereal":
+            return [
+                "Wheat", "Maize", "Oats", "Barley", "Sorghum",
+            ]
+        elif category == "cover":
+            return [
+                "WhiteClover", "RedClover",
+                "Mungbean", "Lucerne",
+            ]
+        elif category == "forage":
+            return [
+                "PlantainForage", "WhiteClover", "RedClover",
+                "Chicory", "Lucerne",
+            ]
+        elif category == "root":
+            return [
+                "FodderBeet",  # Check that root is the part used
+                "Potato",
+            ]
+        elif category is not None:
+            raise NotImplementedError(category)
         resources_dir = os.path.join(
             ApsimXEngine.model_dir(), "Models", "Resources")
         files = glob.glob(os.path.join(resources_dir, "*.json"))
         exclude = [
-            "CLEM",
             "MicroClimate",
             "Nutrient",
+            "SurfaceOrganicMatter",
+            "WaterBalance",
+            "Fertiliser",
+            # Simplified that could be used
+            "CLEM",
             "SCRUM",
             "Slurp",
             "SPRUM",
             "STRUM",
-            "SurfaceOrganicMatter",
-            "WaterBalance",
             # Non-PMF (TODO: Exclude by parsing)
             "Sugarcane",
+            # Error due to missing parameters
+            # "FodderBeet",  # [StorageRoot].Live.MetabolicWt, StorageWt
+            "Lucerne",  # Missing .Grain.Size:
+            "Grapevine",  # No Total.Wt
+            "OilPalm",  # missing mortalityRate
         ]
         out = []
         for x in files:
@@ -942,6 +1675,27 @@ class ApsimXFile(CropModelFile):
                         "$type": "Models.PMF.Cultivar, Models"}
                 }):
             out.append(x["Name"])
+        skip = []
+        if crop_name == "Chickpea":
+            # Requires [Phenology].Vegetative.Progression
+            #            .PhotoperiodModifier.CriticalPhotoperiod
+            skip = ["Anwar", "Hashem"] + [
+                k for k in out
+                if k.startswith(("9", "0", "Ghab"))
+            ]
+        elif crop_name == "Eucalyptus":
+            # Requires [Leaf].FRGRFunction.FRGRFunctionTemp.Response.X
+            skip = ["nitensLewisham"]
+        elif crop_name == "Oats":
+            skip = [
+                # Error in MathUtilities.LinearInterpReal
+                "Drummond_orig",
+                # Cannot find property [Leaf].InitialLeaves1.Area
+                "PFR_100_05",
+                "Coronet",
+            ]
+        for k in skip:
+            out.remove(k)
         return out
 
     @classmethod
@@ -965,15 +1719,19 @@ class ApsimXFile(CropModelFile):
 
     @classmethod
     def from_example(cls, src: Union[str, "ApsimXFile"],
-                     dst: str | None = None,
-                     interactive: bool = False,
-                     actions: List[str] | None = None) -> CropModelFile:
+                     dst: Optional[str | None] = None,
+                     directory: Optional[str | None] = None,
+                     interactive: Optional[bool] = False,
+                     actions: Optional[List[str] | None] = None
+                     ) -> CropModelFile:
         r"""Create an input model file from an example.
 
         Args:
             src (str, ApsimXFile): Path to the source .apsimx model.
             dst (str, optional): Path to the location where the generated
                 .apsimx model should be saved.
+            directory: Directory where the generated file should be
+                saved (only used if dst is not provided).
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
 
@@ -983,7 +1741,7 @@ class ApsimXFile(CropModelFile):
         """
         if not isinstance(src, ApsimXFile):
             src = ApsimXFile(src)
-        out = src.copy(dst=dst)
+        out = src.copy(dst=dst, directory=directory)
         if interactive or actions:
             if not actions:
                 actions = list(ApsimXEngine.AVAILABLE_ACTION_MAP.keys())
@@ -991,16 +1749,22 @@ class ApsimXFile(CropModelFile):
         return out
 
     @classmethod
-    def from_crop_name(cls, crop_name: str, dst: str | None = None,
-                       interactive: bool = False,
-                       actions: List[str] | None = None,
+    def from_crop_name(cls, crop_name: str,
+                       crop_variety: Optional[str | None] = None,
+                       dst: Optional[str | None] = None,
+                       directory: Optional[str | None] = None,
+                       interactive: Optional[bool] = False,
+                       actions: Optional[List[str] | None] = None,
                        **kwargs: Any) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
+            crop_variety: Crop variety.
             dst: Path to the location where the generated file should
                 be saved.
+            directory: Directory where the generated file should be
+                saved (only used if dst is not provided).
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
             \*\*kwargs: Additional keyword arguments are treated as
@@ -1011,16 +1775,54 @@ class ApsimXFile(CropModelFile):
 
         """
         crop_name = cls.validate_crop_name(crop_name)
-        if dst is None:
-            if interactive or actions:
-                dst = f"{crop_name}-Generated-Interactive.apsimx"
+        if crop_variety is None:
+            if crop_name == "Wheat":
+                crop_variety = "Hartog"
             else:
-                dst = f"{crop_name}-Generated.apsimx"
+                varieties = cls.available_cultivars(crop_name)
+                crop_variety = "" if not varieties else varieties[0]
+        if crop_variety:
+            kwargs["crop_variety"] = crop_variety
+        crop_resource = ApsimXFileNode.from_resource(crop_name)
+        if dst is None:
+            dst = f"{crop_name}-{crop_variety}-Generated.apsimx"
+            if interactive or actions:
+                dst = "-Interactive".join(os.path.splitext(dst))
+            if directory:
+                dst = os.path.join(directory, dst)
         if actions is None:
             if interactive:
                 actions = list(ApsimXEngine.AVAILABLE_ACTION_MAP.keys())
             else:
                 actions = []
+        output_vars = [
+            f"[{crop_name}].LAI",
+        ]
+        if crop_resource.find("Zadok"):
+            output_vars += [
+                f"[{crop_name}].Phenology.Zadok.Stage",
+            ]
+        output_vars += [
+            f"[{crop_name}].Phenology.CurrentStageName",
+            f"[{crop_name}].AboveGround.Wt",
+            f"[{crop_name}].AboveGround.N",
+        ]
+        if crop_resource.find("Grain"):
+            output_vars += [
+                f"[{crop_name}].Grain.Total.Wt*10 as Yield",
+                f"[{crop_name}].Grain.Protein",  # Missing from a crop
+                f"[{crop_name}].Grain.Size",
+                f"[{crop_name}].Grain.Number",
+                f"[{crop_name}].Grain.Total.Wt",
+                f"[{crop_name}].Grain.Total.N",
+            ]
+        else:
+            output_vars += [
+                f"[{crop_name}].Total.Wt*10 as Yield"
+            ]
+        output_vars += [
+            f"[{crop_name}].Total.Wt"
+        ]
         sim_children = [
             ApsimXFileNode.from_data("Clock"),
             ApsimXFileNode.from_data("Summary"),
@@ -1032,21 +1834,7 @@ class ApsimXFile(CropModelFile):
         zone_children = [
             ApsimXFileNode.from_param(
                 "Models.Report, Models",
-                VariableNames=[
-                    "[Clock].Today",
-                    f"[{crop_name}].LAI",
-                    f"[{crop_name}].Phenology.Zadok.Stage",
-                    f"[{crop_name}].Phenology.CurrentStageName",
-                    f"[{crop_name}].AboveGround.Wt",
-                    f"[{crop_name}].AboveGround.N",
-                    f"[{crop_name}].Grain.Total.Wt*10 as Yield",
-                    f"[{crop_name}].Grain.Protein",
-                    f"[{crop_name}].Grain.Size",
-                    f"[{crop_name}].Grain.Number",
-                    f"[{crop_name}].Grain.Total.Wt",
-                    f"[{crop_name}].Grain.Total.N",
-                    f"[{crop_name}].Total.Wt"
-                ],
+                VariableNames=["[Clock].Today"] + output_vars,
                 EventNames=[
                     "[Clock].EndOfDay",
                 ],
@@ -1136,7 +1924,13 @@ class ApsimXFile(CropModelFile):
                     )
                 )
             # if "soil_file" not in kwargs:
-            # TODO: Get soil file and replace the Soil node
+            #     out.set(
+            #         "soil_file",
+            #         ApsimXSoilFile.fetch_data(
+            #             out.get("latitude"), out.get("longitude"),
+            #             out.get("start_time"), out.get("end_time"),
+            #         )
+            #     )
         return out
 
     @property
@@ -1155,7 +1949,7 @@ class ApsimXFile(CropModelFile):
             str: Parameter name.
 
         """
-        # TODO: Map variables in PARAM_NODES?
+        # TODO: Map field variables in PARAM_NODES?
         if name.startswith(f"[{self.formal_crop_name}]"):
             return name.replace(f"[{self.formal_crop_name}]", "[CROP]")
         return name
@@ -1170,12 +1964,12 @@ class ApsimXFile(CropModelFile):
             str: Internal parameter name.
 
         """
-        if name not in self.PARAM_NODES:
+        info = ApsimXEngine.get_field_metadata(name, None)
+        if info is None:
             if name.startswith("[CROP]"):
                 return name.replace("[CROP]",
                                     f"[{self.formal_crop_name}]")
             return name
-        info = self.PARAM_NODES[name]
         node = self.find_parameter(name, required=True)
         if "parameter" in info:
             names = [x["Key"] for x in node["Parameters"]]
@@ -1261,7 +2055,8 @@ class ApsimXFile(CropModelFile):
         elif "field" in info:
             out = node[info["field"]]
         elif "internal" in info:
-            out = cls._get_parameter(node, cls.PARAM_NODES[info["internal"]])
+            out = cls._get_parameter(
+                node, ApsimXEngine.get_field_metadata(info["internal"]))
         elif "anyOf" in info:
             for x in info["anyOf"]:
                 if cls.node_matches(node, **x):
@@ -1275,6 +2070,8 @@ class ApsimXFile(CropModelFile):
                     "Node does not match the requirements:\n  "
                     + "\n  ".join(errors)
                 )
+        elif info.get("full_node"):
+            out = node
         else:
             raise NotImplementedError(f"Invalid info {info}")
         if "fget" in info:
@@ -1316,8 +2113,9 @@ class ApsimXFile(CropModelFile):
         elif "field" in info:
             node[info["field"]] = value
         elif "internal" in info:
-            cls._set_parameter(node, cls.PARAM_NODES[info["internal"]],
-                               value)
+            cls._set_parameter(
+                node, ApsimXEngine.get_field_metadata(info["internal"]),
+                value)
         elif "anyOf" in info:
             for x in info["anyOf"]:
                 if cls.node_matches(node, **x):
@@ -1331,6 +2129,9 @@ class ApsimXFile(CropModelFile):
                     "Node does not match the requirements:\n  "
                     + "\n  ".join(errors)
                 )
+        elif info.get("full_node", False) is True:
+            node.clear()
+            node.update(**value)
         else:
             raise NotImplementedError(f"Invalid info {info}")
 
@@ -1348,7 +2149,7 @@ class ApsimXFile(CropModelFile):
 
         """
         node = self.find_parameter(name, required=True)
-        info = self.PARAM_NODES[name]
+        info = ApsimXEngine.get_field_metadata(name)
         try:
             return self._get_parameter(node, info)
         except KeyError as e:
@@ -1369,7 +2170,7 @@ class ApsimXFile(CropModelFile):
         """
         add_missing = (info is None)
         if info is None:
-            info = self.PARAM_NODES[name]
+            info = ApsimXEngine.get_field_metadata(name)
         if info is False:
             return
         if name == "output_vars" and isinstance(value, list):
@@ -1425,7 +2226,7 @@ class ApsimXFile(CropModelFile):
         if info is None:
             info = (
                 self.ACTION_NODES[name] if name in self.ACTION_NODES
-                else self.PARAM_NODES[name]
+                else ApsimXEngine.get_field_metadata(name)
             )
         if node is None and self.includes_constraints(info):
             node = self.find_parameter(name, info=info)
@@ -1458,7 +2259,7 @@ class ApsimXFile(CropModelFile):
         if info is None:
             info = (
                 self.ACTION_NODES[name] if name in self.ACTION_NODES
-                else self.PARAM_NODES[name]
+                else ApsimXEngine.get_field_metadata(name)
             )
         # Do conflicts first before adding the default so that the
         # default is not disabled by mistake
@@ -1641,7 +2442,8 @@ class ApsimXFile(CropModelFile):
             if not add_error(f"{node} is missing parameter \"{parameter}\""):
                 return False
         if internal:
-            if not cls.node_matches(node, **cls.PARAM_NODES[internal]):
+            if not cls.node_matches(
+                    node, **ApsimXEngine.get_field_metadata(internal)):
                 return False
         if contains:
             if isinstance(contains, str):
@@ -1723,14 +2525,13 @@ class ApsimXFile(CropModelFile):
 
         """
         if info is None:
-            if ((name not in self.PARAM_NODES
-                 and name not in self.ACTION_NODES)):
-                raise KeyError(f"No node registered for parameter "
-                               f"\"{name}\"")
-            info = (
-                self.PARAM_NODES[name] if name in self.PARAM_NODES
-                else self.ACTION_NODES[name]
-            )
+            info = ApsimXEngine.get_field_metadata(name, None)
+            if info is None:
+                if name in self.ACTION_NODES:
+                    info = self.ACTION_NODES[name]
+                else:
+                    raise KeyError(f"No node registered for parameter "
+                                   f"\"{name}\"")
         for node in self.findall(requirements=info, **kwargs):
             yield node
 
@@ -1758,16 +2559,14 @@ class ApsimXFile(CropModelFile):
 
         """
         if info is None:
-            if ((name not in self.PARAM_NODES
-                 and name not in self.ACTION_NODES)):
-                if not kwargs.get("required", False):
-                    return {}
-                raise KeyError(f"No node registered for parameter "
-                               f"\"{name}\"")
-            info = (
-                self.PARAM_NODES[name] if name in self.PARAM_NODES
-                else self.ACTION_NODES[name]
-            )
+            info = ApsimXEngine.get_field_metadata(name, None)
+            if info is None:
+                if name not in self.ACTION_NODES:
+                    if not kwargs.get("required", False):
+                        return {}
+                    raise KeyError(f"No node registered for parameter "
+                                   f"\"{name}\"")
+                info = self.ACTION_NODES[name]
         if info is False:
             raise KeyError(f"Ignored parameter \"{name}\"")
         if ((name in self.parameter_nodes
@@ -1816,7 +2615,11 @@ class ApsimXFile(CropModelFile):
         assert not isinstance(parent, dict)
         if current is None:
             current = self.contents
-        for node in ApsimXFileNode(current).findall(
+        current_node = (
+            current if isinstance(current, ApsimXFileNode)
+            else ApsimXFileNode(current)
+        )
+        for node in current_node.findall(
                 name=name, requirements=requirements):
             if parent:
                 yield node.parent.contents
@@ -1851,9 +2654,15 @@ class ApsimXFile(CropModelFile):
         assert not isinstance(parent, dict)
         if current is None:
             current = self.contents
-        node = ApsimXFileNode(current).find(
+        current_node = (
+            current if isinstance(current, ApsimXFileNode)
+            else ApsimXFileNode(current)
+        )
+        node = current_node.find(
             name=name, required=required,
             requirements=requirements)
+        if node is None:
+            return {}
         if parent and node.parent:
             node = node.parent
         return node.contents
@@ -1865,8 +2674,7 @@ class ApsimXFile(CropModelFile):
             actions: List of actions that should be enabled.
 
         """
-        sync = ApsimXFile(os.path.join(ApsimXEngine.data_dir(),
-                                       "Synchroniser.json"))
+        sync = ApsimXFileNode.from_data("Synchroniser")
         field = self.find("Field", required=True)
         for k, v in self.ACTION_NODES.items():
             parent = None
@@ -1971,6 +2779,7 @@ class ApsimXEngine(CropModelEngine):
     ]
     INPUT_FILE_TYPE: ClassVar[Any] = ApsimXFile
     WEATHER_FILE_TYPE: ClassVar[Any] = ApsimXWeatherFile
+    SOIL_FILE_TYPE: ClassVar[Any] = ApsimXSoilFile
     AVAILABLE_ACTION_MAP: ClassVar[dict] = {
         "sow": {
             "description": (
@@ -2065,6 +2874,130 @@ class ApsimXEngine(CropModelEngine):
     EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = (
         "nitrogen", {"amount": 160.0},
     )
+    _SIMULATOR_FIELD_ANNOTATIONS: ClassVar[dict] = {
+        "duration": False,
+        "season_length": False,
+        "output_vars": {
+            "contains": {
+                "$type": "Models.Report, Models",
+            },
+            # "nested": {
+            #     "EventNames": {"contains": "EndOfDay"},
+            # },
+            "field": "VariableNames",
+            "fget": lambda x: [xx for xx in x if " as " not in xx],
+        },
+        "crop_name": {
+            "anyOf": [
+                {
+                    "contains": {
+                        "$type": "Models.PMF.Plant, Models"
+                    },
+                    "field": "Name",  # "ResourceName"?
+                },
+                {
+                    "contains": {"Name": "SowOrHarvestByDate"},
+                    "parameter": "CropName",
+                },
+                {
+                    "calls": "Sow",
+                    "parameter": "Crop",
+                },
+                {
+                    "calls": "Harvest",
+                    "parameter": "Crop",
+                },
+            ],
+            "fget": lambda x: x.lower(),
+        },
+        "crop_variety": {
+            "contains": {
+                "$type": "Models.Manager, Models",
+            },
+            "calls": "Sow",
+            "parameter": "CultivarName",
+        },
+        "year": {
+            "fget": lambda x: x.year,
+            "anyOf": [
+                {"internal": "start_time",
+                 "fset_prev": lambda x, prev: prev.replace(year=x)},
+                {"internal": "end_time",
+                 "fset_prev": lambda x, prev: prev.replace(year=x)},
+                {"internal": "sow_date",
+                 "fset_prev": lambda x, prev: prev.replace(year=x)},
+                {"internal": "harvest_date",
+                 "fset_prev": lambda x, prev: prev.replace(year=x)},
+            ],
+        },
+        "start_time": {
+            "$type": "Models.Clock, Models",
+            "field": "Start",
+            "fget": datetime.datetime.fromisoformat,
+        },
+        "end_time": {
+            "$type": "Models.Clock, Models",
+            "field": "End",
+            "fget": datetime.datetime.fromisoformat,
+        },
+        "weather_file": {
+            "$type": "Models.Climate.Weather, Models",
+            "field": "FileName",
+            "fget": _replace_root,
+        },
+        "soil_file": {
+            "$type": "Models.Soils.Soil, Models",
+            "fset": lambda x: ApsimXSoilFile.from_file(x).contents,
+            "fget": lambda x: ApsimXSoilFile.from_file(x),
+            "full_node": True,
+        },
+        "latitude": {
+            "$type": "Models.Soils.Soil, Models",
+            "field": "Latitude"
+        },
+        "longitude": {
+            "$type": "Models.Soils.Soil, Models",
+            "field": "Longitude",
+        },
+        "field_area": {
+            "$type": "Models.Core.Zone, Models",
+            "field": "Area",
+        },
+        "sow_date": {
+            "parent": {"contains": {"Name": "Field"}},
+            "contains": {"Name": "SowOrHarvestByDate"},
+            "parameter": "SowingDate",
+            "default": "SowOrHarvestByDate.json",
+            "fget": datetime.datetime.fromisoformat,
+            "conflicts": [
+                {
+                    "$type": "Models.Manager, Models",
+                    "calls": "Sow",
+                },
+            ],
+            "parameter_properties": {
+                "CropName": "formal_crop_name",
+                "CultivarName": "crop_variety",
+            },
+        },
+        "harvest_date": {
+            "parent": {"contains": {"Name": "Field"}},
+            "contains": {"Name": "SowOrHarvestByDate"},
+            "parameter": "HarvestDate",
+            "default": "SowOrHarvestByDate.json",
+            "fget": datetime.datetime.fromisoformat,
+            "conflicts": [
+                {
+                    "$type": "Models.Manager, Models",
+                    "calls": "Harvest",
+                },
+            ],
+            "parameter_properties": {
+                "CropName": "formal_crop_name",
+                "CultivarName": "crop_variety",
+            },
+        },
+    }
 
     from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
         default=False,
@@ -2105,7 +3038,8 @@ class ApsimXEngine(CropModelEngine):
         self.products += [
             self.output_file,
             f"{self.output_file}-shm",
-            f"{self.output_file}-wal"
+            f"{self.output_file}-wal",
+            os.path.splitext(self.output_file)[0] + ".Report.csv",
         ]
 
     @classmethod
@@ -2204,7 +3138,8 @@ class ApsimXEngine(CropModelEngine):
                 src = self.INPUT_FILE_TYPE.find_example(self.crop_name)
             return self.INPUT_FILE_TYPE.from_example(
                 src, dst=self.model_file,
-                interactive=True,
+                directory=self.output_dir,
+                interactive=(not self.non_interactive),
                 actions=list(self.actions.keys()),
             )
         return super().create_model_file()
@@ -2220,12 +3155,17 @@ class ApsimXEngine(CropModelEngine):
         r"""bool: True if the model engine is running and functioning."""
         if not super().is_operable:
             return False
+        if self.non_interactive:
+            return True
         return (self._status not in ["finished", "error", "terminated",
                                      "never connected"])
 
     @property
     def current_time(self) -> datetime.datetime:
         r"""datetime.datetime: Current simulation time."""
+        if self.non_interactive:
+            if self.process is not None and self.process.poll() == 0:
+                self._current_time = self.end_time
         if self._current_time is None:
             if not self.is_operable:
                 self._current_time = self.start_time
@@ -2236,6 +3176,13 @@ class ApsimXEngine(CropModelEngine):
     @property
     def status(self) -> Optional[str]:
         r"""str: Current simulation status."""
+        if self.non_interactive and self.process is not None:
+            if self.process.poll() is None:
+                self._status = "running"
+            elif self.process.poll() == 0:
+                self._status = "finished"
+            else:
+                self._status = "error"
         if self._status is None and self.socket is not None:
             self._status = self.socket.recv_string()
             if self._status == "paused":
@@ -2277,17 +3224,65 @@ class ApsimXEngine(CropModelEngine):
         r"""str: Path to the .db output file that will be produced."""
         return self.get_output_file(self.model.fname)
 
-    def get_results(self) -> Any:
-        r"""Get the simulation results."""
-        if os.path.isfile(self.output_file):
-            import pandas as pd
+    def get_results(self, return_dataframe: Optional[bool] = False) -> Any:
+        r"""Get the simulation results.
+
+        Args:
+            return_dataframe: If True, return the results in a pandas
+                dataframe. Otherwise, a JSON object will be returned.
+
+        Returns:
+            Simulation results.
+
+        """
+        if self.non_interactive:
+            fname = self.get_output_file(self.model.fname, ".Report.csv")
+        else:
+            fname = self.output_file
+        if not os.path.isfile(fname):
+            return None
+        import pandas as pd
+        if fname.endswith(".csv"):
+            df = pd.read_csv(fname)
+        else:
             import sqlite3
             # This currently errors due to missing report
             conn = sqlite3.connect(self.output_file)
             df = pd.read_sql_query("SELECT * FROM Report", conn)
             conn.close()
-            return df.to_json()
-        return None
+        if return_dataframe:
+            return df
+        return df.to_json()
+
+    def plot_output(self, axes, label: Optional[str] = None,
+                    **kwargs: Any):
+        r"""Plot the output from a simulation run.
+
+        Args:
+            axes: Matplotlib axes that the data should be plot on.
+            label: Line label.
+            \*\*kwargs: Additional keyword arguments are passed to
+                the plot method.
+
+        """
+        import pandas as pd
+        df = self.get_results(return_dataframe=True)
+        t = pd.to_datetime(df["Clock.Today"])
+        try_vars = ["Yield", f"[{self.crop_name.title()}].Total.Wt"]
+        var = None
+        for var in try_vars:
+            if var in df:
+                v = df[var]
+                if var.endswith("].Total.Wt"):
+                    v = 10 * v
+                break
+        else:
+            raise RuntimeError("Could not determine a yield variable")
+        if not axes.get_ylabel():
+            axes.set_ylabel(var)
+        if not label:
+            label = f"{self.crop_name.title()} [{self.crop_variety}]"
+        axes.plot(t, v, label=label, **kwargs)
 
     @classmethod
     def global_zmq_context(cls) -> zmq.Context:
@@ -2373,33 +3368,49 @@ class ApsimXEngine(CropModelEngine):
 
     def _start(self):
         r"""Start a listening server on a random port."""
+        # if self.non_interactive:
+        #     self.process = self.start_direct_subprocess(
+        #         self.model.fname,
         self._current_time = None
         self._status = None
-        self.context = self.global_zmq_context()
-        self.host = "127.0.0.1"
-        if self.socket is None:
-            self.socket = self.context.socket(zmq.REP)
-            self.socket.bind(f"tcp://{self.host}:0")
-            self.port = self.socket.getsockopt(
-                zmq.LAST_ENDPOINT).decode().split(":")[-1]
         logger.info(f"Running model \"{self.model.fname}\"")
-        logger.info(
-            f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
+        if not self.non_interactive:
+            self.context = self.global_zmq_context()
+            self.host = "127.0.0.1"
+            if self.socket is None:
+                self.socket = self.context.socket(zmq.REP)
+                self.socket.bind(f"tcp://{self.host}:0")
+                self.port = self.socket.getsockopt(
+                    zmq.LAST_ENDPOINT).decode().split(":")[-1]
+            logger.info(
+                f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
+        use_pipes = (
+            platform.system() != 'Windows' and not self.non_interactive
+        )
         kws = {}
-        if platform.system() != 'Windows':
+        if use_pipes:
             kws.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.process = self.start_server_subprocess(
-            self.model.fname,
-            host=self.host,
-            port=self.port,
-            **kws)
-        if platform.system() != 'Windows':
+        if self.non_interactive:
+            self._current_time = self.start_time
+            self.process = self.start_direct_subprocess(
+                self.model.fname, csv=True,
+                **kws)
+        else:
+            self.process = self.start_server_subprocess(
+                self.model.fname,
+                host=self.host,
+                port=self.port,
+                **kws)
+        if use_pipes:
             self.stdout_pipe = LogPipe(
                 self.process.stdout, prefix="APSIMX: ",
                 level=self.model_log_level)
             self.stderr_pipe = LogPipe(
                 self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
+        if self.non_interactive:
+            logger.debug("APSIMX Start complete")
+            return
         timeout = 10
         timewait = 0.01
         if platform.system() == 'Windows':

@@ -1,6 +1,7 @@
 import os
 import shutil
 import pytest
+from simulatr.utils import cfg
 from simulatr.base import _ModelFileMeta
 
 
@@ -167,11 +168,17 @@ class TestSoilBase(TestDataBase):
     @pytest.fixture(scope="class", params=[
         # TODO: This is skipped by default until the API is stable
         pytest.param(k, marks=pytest.mark.unstable)
-        if k == "ISRIC SoilGrids" else k
+        if k == "ISRIC SoilGrids"
+        else (pytest.param(k, marks=pytest.mark.slow)
+              if k == "HUMERIS" else k)
         for k in _ModelFileMeta.get_filetype_registry("soil").keys()
     ])
     @classmethod
     def name(cls, request):
+        if ((request.param == "HUMERIS"
+             and not os.path.isdir(cfg["directories"]["humeris_soil_data"]))):
+            pytest.skip("HUMERIS is not already installed and download "
+                        "takes a long time")
         return request.param
 
     @pytest.fixture(scope="class")

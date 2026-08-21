@@ -1,0 +1,14 @@
+{
+    "$type": "Models.Soils.SoilCrop, Models",
+    "LL": [],
+    "KL": [],
+    "XF": [],
+    "LLMetadata": null,
+    "KLMetadata": null,
+    "XFMetadata": null,
+    "Name": "CROPSoil",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

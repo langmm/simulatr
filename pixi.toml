@@ -1,6 +1,6 @@
 [workspace]
 name = "simulatr"
-version = "0.0.1"
+version = "0.1.0"
 description = "Gym environment for reinforcement learning using process-based simulators like crop growth models"
 authors = ["Meagan Lang <langmm.astro@gmail.com>"]
 channels = ["conda-forge"]
@@ -10,6 +10,7 @@ platforms = ["osx-64", "osx-arm64", "linux-64", "linux-aarch64", "win-64"]
 python = ">=3.10,<3.15"
 fastapi = "*"
 gymnasium = "*"
+matplotlib = "*"
 msgpack-python = "*"
 numpy = ">=1.13.0"
 pandas = "*"
@@ -17,6 +18,7 @@ psutil = "*"
 pydantic = "*"
 pydantic-settings = "*"
 pyzmq = "*"
+rasterio = "*"
 requests = "*"
 
 [pypi-dependencies]
@@ -82,11 +84,11 @@ python = "3.13.*"
 python = "3.14.*"
 
 [environments]
-default = []
 py310 = ["dev", "py310", "apsimx"]
 py311 = ["dev", "py311", "apsimx"]
 py312 = ["dev", "py312", "apsimx"]
 py313 = ["dev", "py313", "apsimx"]
 py314 = ["dev", "py314", "apsimx"]
+default = ["dev", "py313", "apsimx"]
 dev = ["dev", "py313", "apsimx"]
 prod = ["py313", "apsimx"]

@@ -5,12 +5,15 @@ from abc import abstractmethod
 from typing import Optional, List, Any, ClassVar
 from pydantic import ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
+from pydantic_settings import CliSuppress
 from .base import (
-    NoDefault,
+    SimulatorFieldInfo,
     BaseModelFile, BaseModelEngine,
     BaseModelLLMPromptGenerator, BaseModelEnv,
 )
+from .data import BaseWeatherFile, BaseSoilFile
 from . import logger
+from .utils import NoDefault
 
 
 class CropModelFile(BaseModelFile):
@@ -58,6 +61,10 @@ class CropModelFile(BaseModelFile):
         for alias in [crop_name, crop_name.lower(), crop_name.title()]:
             if alias in available_crops:
                 return alias
+        available_crops_lower = [x.lower() for x in available_crops]
+        if crop_name.lower() in available_crops_lower:
+            return available_crops[available_crops_lower.index(
+                crop_name.lower())]
         raise NotImplementedError(
             f"Invalid crop name \"{crop_name}\". "
             f"Valid crop names are:\n\t"
@@ -65,17 +72,26 @@ class CropModelFile(BaseModelFile):
 
     @classmethod
     @abstractmethod
-    def from_crop_name(cls, crop_name: str, dst: str | None = None,
-                       interactive: bool = False,
-                       actions: List[str] | None = None) -> "CropModelFile":
+    def from_crop_name(cls, crop_name: str,
+                       crop_variety: Optional[str | None] = None,
+                       dst: Optional[str | None] = None,
+                       directory: Optional[str | None] = None,
+                       interactive: Optional[bool] = False,
+                       actions: Optional[List[str] | None] = None,
+                       **kwargs: Any) -> "CropModelFile":
         r"""Create an input model file for a given crop name.
 
         Args:
             crop_name: Crop name.
+            crop_variety: Crop variety.
             dst: Path to the location where the generated file should
                 be saved.
+            directory: Directory where the generated file should be
+                saved (only used if dst is not provided).
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -111,34 +127,10 @@ class CropModelFile(BaseModelFile):
 
 
 class CropModelEngine(BaseModelEngine):
-    r"""Class for managining communication with a crop simulation model.
-
-    Args:
-        model_file: Path to one or more model input files.
-        crop_name: Name of the crop.
-        crop_variety: Name of the crop variety/cultivar.
-        sow_date: Date that the crop should be sown.
-        harvest_date: Date that the crop should be harvested.
-        season_length: Time between sowing and harvest. Only used if
-            only one of sow_date or harvest_date are used. If an integer
-            is provided, it is assumed to be in units of days.
-        year: Year to use to get weather data.
-        latitude: Field latitude to use to get weather data.
-        longitude: Field longitude to use to get weather data.
-        weather_file: Path to a file containing NASA power weather data.
-        **kwargs: Additional keywords arguments are passed along to
-            BaseModelEngine.__init__.
-
-    """
+    r"""Class for managining communication with a crop simulation model."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
-    EXPLICIT_PARAM: ClassVar[list] = BaseModelEngine.EXPLICIT_PARAM + [
-        "crop_name", "crop_variety",
-        "sow_date", "harvest_date", "season_length",
-        "latitude", "longitude", "year",
-        "weather_file", "soil_file",
-    ]
     WEATHER_FILE_TYPE: ClassVar[Any] = None
     DATE_PARAM: ClassVar[list] = BaseModelEngine.DATE_PARAM + [
         ("sow_date", "harvest_date", "season_length"),
@@ -153,46 +145,56 @@ class CropModelEngine(BaseModelEngine):
     )
     EXAMPLE_KWARGS: ClassVar[dict] = {"crop_name": "Wheat"}
 
-    crop_name: Optional[str | SkipJsonSchema[None]] = Field(
+    crop_name: Optional[str | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None, examples=["Wheat"],
         description="Name of the crop that will be simulated")
-    crop_variety: Optional[str | SkipJsonSchema[None]] = Field(
-        default=None, examples=["Hartog"],
-        description="Name of the crop variety/cultivar that will be "
-                    "simulated")
-    sow_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
-        default=None,
-        examples=[datetime.datetime.fromisoformat("1991-01-01")],
-        description="Date that the crop should be sown (ISO 8601 format).")
-    harvest_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
-        default=None,
-        examples=[datetime.datetime.fromisoformat("1991-11-05")],
-        description="Date that the crop should be harvested "
-                    "(ISO 8601 format).")
+    crop_variety: Optional[
+        str | SkipJsonSchema[None]] = SimulatorFieldInfo(
+            default=None, examples=["Hartog"],
+            description="Name of the crop variety/cultivar that will be "
+                        "simulated")
+    sow_date: Optional[
+        datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
+            default=None,
+            examples=[datetime.datetime.fromisoformat("1991-01-01")],
+            description="Date that the crop should be sown (ISO 8601 "
+                        "format).")
+    harvest_date: Optional[
+        datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
+            default=None,
+            examples=[datetime.datetime.fromisoformat("1991-11-05")],
+            description="Date that the crop should be harvested "
+                        "(ISO 8601 format).")
     season_length: Optional[int | float | datetime.timedelta
-                            | SkipJsonSchema[None]] = Field(
+                            | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         examples=[datetime.timedelta(365)],
         description="Time between sowing and harvest. Only used if only "
                     "one of sow_date or harvest_date are used. If a "
                     "number is provided, it is assumed to be in units "
                     "of days.")
-    year: Optional[int | SkipJsonSchema[None]] = Field(
+    year: Optional[int | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         examples=[1991],
         description="Year to use to get weather data.")
-    latitude: Optional[float | SkipJsonSchema[None]] = Field(
+    latitude: Optional[float | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         examples=[40.1164],
         description="Field latitude to use to get weather data (degrees).")
-    longitude: Optional[float | SkipJsonSchema[None]] = Field(
+    longitude: Optional[float | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         examples=[-88.2434],
         description="Field longitude to use to get weather data (degrees).")
-    weather_file: Optional[str | SkipJsonSchema[None]] = Field(
+    field_area: Optional[float | SkipJsonSchema[None]] = SimulatorFieldInfo(
+        default=None,
+        examples=[1.0],
+        description="Area of the field")
+    weather_file: Optional[str | CliSuppress[BaseWeatherFile]
+                           | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         description="Path to a file containing weather data.")
-    soil_file: Optional[str | SkipJsonSchema[None]] = Field(
+    soil_file: Optional[str | CliSuppress[BaseSoilFile]
+                        | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         description="Path to a file containing soil data.")
 
@@ -239,8 +241,10 @@ class CropModelEngine(BaseModelEngine):
                              "be provided")
         return self.INPUT_FILE_TYPE.from_crop_name(
             self.crop_name,
+            crop_variety=self.crop_variety,
             dst=self.model_file,
-            interactive=True,
+            directory=self.output_dir,
+            interactive=(not self.non_interactive),
             actions=list(self.actions.keys()),
         )
 
@@ -308,6 +312,56 @@ class CropModelEngine(BaseModelEngine):
             self.actions.pop("harvest", None)
         super().update_model_file()
 
+    @classmethod
+    def create_and_run(cls, timestep: Optional[int] = 0,
+                       plot: Optional[Any] = False,
+                       **kwargs: Any) -> str:
+        r"""Create and run a simulation using this simulator.
+
+        Args:
+            timestep: Time between interactive actions (in days).
+                0 for a non-interactive continuous simulation.
+            plot: If True or string, the simulation results will be
+                plot. If a string is provided, the plot will be saved
+                to the specified path. If a matplotlib axes object is
+                provided, the simulation results will be added to the
+                axes.
+            **kwargs: Additional keyword arguments are passed to the
+                class constructor.
+
+        Returns:
+            str: The path to the simulator output.
+
+        """
+        if kwargs.get("crop_name", None) == "all":
+            figure, axes = cls._setup_plot(plot)
+            kwargs.pop("crop_name")
+            out = {}
+            crops = cls.INPUT_FILE_TYPE.available_crops()
+            for k in crops:
+                out[k] = cls.create_and_run(timestep=timestep,
+                                            crop_name=k,
+                                            plot=axes,
+                                            **kwargs)
+            cls._finalize_plot(plot, figure, axes, legend=True)
+            return out
+        if kwargs.get("crop_variety", None) == "all":
+            figure, axes = cls._setup_plot(plot)
+            assert kwargs.get("crop_name", None)
+            kwargs.pop("crop_variety")
+            out = {}
+            cultivars = cls.INPUT_FILE_TYPE.available_cultivars(
+                kwargs["crop_name"])
+            for k in cultivars:
+                out[k] = cls.create_and_run(timestep=timestep,
+                                            crop_variety=k,
+                                            plot=axes,
+                                            **kwargs)
+            cls._finalize_plot(plot, figure, axes, legend=True)
+            return out
+        return super().create_and_run(timestep=timestep, plot=plot,
+                                      **kwargs)
+
     def calc_param(self, name: str, default: Optional[Any] = NoDefault,
                    **kwargs: Any) -> Any:
         r"""Calculate a parameter from other parameters.
@@ -336,11 +390,6 @@ class CropModelEngine(BaseModelEngine):
     def location(self) -> str:
         r"""str: Description of the field location."""
         return self.model.location
-
-    @property
-    def field_area(self) -> float:
-        r"""float: Field area"""
-        return self.model.field_area
 
 
 class CropModelLLMPromptGenerator(BaseModelLLMPromptGenerator):

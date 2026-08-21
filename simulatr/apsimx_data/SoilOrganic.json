@@ -1,0 +1,18 @@
+{
+    "$type": "Models.Soils.Organic, Models",
+    "FOMCNRatio": 40.0,
+    "Thickness": [],
+    "Carbon": [],
+    "CarbonUnits": 0,
+    "SoilCNRatio": [],
+    "FBiom": [],
+    "FInert": [],
+    "FOM": [],
+    "CarbonMetadata": null,
+    "FOMMetadata": null,
+    "Name": "Organic",
+    "ResourceName": null,
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

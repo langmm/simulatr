@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import json
 import copy
 import uuid
@@ -19,15 +20,13 @@ import gymnasium as gym
 from pydantic import (
     BaseModel, ConfigDict, Field, PrivateAttr, model_validator,
     field_validator)
+from pydantic.fields import FieldInfo
 from pydantic.json_schema import SkipJsonSchema
 from pydantic_settings import CliSuppress
 from . import logger
-from .utils import promptuser
-
-
-class NoDefault:
-    r"""Dummy class for defaults."""
-    pass
+from .utils import (
+    promptuser, NoDefault, readonly_cached_property, CachedPropertyMixin
+)
 
 
 class RecoverableError(RuntimeError):
@@ -50,52 +49,109 @@ class InvalidActionError(RecoverableError):
     pass
 
 
-def readonly_cached_property(method: Callable) -> Callable:
-    r"""Decorator for a read-only cached property.
+class SimulatorNotInstalled(RuntimeError):
+    r"""Error when the simulator is not installed."""
+    pass
+
+
+class SimulatorFieldInfo(FieldInfo):
+    r"""FieldInfo subclass for storing simulator metadata on a field"""
+
+    __slots__ = (
+        "simulator_metadata",
+    )
+
+    def __init__(self, simulator_metadata: Any = NoDefault,
+                 **kwargs: Any) -> None:
+        if simulator_metadata is NoDefault:
+            simulator_metadata = {}
+        self.simulator_metadata = simulator_metadata
+        super().__init__(**kwargs)
+
+    def asdict(self, make_copy: Optional[bool] = False) -> dict:
+        r"""Get a dictionary representation of the field.
+
+        Args:
+            make_copy: If True, ensure that the returned dictionary
+                is a copy that can be modified without modifying the
+                field.
+
+        Returns:
+            dict: Dictionary field representation.
+
+        """
+        out = super().asdict()
+        out["simulator_metadata"] = self.simulator_metadata
+        if make_copy:
+            for k in ["metadata", "simulator_metadata"]:
+                out[k] = copy.deepcopy(out[k])
+        return out
+
+    @classmethod
+    def fromdict(cls, src: dict):
+        r"""Create a SimulatorFieldInfo instance from a dictionary
+        representation (e.g. as produced by SimulatorFieldInfo.asdict.
+
+        Args:
+            src: Dictionary field representation.
+
+        Returns:
+            SimulatorFieldInfo: New field instance.
+
+        """
+        kws = src["attributes"].copy()
+        for k, v in src.items():
+            if k == "attributes":
+                pass
+            if k in ["metadata", "simulator_metadata"]:
+                kws[k] = copy.deepcopy(v)
+            else:
+                kws[k] = v
+        return cls(**kws)
+
+
+def SimulatorField(simulator_metadata: Any = NoDefault,
+                   **kwargs: Any) -> SimulatorFieldInfo:
+    r"""Construct a simulator field.
 
     Args:
-        method: Method to wrap.
+        simulator_metadata: Metadata associated with the field that
+            can be used by the simulator.
+
+    Returns:
+        SimulatorFieldInfo: New field instance.
 
     """
-
-    name = method.__qualname__.rsplit('.', 1)[-1]
-
-    @property
-    def _readonly_cached_property(self) -> Any:
-        r"""Get the cached property value, computing it if needed."""
-        if name not in self._cached_properties:
-            self._cached_properties[name] = method(self)
-        return self._cached_properties[name]
-
-    return _readonly_cached_property
+    # Create a discarded field first to check other parameters
+    field_info = SimulatorFieldInfo(
+        simulator_metadata=simulator_metadata,
+        **kwargs
+    )
+    return field_info
 
 
-class CachedPropertyMixin:
-    r"""Mixin class for enabling read-only cached properties."""
+def InheritSimulatorField(src: FieldInfo,
+                          **kwargs: Any) -> SimulatorFieldInfo:
+    r"""Construct a simulator field by inheriting and modifying an
+    existing field.
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        r"""Initialize the cached property mixin.
+    Args:
+        src: Existing field.
+        \*\*kwargs: Additional keyword arguments are used to update the
+            field.
 
-        Args:
-            *args: Positional arguments passed to the parent class.
-            **kwargs: Keyword arguments passed to the parent class.
+    Returns:
+        SimulatorFieldInfo: New field instance.
 
-        """
-        self._cached_properties = {}
-        super().__init__(*args, **kwargs)
-
-    def _clear_cached_property(self, name: str) -> None:
-        r"""Remove a cached property value.
-
-        Args:
-            name: Name of the property to clear.
-
-        """
-        self._cached_properties.pop(name, None)
-
-    def _clear_cached_properties(self) -> None:
-        r"""Clear all cached property values."""
-        self._cached_properties.clear()
+    """
+    base = src.asdict()
+    for k, v in kwargs.items():
+        if k in base:
+            assert k != "attributes"
+            base[k] = v
+        else:
+            base["attributes"][k] = v
+    return SimulatorFieldInfo.fromdict(base)
 
 
 class ModelAction(CachedPropertyMixin):
@@ -965,6 +1021,8 @@ class ModelActionSet(CachedPropertyMixin):
             param: Action parameters to use keyed to action names.
 
         """
+        if not action_map:
+            allow_donothing = False
         self.actions = {}
         self.num_levels = num_levels
         self.allow_donothing = allow_donothing
@@ -1231,7 +1289,7 @@ class ModelActionSet(CachedPropertyMixin):
             return out
         parts = (
             [description] if self.exclusive
-            else [x + '.' for x in description.split('.')]
+            else [x + '.' for x in description.split('. ')]
         )
         matches = [{} for _ in parts]
         for i, description in enumerate(parts):
@@ -1452,8 +1510,9 @@ class _ModelFileMeta(type(ABC)):
         name = namespace.get('NAME', None)
         if name is not None and category is None and bases:
             category = getattr(bases[0], "CATEGORY", None)
-        if category is not None and name is not None:
+        if category is not None:
             mcs._registry.setdefault(category, {})
+            assert name not in mcs._registry[category]
             mcs._registry[category][name] = cls
         return cls
 
@@ -1504,11 +1563,11 @@ class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
 
     """
 
-    CATEGORY = "input"
-    NAME = None
-    CACHED = False
-    EXAMPLE = None
-    _default_ext = ".json"
+    CATEGORY: ClassVar[str] = "input"
+    NAME: ClassVar[str] = None
+    CACHED: ClassVar[bool] = False
+    EXAMPLE: ClassVar[str] = None
+    _default_ext: ClassVar[str] = ".json"
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -1526,7 +1585,7 @@ class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
         self.fname = fname
         self.fname_orig = fname_orig or fname
         self.generated = generated
-        if contents:
+        if contents is not None:
             self.contents = contents
         super().__init__()
 
@@ -1540,6 +1599,24 @@ class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
             os.remove(self.fname)
             self.generated = False
             self._clear_cached_properties()
+
+    @classmethod
+    def from_file(
+            cls, fname: Union[str, "BaseModelFile"]) -> "BaseModelFile":
+        r"""Create an instance by loading it from a file.
+
+        Args:
+            fname: File or file instance to create an instance from. If
+                an instance of this class is provided, it will be
+                returned.
+
+        Returns:
+            File instance.
+
+        """
+        if isinstance(fname, cls):
+            return fname
+        return cls(fname)
 
     @classmethod
     def _read(cls, fname: str):
@@ -1797,7 +1874,24 @@ class BaseModelFile(CachedPropertyMixin, metaclass=_ModelFileMeta):
         raise NotImplementedError  # pragma: no cover
 
 
-class BaseModelEngine(BaseModel, ABC):
+class _SimulatorEngineMeta(type(BaseModel)):
+    r"""Metaclass to add simulator field annotations."""
+
+    def __new__(mcs, name: str, bases: Tuple[type, ...],
+                namespace: Dict[str, Any], **kwargs: Any):
+        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+        if namespace.get("_SIMULATOR_FIELD_ANNOTATIONS", None):
+            for k, v in namespace["_SIMULATOR_FIELD_ANNOTATIONS"].items():
+                cls.model_fields[k] = InheritSimulatorField(
+                    cls.model_fields[k],
+                    simulator_metadata=v)
+        if hasattr(cls, "EXPLICIT_PARAM"):
+            cls.EXPLICIT_PARAM += [k for k in cls.parameter_fields()
+                                   if k not in cls.EXPLICIT_PARAM]
+        return cls
+
+
+class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
     r"""Base class for exposing a model as an environment engine."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -1806,6 +1900,7 @@ class BaseModelEngine(BaseModel, ABC):
     _allow_bulk_set: ClassVar[bool] = False
     _allow_bulk_get: ClassVar[bool] = False
     _allow_bulk_act: ClassVar[bool] = False
+    _SIMULATOR_FIELD_ANNOTATIONS: ClassVar[dict] = {}
     INPUT_FILE_TYPE: ClassVar[Any] = None
     AVAILABLE_ACTION_MAP: ClassVar[dict] = {}
     CONTROL_ACTION_MAP: ClassVar[dict] = {
@@ -1877,9 +1972,7 @@ class BaseModelEngine(BaseModel, ABC):
             },
         },
     }
-    EXPLICIT_PARAM: ClassVar[list] = [
-        "start_time", "end_time", "duration", "output_vars",
-    ]
+    EXPLICIT_PARAM: ClassVar[List[str]] = []
     DATE_PARAM: ClassVar[list] = [("start_time", "end_time", "duration")]
     DEFAULT_PARAM: ClassVar[dict] = {}
     MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
@@ -1904,20 +1997,23 @@ class BaseModelEngine(BaseModel, ABC):
         description="Path to the directory where output should be saved.",
         json_schema_extra={"hidden_for_server": True},
     )
-    start_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
-        default=None,
-        examples=[datetime.datetime.fromisoformat("1991-01-01")],
-        description="Start time of the simulation (ISO 8601 format)")
-    end_time: Optional[datetime.datetime | SkipJsonSchema[None]] = Field(
-        default=None,
-        examples=[datetime.datetime.fromisoformat("1991-11-05")],
-        description="End time of the simulation (ISO 8601 format)")
-    duration: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
-        default=None,
-        description="Duration of the simulation. Only used if either "
-                    "start_time or end_time is not provided.",
-        json_schema_extra={"hidden_for_server": True},
-    )
+    start_time: Optional[
+        datetime.datetime | SkipJsonSchema[None]] = SimulatorField(
+            default=None,
+            examples=[datetime.datetime.fromisoformat("1991-01-01")],
+            description="Start time of the simulation (ISO 8601 format)")
+    end_time: Optional[
+        datetime.datetime | SkipJsonSchema[None]] = SimulatorField(
+            default=None,
+            examples=[datetime.datetime.fromisoformat("1991-11-05")],
+            description="End time of the simulation (ISO 8601 format)")
+    duration: Optional[
+        datetime.timedelta | SkipJsonSchema[None]] = SimulatorField(
+            default=None,
+            description="Duration of the simulation. Only used if "
+                        "either start_time or end_time is not provided.",
+            json_schema_extra={"hidden_for_server": True},
+        )
     timestep: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
         default=None,
         examples=[datetime.timedelta(1)],
@@ -1926,11 +2022,12 @@ class BaseModelEngine(BaseModel, ABC):
                     "interaction and/or logging output variables "
                     "in the trace",
     )
-    output_vars: Optional[List[str] | SkipJsonSchema[None]] = Field(
-        default=None,
-        description="List of state variable names to record in the "
-                    "trace at each time step.",
-    )
+    output_vars: Optional[
+        List[str] | SkipJsonSchema[None]] = SimulatorField(
+            default=None,
+            description="List of state variable names to record in the "
+                        "trace at each time step.",
+        )
     param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Model parameters to update at the beginning of the "
@@ -1951,6 +2048,17 @@ class BaseModelEngine(BaseModel, ABC):
                         "be logged",
             json_schema_extra={"hidden_for_server": True},
         )
+    non_interactive: CliSuppress[
+        Optional[bool | SkipJsonSchema[None]]] = Field(
+            default=False,
+            description="If true, don't run the model interactively",
+            json_schema_extra={"hidden_for_server": True},
+        )
+    overwrite: Optional[bool | SkipJsonSchema[None]] = Field(
+        default=False,
+        description="Overwrite existing model output if it already exists",
+        json_schema_extra={"hidden_for_server": True},
+    )
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the model engine."""
@@ -1976,6 +2084,9 @@ class BaseModelEngine(BaseModel, ABC):
                     self.model_dir(), self.model_file)
             if os.path.isfile(self.model_file):
                 self.model = self.INPUT_FILE_TYPE(self.model_file)
+        if self.non_interactive:
+            self.actions = []
+            self.action_param = {}
         self.actions = self._check_actions(self.actions)
         if self.action_param:
             for k, v in self.action_param.items():
@@ -2044,6 +2155,37 @@ class BaseModelEngine(BaseModel, ABC):
         if isinstance(v, str):
             return [vv.strip() for vv in v.split(",")]
         return v
+
+    @classmethod
+    def parameter_fields(cls) -> list:
+        r"""Get the model fields that are also simulator parameters."""
+        return [k for k in cls.model_fields.keys()
+                if cls.get_field_metadata(k, None) is not None]
+
+    @classmethod
+    def get_field_metadata(cls, k: str,
+                           default: Optional[Any] = NoDefault) -> dict:
+        r"""Get simulator field metadata.
+
+        Args:
+            k: Field name.
+            default: Default to return if the field does not exist or
+                does not have metadata.
+
+        Returns:
+            dict: Metadata.
+
+        Raises:
+            KeyError: If the field does not exist or does not have
+                metadata and a default is not provided.
+
+        """
+        if ((k not in cls.model_fields
+             or not hasattr(cls.model_fields[k], "simulator_metadata"))):
+            if default is NoDefault:
+                raise KeyError(k)
+            return default
+        return cls.model_fields[k].simulator_metadata
 
     @classmethod
     def data_dir(cls) -> str:
@@ -2321,7 +2463,7 @@ class BaseModelEngine(BaseModel, ABC):
                 skip_file = True
             if "DEFAULT" in skip_src:
                 skip_default = True
-        if self.EXPLICIT_PARAM:
+        if name in self.EXPLICIT_PARAM:
             v = getattr(self, name, None)
             if v is not None:
                 self.initial_param_src.setdefault(name, "ATTR")
@@ -2466,8 +2608,7 @@ class BaseModelEngine(BaseModel, ABC):
                 cannot be found for any of the specified names.
             dont_update: If True, don't update the model file.
             skip_file: If True, only sync parameters between initial_param
-                and attributes for EXPLICIT_PARAM, but do not inspect
-                the file.
+                and field attributes, but do not inspect the file.
             **kwargs: Additional keyword arguments are passed to
                 get_param for each name.
 
@@ -2505,7 +2646,9 @@ class BaseModelEngine(BaseModel, ABC):
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the
         start/end times."""
-        if not self.model.is_interactive:
+        if self.non_interactive:
+            assert not self.model.is_interactive
+        elif not self.model.is_interactive:
             self.model.make_interactive(list(self.actions.keys()))
         if self.output_dir or self.model_suffix:
             self.model.move(directory=self.output_dir,
@@ -2562,6 +2705,8 @@ class BaseModelEngine(BaseModel, ABC):
     @property
     def is_complete(self) -> bool:
         r"""bool: True if the simulation is complete."""
+        if self.current_time is None or self.end_time is None:
+            return False
         return self.current_time >= self.end_time
 
     def __del__(self) -> None:
@@ -2585,6 +2730,108 @@ class BaseModelEngine(BaseModel, ABC):
         r"""datetime.datetime: Current simulation time."""
         raise NotImplementedError  # pragma: no cover
 
+    @classmethod
+    def create_and_run(cls, timestep: Optional[int] = 0,
+                       plot: Optional[Any] = False,
+                       **kwargs: Any) -> str:
+        r"""Create and run a simulation using this simulator.
+
+        Args:
+            timestep: Time between interactive actions (in days).
+                0 for a non-interactive continuous simulation.
+            plot: If True or string, the simulation results will be
+                plot. If a string is provided, the plot will be saved
+                to the specified path. If a matplotlib axes object is
+                provided, the simulation results will be added to the
+                axes.
+            **kwargs: Additional keyword arguments are passed to the
+                class constructor.
+
+        Returns:
+            str: The path to the simulator output.
+
+        """
+        existing = False
+        if timestep == 0:
+            kwargs.setdefault("non_interactive", True)
+            engine = cls(**kwargs)
+            if ((engine.output_file
+                 and os.path.isfile(engine.output_file)
+                 and not engine.overwrite)):
+                logger.info(f"Output already exists: {engine.output_file}")
+                existing = True
+            else:
+                engine.run()
+            out = engine.output_file
+        else:
+            from . import get_simulator_class
+            kwargs["intervention_interval"] = timestep
+            env_cls = get_simulator_class(cls._MODEL_NAME, "env")
+            env = env_cls.create_interactive_for_human(**kwargs)
+            if env.model.output_file and os.path.isfile(env.model.output_file):
+                logger.info(f"Output already exists: {env.model.output_file}")
+                existing = True
+            else:
+                try:
+                    # Stop at each timestep to ask the user what action
+                    # to take using a prompt generated from the current
+                    # observation
+                    logger.info(
+                        "Simulation will pause at each timestep to ask "
+                        "the user for an action")
+                    env.run_interactive_for_human()
+                finally:
+                    env.close()
+            engine = env.model
+            out = env.model.output_file
+        if not existing:
+            logger.info(f"Output written to {out}")
+        if not plot:
+            return out
+        figure, axes = cls._setup_plot(plot)
+        engine.plot_output(axes)
+        cls._finalize_plot(plot, figure, axes)
+        return out
+
+    def plot_output(self, axes):
+        r"""Plot the output from a simulation run.
+
+        Args:
+            axes: Matplotlib axes that the data should be plot on.
+
+        """
+        raise NotImplementedError  # pragma: no cover
+
+    @classmethod
+    def _setup_plot(cls, plot: Any):
+        figure = None
+        axes = False
+        if not plot:
+            return figure, axes
+        import matplotlib.pyplot as plt
+        from matplotlib.axes import Axes
+        if isinstance(plot, Axes):
+            axes = plot
+        else:
+            figure, axes = plt.subplots()
+            axes.set_xlabel("Time")
+        return figure, axes
+
+    @classmethod
+    def _finalize_plot(cls, plot: Any, figure: Any, axes: Any,
+                       legend: Optional[bool] = False):
+        if not plot:
+            return
+        if isinstance(plot, str):
+            if legend:
+                axes.legend(loc="upper left")
+            figure.savefig(plot)
+        elif plot is True:
+            import matplotlib.pyplot as plt
+            if legend:
+                axes.legend(loc="upper left")
+            plt.show()
+
     def run(self, remove_output: bool = False) -> Any:
         r"""Run the model to completion. Recording results.
 
@@ -2598,6 +2845,16 @@ class BaseModelEngine(BaseModel, ABC):
         """
         self.start()
         out = None
+        if self.non_interactive:
+            try:
+                while self.is_running:
+                    time.sleep(0.1)
+            finally:
+                self.stop()
+                self.cleanup(remove_output=remove_output)
+            if not self.is_complete:
+                raise ModelEngineError("Model did not complete")
+            return out
         try:
             self.fast_forward()
             out = self.get_trace()
@@ -2606,13 +2863,36 @@ class BaseModelEngine(BaseModel, ABC):
             self.cleanup(remove_output=remove_output)
         return out
 
-    def start(self) -> None:
-        r"""Start the model engine."""
+    def start(self, reset: Optional[bool] = False) -> None:
+        r"""Start the model engine.
+
+        Args:
+            reset: True if start was called as part of a reset.
+
+        """
         if self.is_running:
             logger.info("Simulation already running...")
             return
+        if (((not reset) and self.output_file
+             and os.path.isfile(self.output_file))):
+            if not self.overwrite:
+                logger.warn(
+                    f"Output already exists: {self.output_file} and "
+                    f"overwrite not set")
+                return
+            for x in self.products:
+                if os.path.isfile(x):
+                    os.remove(x)
         self._start()
-        self.setvars(self.initial_param_dynamic)
+        if self.non_interactive:
+            if self.initial_param_dynamic:
+                logger.warn(
+                    f"Cannot set parameters directly for a non-interactive "
+                    f"run. The following will be discarded: "
+                    f"{self.initial_param_dynamic}"
+                )
+        else:
+            self.setvars(self.initial_param_dynamic)
         logger.info(f"Simulating from {self.start_time} to {self.end_time}")
         # added = {}
         # for k in self.EXPLICIT_PARAM:
@@ -2671,7 +2951,7 @@ class BaseModelEngine(BaseModel, ABC):
     def reset(self) -> None:
         r"""Re-start the model."""
         self.stop()
-        self.start()
+        self.start(reset=True)
         self.history = defaultdict(lambda: [])
         self.trace = defaultdict(lambda: [])
 
@@ -2710,6 +2990,11 @@ class BaseModelEngine(BaseModel, ABC):
 
         """
         raise NotImplementedError  # pragma: no cover
+
+    def check_interactive(self):
+        r"""Raise a recoverable error if the model is not interactive."""
+        if self.non_interactive:
+            raise RecoverableError("Model is not interactive")
 
     @contextlib.contextmanager
     def stop_on_error(self, record: Optional[tuple] = None,
@@ -2750,6 +3035,7 @@ class BaseModelEngine(BaseModel, ABC):
         """
         out = None
         with self.stop_on_error(allow_error=allow_error):
+            self.check_interactive()
             out = self._get(name)
         logger.debug(f"get: {name} -> {out}")
         return out
@@ -2768,6 +3054,7 @@ class BaseModelEngine(BaseModel, ABC):
         out = None
         with self.stop_on_error(("set", name, (value, ), {}),
                                 allow_error=allow_error):
+            self.check_interactive()
             out = self._set(name, value)
         logger.debug(f"set: {name} -> {value}")
         return out
@@ -2791,6 +3078,7 @@ class BaseModelEngine(BaseModel, ABC):
         out = None
         with self.stop_on_error(("act", action, args, kwargs),
                                 allow_error=allow_error):
+            self.check_interactive()
             if action not in self.actions:
                 raise InvalidActionError(
                     f"Unsupported action \"{action}\". Supported "
@@ -2847,6 +3135,7 @@ class BaseModelEngine(BaseModel, ABC):
             if not names:
                 return {}
             with self.stop_on_error(allow_error=allow_error):
+                self.check_interactive()
                 out = self._get(names)
             logger.debug(f"getvars: {names}")
             return out
@@ -2871,6 +3160,7 @@ class BaseModelEngine(BaseModel, ABC):
                 return
             with self.stop_on_error(("setvars", values, tuple([]), {}),
                                     allow_error=allow_error):
+                self.check_interactive()
                 self._set(values)
             logger.debug(f"setvars: {values}")
             return
@@ -2893,6 +3183,7 @@ class BaseModelEngine(BaseModel, ABC):
                 return
             with self.stop_on_error(("actvars", values, tuple([]), {}),
                                     allow_error=allow_error):
+                self.check_interactive()
                 missing = [action for action in values.keys()
                            if action not in self.actions]
                 if missing:
@@ -2942,6 +3233,7 @@ class BaseModelEngine(BaseModel, ABC):
                 assumed to be the number of days in a timedelta.
 
         """
+        self.check_interactive()
         if isinstance(time, (int, float)):
             time = datetime.timedelta(days=time)
         elif isinstance(time, str):
@@ -2972,6 +3264,7 @@ class BaseModelEngine(BaseModel, ABC):
                 continuing.
 
         """
+        self.check_interactive()
         if time is None:
             time = self.end_time
         elif isinstance(time, int):
@@ -3010,6 +3303,7 @@ class BaseModelEngine(BaseModel, ABC):
             time: Time to rewind to or time to rewind by (timedelta).
 
         """
+        self.check_interactive()
         if time is None:
             time = self.start_time
         elif isinstance(time, int):
@@ -3060,6 +3354,7 @@ class BaseModelEngine(BaseModel, ABC):
                 simulation. If output_vars is not set, this will be empty.
 
         """
+        self.check_interactive()
         out = None
         if not dont_record_trace:
             out = self.record_trace()

@@ -1,5 +1,5 @@
 import logging
-from typing import Optional, List
+from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
 from .base import _ModelEnvMeta  # noqa: E402
 from .apsimx import ApsimXFile, ApsimXEngine, ApsimXEnv  # noqa: E402
@@ -45,6 +45,23 @@ def get_simulator_class(simulator: str,
     elif class_type == "prompt_generator":
         return env_cls.LLM_PROMPT_GENERATOR_CLASS
     raise ValueError(f"Unsupported file type \"{simulator}\"")
+
+
+def run(simulator: str, timestep: int = 0, **kwargs: Any) -> str:
+    r"""Run a simulation.
+
+    Args:
+        simulator: Name of the simulator to run.
+        timestep: Time between actions (in days). 0 for continuous.
+        **kwargs: Additional keyword arguments are passed along to
+            the engine create_and_run method.
+
+    Returns:
+        str: The path to the simulator output.
+
+    """
+    engine_cls = get_simulator_class(simulator, "engine")
+    return engine_cls.create_and_run(timestep=timestep, **kwargs)
 
 
 __all__ = ["ApsimXFile", "ApsimXEngine", "ApsimXEnv"]

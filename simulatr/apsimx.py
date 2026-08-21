@@ -2385,16 +2385,20 @@ class ApsimXEngine(CropModelEngine):
         logger.info(f"Running model \"{self.model.fname}\"")
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
+        kws = {}
+        if platform.system() != 'Windows':
+            kws.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.process = self.start_server_subprocess(
             self.model.fname,
             host=self.host,
             port=self.port,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.stdout_pipe = LogPipe(
-            self.process.stdout, prefix="APSIMX: ",
-            level=self.model_log_level)
-        self.stderr_pipe = LogPipe(
-            self.process.stderr, prefix="APSIMX", level="ERROR")
+            **kws)
+        if platform.system() != 'Windows':
+            self.stdout_pipe = LogPipe(
+                self.process.stdout, prefix="APSIMX: ",
+                level=self.model_log_level)
+            self.stderr_pipe = LogPipe(
+                self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
         timeout = 10
         timewait = 0.01
@@ -2458,8 +2462,9 @@ class ApsimXEngine(CropModelEngine):
         logger.debug("Terminating process")
         try:
             if self.process is not None and self.process.poll() is None:
+                timeout = (10 if platform.system() == 'Windows' else 1)
                 logger.debug("Calling kill")
-                utils.kill_subprocess(self.process)
+                utils.kill_subprocess(self.process, timeout=timeout)
                 logger.debug("Kill returned")
                 logger.debug(f"Poll = {self.process.poll()}")
                 assert self.process.poll() is not None

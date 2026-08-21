@@ -73,7 +73,7 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
 
     """
     import platform
-    timeout_try = 0.1
+    timeout_try = timeout
     try:
         process.kill()
         process.wait(timeout=timeout_try)

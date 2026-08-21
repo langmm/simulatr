@@ -90,7 +90,20 @@ class TestApsimX:
             expected = pd.read_csv(fexpected)
             # rtol = 0.001
             # atol = 0.001
-            pd.testing.assert_frame_equal(actual, expected, atol=0.001)
+            try:
+                pd.testing.assert_frame_equal(
+                    actual, expected, check_exact=False,
+                    atol=0.001)
+            except AssertionError:
+                if all(actual.columns == expected.columns):
+                    for x in expected.columns:
+                        if pd.api.types.is_string_dtype(expected[x]):
+                            continue
+                        adiff = (expected[x] - actual[x]).abs()
+                        rdiff = adiff / expected[x]
+                        print(f"{x}: adiff = {max(adiff)}, rdiff = "
+                              f"{max(rdiff.dropna())}")
+                raise
 
         return _compare_reports
 

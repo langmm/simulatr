@@ -6,6 +6,7 @@ import pytest
 import requests
 import datetime
 import contextlib
+import subprocess
 from simulatr import registered_simulators, utils
 
 
@@ -47,16 +48,15 @@ def local_service(ping_address, pytestconfig, simulator):
                 yield out
             finally:
                 if p.poll() is None:
-                    if docker:
-                        import signal
-                        p.send_signal(signal.CTRL_C_EVENT)
-                        p.wait(timeout=1)
-                    elif ping_address(out):
-                        requests.post(f"{out}/shutdown")
-                        p.wait(timeout=1)
+                    try:
+                        if (not docker) and ping_address(out):
+                            requests.post(f"{out}/shutdown")
+                            p.wait(timeout=1)
+                    except (requests.exceptions.ConnectionError,
+                            subprocess.TimeoutExpired):
+                        pass
                 if p.poll() is None:
-                    p.terminate()
-                    p.kill()
+                    utils.kill_subprocess(p)
                 else:
                     assert p.returncode == 0
 

@@ -3,6 +3,7 @@ simulatr/_version.py
 
 # Generated directories
 HUMERIS
+isric_soil_data
 nasa_power_weather_data
 models
 output

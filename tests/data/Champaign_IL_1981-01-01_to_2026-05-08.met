@@ -1,6 +1,6 @@
 [weather.met.weather]
-latitude = -88.243 (decimal degrees)
-longitude = 40.116 (decimal degrees)
+latitude = 40.116 (decimal degrees)
+longitude = -88.243 (decimal degrees)
 elevation = 208.77 (m)
 tav = 11.096344482009176 (oC)
  year  day     radn   maxt   mint  rain        vp

@@ -83,6 +83,7 @@ class TestApsimX:
     @pytest.fixture(scope="class")
     @classmethod
     def compare_reports(cls):
+        import numpy as np
         import pandas as pd
 
         def _compare_reports(factual, fexpected):
@@ -98,10 +99,12 @@ class TestApsimX:
                 if all(actual.columns == expected.columns):
                     print(expected.columns)
                     for x in expected.columns:
-                        if pd.api.types.is_string_dtype(expected[x]):
+                        if ((pd.api.types.is_string_dtype(expected[x])
+                             or expected[x].dtype == np.dtype("O"))):
                             continue
                         adiff = (expected[x] - actual[x]).abs()
-                        rdiff = adiff / expected[x]
+                        abs_expected = expected[x].abs()
+                        rdiff = (adiff / expected[x])[abs_expected > 0]
                         print(f"{x}: adiff = {max(adiff)}, rdiff = "
                               f"{max(rdiff.dropna())}")
                 raise

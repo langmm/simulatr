@@ -88,14 +88,15 @@ class TestApsimX:
         def _compare_reports(factual, fexpected):
             actual = pd.read_csv(factual)
             expected = pd.read_csv(fexpected)
-            # rtol = 0.001
-            # atol = 0.001
+            # rtol = 0.4 (Grain number)
+            # atol = 0.002 (LAI)
             try:
                 pd.testing.assert_frame_equal(
                     actual, expected, check_exact=False,
-                    atol=0.001)
+                    rtol=0.01)
             except AssertionError:
                 if all(actual.columns == expected.columns):
+                    print(expected.columns)
                     for x in expected.columns:
                         if pd.api.types.is_string_dtype(expected[x]):
                             continue

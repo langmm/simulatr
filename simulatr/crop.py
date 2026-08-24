@@ -1,19 +1,16 @@
 import os
-import glob
-import json
 import numpy as np
-import pandas as pd
 import datetime
 from abc import abstractmethod
-from typing import Optional, Union, List, Any, ClassVar
-from pydantic import ConfigDict
+from typing import Optional, List, Any, ClassVar
+from pydantic import ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 from .base import (
-    readonly_cached_property, NoDefault,
+    NoDefault,
     BaseModelFile, BaseModelEngine,
     BaseModelLLMPromptGenerator, BaseModelEnv,
 )
 from . import logger
-from .utils import cfg
 
 
 class CropModelFile(BaseModelFile):
@@ -113,403 +110,6 @@ class CropModelFile(BaseModelFile):
         return 1.0
 
 
-class BaseWeatherFile(BaseModelFile):
-    r"""Base class for weather files."""
-
-    CACHED = True
-    REQUIRED_POWER_PARAMETERS = [
-        "TOA_SW_DWN",
-        "ALLSKY_SFC_SW_DWN",  # MJ
-        "T2M", "T2M_MIN", "T2M_MAX",  # C
-        "T2MDEW",  # C
-        "WS2M",  # wind
-        "PRECTOTCORR",  # mm
-    ]
-    _default_ext = ".json"
-    _default_start_date = datetime.date(1981, 1, 1)
-    _default_end_date = datetime.date(2026, 5, 8)
-    _default_cache_dir = cfg["directories"]["nasa_power_weather_data"]
-    _min_start_date = datetime.date(1981, 1, 1)
-    _max_start_date = datetime.date.today()
-    _make_interactive = None
-
-    @property
-    def parameters(self) -> list:
-        r"""list: Set of power parameters contained by this file."""
-        return self.REQUIRED_POWER_PARAMETERS
-
-    @property
-    @abstractmethod
-    def dates(self) -> np.ndarray:
-        r"""np.ndarray: Dates covered by this file."""
-        raise NotImplementedError  # pragma: no cover
-
-    @property
-    @abstractmethod
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        raise NotImplementedError  # pragma: no cover
-
-    @property
-    @abstractmethod
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        raise NotImplementedError  # pragma: no cover
-
-    @property
-    def start_date(self) -> datetime.date:
-        r"""datetime.date: Minimum date covered by this file."""
-        return min(self.dates)
-
-    @property
-    def end_date(self) -> datetime.date:
-        r"""datetime.date: Maximum date covered by this file."""
-        return max(self.dates)
-
-    @classmethod
-    def fetch_data(cls, *args: Any, **kwargs: Any) -> str:
-        r"""Look for an existing file that contains the data for the
-        requested location and dates. If one does not exist, create it
-        by downloading data from NASA POWER and converting it to the
-        correct format.
-
-        Args:
-            *args, **kwargs: Arguments are passed along to from_location.
-
-        Returns:
-            str: File name.
-
-        """
-        instance = cls.from_location(*args, **kwargs)
-        if not instance.exists:
-            instance.write()
-        return instance.fname
-
-    @classmethod
-    def from_location(cls, *args: Any, **kwargs: Any) -> "BaseWeatherFile":
-        r"""Create a weather file from a location by requesting NASA
-        power weather data.
-
-        Args:
-            *args, **kwargs: Arguments are passed to
-                NASAPOWERWeatherFile.from_location.
-
-        Returns:
-            BaseWeatherFile: File instance.
-
-        """
-        fpower = NASAPOWERWeatherFile.from_location(*args, **kwargs)
-        return cls.from_power(fpower)
-
-    @classmethod
-    def from_power(cls, fpower: Union[str, "NASAPOWERWeatherFile"],
-                   fname: Optional[str] = None) -> "BaseWeatherFile":
-        r"""Create a weather file from NASA power weather data.
-
-        Args:
-            src: JSON file containing NASA POWER data.
-            fname: File name where the weather data should be written to.
-
-        """
-        if isinstance(fpower, str):
-            fpower = NASAPOWERWeatherFile(fpower)
-        if fname is None:
-            fname = os.path.splitext(fpower.fname)[0] + cls._default_ext
-        if os.path.isfile(fname):
-            return cls(fname)
-        fpower.add_missing_param(cls.REQUIRED_POWER_PARAMETERS)
-        contents = cls._from_power(fpower.contents)
-        return cls(fname, contents=contents)
-
-    def covers_range(self,
-                     start: Union[datetime.date, datetime.datetime],
-                     end: Union[datetime.date, datetime.datetime],
-                     latitude: Optional[float] = None,
-                     longitude: Optional[float] = None) -> bool:
-        r"""Check if the file contains data for the specified date/time
-        range.
-
-        Args:
-            start: Start of range.
-            end: End of range.
-            latitude: Latitude that data should cover.
-            longitude: Longitude that data should cover.
-
-        Returns:
-            bool: True if the range is covered, False otherwise.
-
-        """
-        if isinstance(start, datetime.datetime):
-            start = start.date()
-        if isinstance(end, datetime.datetime):
-            end = end.date()
-        start_date = self.start_date
-        end_date = self.end_date
-        if latitude is not None and self.latitude != latitude:
-            return False
-        if longitude is not None and self.longitude != longitude:
-            return False
-        return (start >= start_date and start < end_date
-                and end > start_date and end <= end_date)
-
-    @classmethod
-    @abstractmethod
-    def _from_power(cls, src: dict):
-        r"""Convert NASA power data into the correct format for this
-        file.
-
-        Args:
-            src: NASA power data.
-
-        Returns:
-            Converted data.
-
-        """
-        raise NotImplementedError  # pragma: no cover
-
-
-class NASAPOWERWeatherFile(BaseWeatherFile):
-    r"""Wrapper for loading NASA POWER data."""
-
-    CACHED = True
-    _default_ext = ".json"
-
-    @readonly_cached_property
-    def parameters(self) -> list:
-        r"""list: Set of power parameters contained by this file."""
-        return list(self.contents["properties"]["parameter"].keys())
-
-    @readonly_cached_property
-    def dates(self) -> np.ndarray:
-        r"""np.ndarray: Dates covered by this file."""
-        dates = pd.Series(
-            self.contents["properties"]["parameter"][self.parameters[0]])
-        return pd.to_datetime(dates.index, format="%Y%m%d")
-
-    @readonly_cached_property
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        return float(self.contents["geometry"]["coordinates"][0])
-
-    @readonly_cached_property
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        return float(self.contents["geometry"]["coordinates"][1])
-
-    @readonly_cached_property
-    def start_date(self) -> datetime.date:
-        r"""datetime.date: Start of range covered by the file."""
-        return datetime.datetime.strptime(
-            self.contents["header"]["start"], "%Y%m%d").date()
-
-    @readonly_cached_property
-    def end_date(self) -> datetime.date:
-        r"""datetime.date: End of range covered by the file."""
-        return datetime.datetime.strptime(
-            self.contents["header"]["end"], "%Y%m%d").date()
-
-    def add_missing_param(self, parameters: List[str]) -> None:
-        r"""Fill in any missing parameters.
-
-        Args:
-            parameters: Set of parameters that must be present.
-
-        """
-        missing = [k for k in parameters if k not in self.parameters]
-        if not missing:
-            return
-        data = self.download_data(self.latitude, self.longitude,
-                                  self.start_date, self.end_date,
-                                  parameters=missing)
-        self.contents["properties"]["parameter"].update(
-            data["properties"]["parameter"])
-        self.write(overwrite=True)
-
-    @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        with open(fname, "r") as fd:
-            return json.load(fd)
-
-    @classmethod
-    def _write(cls, fname: str, contents):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-            contents: File contents to write.
-
-        """
-        with open(fname, "w") as fd:
-            json.dump(contents, fd)
-
-    @classmethod
-    def _from_power(cls, src: dict):
-        r"""Convert NASA power data into the correct format for this
-        file.
-
-        Args:
-            src: NASA power data.
-
-        Returns:
-            Converted data.
-
-        """
-        return src
-
-    @classmethod
-    def format_filename(cls, latitude: float, longitude: float,
-                        start_date: Optional[datetime.date] = None,
-                        end_date: Optional[datetime.date] = None,
-                        cache_dir: Optional[str] = None) -> str:
-        r"""Construct the file name for the cached NASA power file
-        containing the requested data.
-
-        Args:
-            latitude: Location latitude (degrees).
-            longitude: Location longitude (degrees).
-            start_date: Starting date for data.
-            end_date: Ending date for data.
-            cache_dir: Directory where the data should be cached.
-
-        Returns:
-            str: File name.
-
-        """
-        start_date = start_date or cls._default_start_date
-        end_date = end_date or cls._default_end_date
-        cache_dir = cache_dir or cls._default_cache_dir
-
-        def f2str(x: Any) -> str:
-            r"""Convert a value to a string for use in a file name."""
-            if isinstance(x, datetime.date):
-                return x.isoformat()
-            elif isinstance(x, float):
-                return str(x).replace(".", "p").replace("-", "n")
-            return x
-
-        return os.path.join(
-            cache_dir,
-            f"{f2str(latitude)}_{f2str(longitude)}_"
-            f"{f2str(start_date)}_to_{f2str(end_date)}.json"
-        )
-
-    @classmethod
-    def from_location(cls, latitude: float, longitude: float,
-                      start_date: Union[datetime.date, datetime.datetime],
-                      end_date: Union[datetime.date, datetime.datetime],
-                      parameters: Optional[List[str]] = None,
-                      cache_dir: Optional[str] = None
-                      ) -> "NASAPOWERWeatherFile":
-        r"""Look for an existing file that contains the data for the
-        requested location and dates. If one does not exist, create it
-        by downloading data from NASA POWER.
-
-        Args:
-            latitude: Location latitude (degrees).
-            longitude: Location longitude (degrees).
-            start_date: Starting date for data.
-            end_date: Ending date for data.
-            parameters: Set of parameters that should be included in
-                the data.
-            cache_dir: Directory where the data should be cached.
-
-        Returns:
-            NASAPOWERWeatherFile: File instance.
-
-        """
-        if isinstance(start_date, datetime.datetime):
-            start_date = start_date.date()
-        if isinstance(end_date, datetime.datetime):
-            end_date = end_date.date()
-        fglob = cls.format_filename(latitude, longitude, "*", "*",
-                                    cache_dir=cache_dir)
-        for f in glob.glob(fglob):
-            fparts = os.path.splitext(os.path.basename(f))[0].split("_")
-            fstart = datetime.date.fromisoformat(fparts[-3])
-            fend = datetime.date.fromisoformat(fparts[-1])
-            if fstart <= start_date and fend >= end_date:
-                out = cls(f)
-                if parameters:
-                    out.add_missing_param(parameters)
-                return out
-        start_date = min(start_date, cls._default_start_date)
-        end_date = max(end_date, cls._default_end_date)
-        assert end_date > start_date
-        if start_date < cls._min_start_date:
-            raise ValueError(
-                f"The requested start date ({start_date}) predates the "
-                f"minimum ({cls._min_start_date})")
-        if end_date > cls._max_start_date:
-            raise ValueError(
-                f"The requested end date ({end_date}) excedes the "
-                f"maximum ({cls._max_start_date})")
-        fname = cls.format_filename(latitude, longitude,
-                                    start_date, end_date,
-                                    cache_dir=cache_dir)
-        assert not os.path.isfile(fname)
-        data = cls.download_data(latitude, longitude,
-                                 start_date, end_date,
-                                 parameters=parameters)
-        if not os.path.isdir(os.path.dirname(fname)):
-            os.mkdir(os.path.dirname(fname))
-        out = cls(fname, contents=data)
-        out.write()
-        return out
-
-    @classmethod
-    def download_data(cls, latitude: float, longitude: float,
-                      start_date: Optional[datetime.date],
-                      end_date: Optional[datetime.date],
-                      parameters: Optional[List[str]] = None) -> dict:
-        r"""Use REST API to get NASA POWER data for a location.
-
-        Args:
-            latitude: Location latitude (degrees).
-            longitude: Location longitude (degrees).
-            start_date: Starting date for data.
-            end_date: Ending date for data.
-            parameters: Set of parameters to request.
-
-        Returns:
-            dict: JSON result.
-
-        """
-        # Based on PCSE _query_NASAPower_server
-        import requests
-        if parameters is None:
-            parameters = cls.REQUIRED_POWER_PARAMETERS
-        # build URL for retrieving data, using new NASA POWER api
-        server = "https://power.larc.nasa.gov/api/temporal/daily/point"
-        payload = {
-            "request": "execute",
-            "parameters": ",".join(parameters),
-            "latitude": latitude,
-            "longitude": longitude,
-            "start": start_date.strftime("%Y%m%d"),
-            "end": end_date.strftime("%Y%m%d"),
-            "community": "AG",
-            "format": "JSON",
-        }
-        logger.debug("Starting retrieval from NASA POWER")
-        req = requests.get(server, params=payload)
-        if req.status_code != 200:
-            raise RuntimeError(
-                f"Failed retrieving POWER data, server returned HTTP "
-                f"code: {req.status_code} on following URL {req.url}"
-            )
-        logger.debug("Successfully retrieved data from NASA POWER")
-        return req.json()
-
-
 class CropModelEngine(BaseModelEngine):
     r"""Class for managining communication with a crop simulation model.
 
@@ -537,7 +137,7 @@ class CropModelEngine(BaseModelEngine):
         "crop_name", "crop_variety",
         "sow_date", "harvest_date", "season_length",
         "latitude", "longitude", "year",
-        "weather_file",
+        "weather_file", "soil_file",
     ]
     WEATHER_FILE_TYPE: ClassVar[Any] = None
     DATE_PARAM: ClassVar[list] = BaseModelEngine.DATE_PARAM + [
@@ -546,41 +146,86 @@ class CropModelEngine(BaseModelEngine):
     DEFAULT_PARAM: ClassVar[dict] = {
         "duration": datetime.timedelta(365),
     }
+    FORM_FIELD_ORDER: ClassVar[List[str]] = (
+        [
+            "crop_name", "crop_variety",
+        ] + BaseModelEngine.FORM_FIELD_ORDER
+    )
+    EXAMPLE_KWARGS: ClassVar[dict] = {"crop_name": "Wheat"}
 
-    model_file: Optional[Union[str, List[str], BaseModelFile]] = None
-    crop_name: Optional[str] = None
-    crop_variety: Optional[str] = None
-    sow_date: Optional[datetime.date] = None
-    harvest_date: Optional[datetime.date] = None
-    season_length: Optional[Union[int, datetime.timedelta]] = None
-    year: Optional[int] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-    weather_file: Optional[str] = None
+    crop_name: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None, examples=["Wheat"],
+        description="Name of the crop that will be simulated")
+    crop_variety: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None, examples=["Hartog"],
+        description="Name of the crop variety/cultivar that will be "
+                    "simulated")
+    sow_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[datetime.datetime.fromisoformat("1991-01-01")],
+        description="Date that the crop should be sown (ISO 8601 format).")
+    harvest_date: Optional[datetime.date | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[datetime.datetime.fromisoformat("1991-11-05")],
+        description="Date that the crop should be harvested "
+                    "(ISO 8601 format).")
+    season_length: Optional[int | float | datetime.timedelta
+                            | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[datetime.timedelta(365)],
+        description="Time between sowing and harvest. Only used if only "
+                    "one of sow_date or harvest_date are used. If a "
+                    "number is provided, it is assumed to be in units "
+                    "of days.")
+    year: Optional[int | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[1991],
+        description="Year to use to get weather data.")
+    latitude: Optional[float | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[40.1164],
+        description="Field latitude to use to get weather data (degrees).")
+    longitude: Optional[float | SkipJsonSchema[None]] = Field(
+        default=None,
+        examples=[-88.2434],
+        description="Field longitude to use to get weather data (degrees).")
+    weather_file: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None,
+        description="Path to a file containing weather data.")
+    soil_file: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None,
+        description="Path to a file containing soil data.")
 
-    def model_post_init(self, __context: Any) -> None:
-        r"""Initialize the crop model engine.
+    @field_validator('sow_date', 'harvest_date', mode="before")
+    @classmethod
+    def check_date(cls, v):
+        r"""Parse date strings in ISO 8601 format."""
+        if isinstance(v, str):
+            return datetime.date.fromisoformat(v)
+        return v
 
-        Args:
-            model_file: Path to one or more model input files.
-            crop_name: Name of the crop.
-            crop_variety: Name of the crop variety/cultivar.
-            sow_date: Date that the crop should be sown.
-            harvest_date: Date that the crop should be harvested.
-            season_length: Time between sowing and harvest. Only used
-                if only one of sow_date or harvest_date are used.
-            year: Year to use to get weather data.
-            latitude: Field latitude to use to get weather data.
-            longitude: Field longitude to use to get weather data.
-            weather_file: Path to a file containing NASA power weather
-                data.
-            **kwargs: Additional keywords arguments are passed along to
-                BaseModelEngine.__init__.
+    @field_validator('duration', 'season_length', mode="before")
+    @classmethod
+    def check_timedelta(cls, v):
+        r"""Parse timedelta in days."""
+        if isinstance(v, (int, float)):
+            if v <= 0:
+                return None
+            return datetime.timedelta(days=v)
+        return v
 
-        """
-        if isinstance(self.season_length, int):
-            self.season_length = datetime.timedelta(self.season_length)
-        super().model_post_init(__context)
+    @classmethod
+    def default_server_fields(cls) -> dict:
+        r"""dict: The default fields that should be used for a server."""
+        out = super().default_server_fields()
+        out.update(
+            year=None,
+            sow_date=None,
+            harvest_date=None,
+            weather_file=None,
+            soil_file=None,
+        )
+        return out
 
     def create_model_file(self) -> CropModelFile:
         r"""Create a model input file.
@@ -596,7 +241,7 @@ class CropModelEngine(BaseModelEngine):
             self.crop_name,
             dst=self.model_file,
             interactive=True,
-            actions=list(self.action_map.keys()),
+            actions=list(self.actions.keys()),
         )
 
     def update_model_file(self) -> None:
@@ -618,7 +263,7 @@ class CropModelEngine(BaseModelEngine):
             logger.info(
                 f"The specified weather file (\"{self.weather_file}\") "
                 f"does not exist. Weather data will be downloaded from "
-                f"NASA POWER."
+                f"{self.WEATHER_FILE_TYPE.base_cls().NAME}"
             )
             self.del_param("weather_file")
             download_weather_file = True
@@ -626,9 +271,9 @@ class CropModelEngine(BaseModelEngine):
             weather_file = self.WEATHER_FILE_TYPE(self.weather_file)
             latitude = self.get_param("latitude", None, skip_file=True)
             longitude = self.get_param("longitude", None, skip_file=True)
-            if not weather_file.covers_range(
-                    self.start_time, self.end_time,
+            if not weather_file.covers_location(
                     latitude=latitude, longitude=longitude,
+                    start=self.start_time, end=self.end_time,
             ):
                 logger.info(
                     f"The provided weather file (valid for "
@@ -639,7 +284,8 @@ class CropModelEngine(BaseModelEngine):
                     f"cover the simulation range ({self.start_time} to "
                     f"{self.end_time}, latitude={latitude}, "
                     f"longitude={longitude}). "
-                    f"Weather data will be downloaded from NASA POWER."
+                    f"Weather data will be downloaded from "
+                    f"{self.WEATHER_FILE_TYPE.base_cls().NAME}"
                 )
                 self.del_param("weather_file")
                 download_weather_file = True
@@ -657,9 +303,9 @@ class CropModelEngine(BaseModelEngine):
                 f"Downloaded weather data: \"{self.weather_file}\"")
         # TODO: Soil file?
         if self.sow_date is not None:
-            self.action_map.pop("sow", None)
+            self.actions.pop("sow", None)
         if self.harvest_date is not None:
-            self.action_map.pop("harvest", None)
+            self.actions.pop("harvest", None)
         super().update_model_file()
 
     def calc_param(self, name: str, default: Optional[Any] = NoDefault,
@@ -700,39 +346,27 @@ class CropModelEngine(BaseModelEngine):
 class CropModelLLMPromptGenerator(BaseModelLLMPromptGenerator):
     r"""Crop model LLM prompt generator."""
 
-    DEFAULT_REWARD = (
+    DEFAULT_REWARD: ClassVar[str] = (
         "Maximize the end-of-season profit from the crop yield"
     )
-    DEFAULT_STATE_DESCRIPTOR = "agronomic"
+    DEFAULT_STATE_DESCRIPTOR: ClassVar[str] = "agronomic"
 
-    def __init__(
-            self,
-            crop_name: Optional[str] = "the crop",
-            crop_variety: Optional[str] = None,
-            start_date: Optional[datetime.date] = None,
-            season_length: Optional[int] = 241,
-            location: Optional[str] = "the field",
-            **kwargs: Any
-    ) -> None:
-        """Initialize the prompt generator.
-
-        Args:
-            crop_name: Name of the crop being cultivated
-            crop_variety: Name of the crop varient/cultivar being
-                cultivated
-            start_date: Calendar start date of the simulation
-            season_length: Total length of growing season in days
-            location: Geographic location description
-            **kwargs: Additional keyword arguments are forwarded to the
-                BaseModelLLMPromptGenerator.__init__ method.
-
-        """
-        self.crop_name = crop_name
-        self.crop_variety = crop_variety
-        self.start_date = start_date
-        self.season_length = season_length
-        self.location = location
-        super().__init__(**kwargs)
+    crop_name: Optional[str] = Field(
+        default="the crop",
+        description="Name of the crop being cultivated.")
+    crop_variety: Optional[str] = Field(
+        default=None,
+        description="Name of the crop variant/cultivar being "
+                    "cultivated.")
+    start_date: Optional[datetime.date] = Field(
+        default=None,
+        description="Calendar start date of the simulation.")
+    season_length: Optional[int] = Field(
+        default=241,
+        description="Total length of growing season in days.")
+    location: Optional[str] = Field(
+        default="the field",
+        description="Geographic location description.")
 
     @classmethod
     def from_env(

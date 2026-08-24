@@ -1,56 +1,216 @@
 # python -m simulatr run apsimx --crop-name wheat --from-example
 import os
+import json
 import argparse
-import datetime
 import logging
+import typing
+import datetime
+from functools import cached_property
 from typing import Any, Optional, List
-from . import logger, get_simulator_class
-from .utils import cfg
+from . import (
+    logger, registered_simulators, get_simulator_class, n8n, server,
+    profile,
+)
+from .utils import cfg, FieldHandler
+from .apsimx import ApsimXEngine
+
+
+class OverrideExtendAction(argparse.Action):
+    r"""Action class to prevent extending default values."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(self, '_overwritten', False):
+            current_values = getattr(namespace, self.dest)
+            current_values.extend(values)
+        else:
+            setattr(namespace, self.dest, list(values))
+            setattr(self, '_overwritten', True)
+
+
+class CliArgHandler(FieldHandler):
+
+    @cached_property
+    def names(self) -> list:
+        r"""list: Argument names for the field"""
+        out = [self.field_name]
+        if self.field_info.alias:
+            out.append(self.field_info.alias)
+        out = [x.replace("_", "-") for x in out]
+        if not self.field_info.is_required():
+            out = ["--" + x for x in out]
+        return tuple(out)
+
+    def type_kwargs(self, annotation: type) -> dict:
+        r"""Get the kwargs defining the type for a command line argument
+        that should accept the provided annotation.
+
+        Args:
+            annotation: Type hint.
+
+        Returns:
+            dict: Keyword arguments for add_argument defining the type.
+
+        """
+        types = self.extract_type(annotation)
+        if isinstance(types, list):
+            if len(types) == 2 and bool in types:
+                other = types[1] if types[0] == bool else types[0]
+                out = self.type_kwargs(other)
+                assert ("type" in out and "nargs" not in out
+                        and "action" not in out)
+                out.update(
+                    nargs="?",
+                    const=True,
+                )
+                if not self.field_info.default:
+                    out["default"] = False
+                return out
+            elif datetime.timedelta in types:
+                for x in [int, float]:
+                    if x in types:
+                        types.remove(x)
+            if isinstance(types, list) and len(types) == 1:
+                types = types[0]
+            if isinstance(types, list):
+                raise RuntimeError(
+                    f"More than one type for {self.field_name}: "
+                    f"{types}")
+        if types == bool:
+            return {"action": "store_true"}
+        elif types in [str, int, float]:
+            return {"type": types}
+        elif types in [datetime.datetime, datetime.date]:
+            return {"type": str}
+        elif types in [datetime.timedelta]:
+            return {"type": float}
+        elif typing.get_origin(types) is list:
+            args = typing.get_args(types)
+            if len(args) != 1:
+                raise RuntimeError(
+                    f"More than one type in list for "
+                    f"{self.field_name}: {args}")
+            out = self.type_kwargs(args[0])
+            assert "type" in out and "nargs" not in out and "action" not in out
+            out.update(
+                nargs="+",
+                action=OverrideExtendAction,
+            )
+            return out
+        raise NotImplementedError(
+            f"Handling of type {types} for field {self.field_name}")
+
+    def __call__(self, parser: argparse.ArgumentParser, **kws):
+        r"""Add an argument to the parser for this field.
+
+        Args:
+            parser: Parse to add the argument to.
+            \*\*kwargs: Additional keyword arguments are passed to
+                add_argument.
+
+        """
+        kwargs = (
+            {} if "type" in kws
+            else self.type_kwargs(self.field_info.annotation)
+        )
+        if self.field_info.description:
+            kwargs["help"] = self.field_info.description
+        if self.field_info.default is not None:
+            kwargs["default"] = self.field_info.default
+        if self.enum is not None:
+            kwargs["choices"] = self.enum
+        kwargs.update(**kws)
+        names = kwargs.pop("names", self.names)
+        parser.add_argument(
+            *names,
+            **kwargs
+        )
+
+    @classmethod
+    def add_subparser(cls, root_parser: argparse.ArgumentParser,
+                      name: str, model: Any,
+                      skip_fields: Optional[List[str]] = None,
+                      only_fields: Optional[List[str]] = None,
+                      field_specific_kwargs: Optional[dict] = None,
+                      **kwargs) -> argparse.ArgumentParser:
+        r"""Add a subparser with arguments based on a pydantic model's
+        fields.
+
+        Args:
+            root_parser: Parser that the subparser should be added to.
+            name: Name for the subparser.
+            model: Pydantic models with fields that should be added to
+                the subparser as arguments.
+            skip_fields: Set of fields that should not be added.
+            only_fields: Set of fields that should be added.
+            field_specific_kwargs: Mapping of argument keyword args
+                that should be overridden for each field.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                call to add_parser.
+
+        Returns:
+            argparse.ArgumentParser: Subparser.
+
+        """
+        parser = root_parser.add_parser(name, **kwargs)
+        cls.handle_model(
+            model, parser,
+            skip_fields=skip_fields,
+            only_fields=only_fields,
+            field_specific_kwargs=field_specific_kwargs,
+        )
+        return parser
+
+
+def _add_args_from_engine(simulator: str,
+                          root_parser: argparse.ArgumentParser,
+                          **kwargs: Any) -> argparse.ArgumentParser:
+    engine = get_simulator_class(simulator)
+    return CliArgHandler.add_subparser(
+        root_parser, simulator, engine, **kwargs)
 
 
 def run(simulator: str, timestep: int = 0,
-        state_variables: Optional[List[str]] = None,
         **kwargs: Any) -> None:
     r"""Run a simulation.
 
     Args:
         simulator: Name of the simulator to run.
         timestep: Time between actions (in days). 0 for continuous.
-        state_variables: Set of state variables to request at each
-            timestep.
         **kwargs: Additional keyword arguments are passed along to
-            the engine class constructor.
+            the environment class constructor.
 
     """
-    # TODO: Ask for user input on the action that should be taken
-    # using the LLM prompt generation
-    engine_cls = get_simulator_class(simulator)
-    engine = engine_cls(**kwargs)
-    engine.start()
-    data = []
+    if timestep > 0:
+        kwargs["intervention_interval"] = timestep
+    env_cls = get_simulator_class(simulator, "env")
+    env = env_cls.create_interactive_for_human(**kwargs)
     try:
-        i = 0
-        while engine.is_running and not engine.is_complete:
-            logger.info(f"Time: {engine.current_time}")
-            if state_variables:
-                ivars = engine.getvars(state_variables)
-                data.append(ivars)
-            # TODO: PROMPT
-            if timestep <= 0:
-                engine.fast_forward()
-            else:
-                engine.fast_forward(datetime.timedelta(days=timestep))
-            i += 1
+        if timestep > 0:
+            # Stop at each timestep to ask the user what action to take
+            # using a prompt generated from the current observation.
+            logger.info(
+                "Simulation will pause at each timestep to ask the "
+                "user for an action")
+            env.run_interactive_for_human()
+        else:
+            # Run continuously to completion without intervention.
+            logger.info("Running the simulation continuously")
+            env.reset()
+            env.model.fast_forward()
     finally:
-        engine.stop()
-    print(f"Output written to {engine.output_file}")
+        env.close()
+    print(f"Output written to {env.model.output_file}")
 
 
 def main() -> None:
     r"""Run the command line interface."""
+    logging.basicConfig(level=logging.INFO)
+    simulators = registered_simulators()
+    installed_simulators = registered_simulators(only_installed=True)
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(
-        dest="action", help='Action to perform')
+        dest="action", required=True,
+        help='Action to perform')
     # For setting configuration options
     parser_config = subparsers.add_parser(
         "config", help="Set a configuration option",
@@ -76,47 +236,48 @@ def main() -> None:
         "install", help="Install a simulator"
     )
     parser_install.add_argument(
-        "simulator", type=str,  # choices=
-        help="Name of the simulator to install",
+        "--simulator", type=str,  nargs="+", action="extend",
+        choices=simulators,
+        help="Name(s) of simulators to install. If not provided, all "
+             "of the registered simulators will be installed.",
     )
     parser_install.add_argument(
         "--directory", type=str,
-        help="Directory where the simulator should be installed.",
+        help="Directory where the simulator should be installed. "
+             "Cannot be used if more than one simulator is specified.",
+    )
+    parser_install.add_argument(
+        "--always-yes", action="store_true",
+        help="Don't ask the user to approve the install",
+    )
+    parser_install.add_argument(
+        "--force", action="store_true",
+        help="Force reinstallation of the simulator even if it is "
+             "already installed",
     )
     # For creating model input files
     parser_create = subparsers.add_parser(
         "create", help="Create a simulator input file"
     )
     parser_create_sim = parser_create.add_subparsers(
-        dest="simulator",
+        dest="simulator", required=True,
         help="Name of the simulator to create an input file for",
     )
-    parser_create_apsimx = parser_create_sim.add_parser(
-        "apsimx", help="Create an ApsimX input file")
-    parser_create_apsimx.add_argument(
-        "crop_name", type=str.lower,
-        choices=[
-            x.lower() for x in
-            get_simulator_class("apsimx", "file").available_crops()
-        ],
-        help="Crop name to create an input file for",
-    )
-    parser_create_apsimx.add_argument(
-        "--from-example", type=str, nargs="?", const=True, default=False,
-        help=(
-            "Create a new .apsimx model by copying an example. "
-            "The path to the example can be passed."
-        ),
-    )
-    for parser_x in [parser_create_apsimx]:
-        parser_x.add_argument(
-            "--interactive", action="store_true",
-            help="Make the new file interactive",
+    create_parsers = {}
+    for k in simulators:
+        create_parsers[k] = _add_args_from_engine(
+            k, parser_create_sim,
+            help=f"Create an {k} input file",
         )
-        parser_x.add_argument(
-            "--actions", type=str, nargs="+", action="extend",
-            help="Interactive actions that should be supported",
-        )
+    # create_parsers["apsimx"].add_argument(
+    #     "crop_name", type=str.lower,
+    #     choices=[
+    #         x.lower() for x in
+    #         get_simulator_class("apsimx", "file").available_crops()
+    #     ],
+    #     help="Crop name to create an input file for",
+    # )
+    for parser_x in create_parsers.values():
         parser_x.add_argument(
             "--dst", type=str,
             help="Path to where the new file should be saved",
@@ -130,42 +291,15 @@ def main() -> None:
         "run", help="Run a simulation"
     )
     parser_run_sim = parser_run.add_subparsers(
-        dest="simulator", help="Name of the simulator to run")
-    parser_run_apsimx = parser_run_sim.add_parser(
-        "apsimx", help="Run an ApsimX simulation")
-    parser_run_apsimx.add_argument(
-        "--crop-name", type=str,
-        choices=[
-            x.lower() for x in
-            get_simulator_class("apsimx", "file").available_crops()
-        ],
-        help="Name of crop to simulate",
-    )
-    parser_run_apsimx.add_argument(
-        "--from-example", type=str, nargs="?", const=True, default=False,
-        help=(
-            "Create a new .apsimx model by copying an example. "
-            "The path to the example can be passed."
-        ),
-    )
-    run_parsers = [parser_run_apsimx]
-    for parser_x in run_parsers:
-        parser_x.add_argument(
-            "--model-file", type=str,
-            help="Path to a model input file",
+        dest="simulator", required=True,
+        help="Name of the simulator to run")
+    run_parsers = {}
+    for k in simulators:
+        run_parsers[k] = _add_args_from_engine(
+            k, parser_run_sim,
+            help=f"Run a {k} simulation",
         )
-        parser_x.add_argument(
-            "--timestep", type=int, default=0,
-            help="Time step between actions (in days). 0 for continuous",
-        )
-        parser_x.add_argument(
-            "--actions", type=str, nargs="+", action="extend",
-            help="Actions to allow",
-        )
-        parser_x.add_argument(
-            "--state-variables", type=str, nargs="+", action="extend",
-            help="State variables to request at each time step.",
-        )
+        parser_x = run_parsers[k]
         parser_x.add_argument(
             "--log-file", type=str, nargs="?", const=True,
             help="File where log message should be written",
@@ -176,63 +310,280 @@ def main() -> None:
             ],
             help="Logging level", default="INFO",
         )
-    # Generic arguments
+    # Simulator servers
+    parser_server = subparsers.add_parser(
+        "serve", help="Launch simulator(s) as fastapi application")
+    parser_server.add_argument(
+        "--simulator", type=str, nargs="+",
+        action=OverrideExtendAction,
+        choices=installed_simulators,
+        default=installed_simulators,
+        help=(
+            "Name of the simulator(s) to create application endpoints "
+            "for. If not specified, all of the installed simulators "
+            "will be included."
+        )
+    )
+    parser_server.add_argument(
+        "--port", type=int, default=5000,
+        help="Port that application should be served on",
+    )
+    parser_server.add_argument(
+        "--host", type=str, default="0.0.0.0",
+        help="Host address",
+    )
+    parser_server.add_argument(
+        "--log-file", type=str,
+        help="File where log message should be written",
+    )
+    parser_server.add_argument(
+        "--log-level", choices=[
+            "NOTSET", "DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"
+        ],
+        help="Logging level", default="INFO",
+    )
+    parser_server.add_argument(
+        "--allow-shutdown", action="store_true",
+        help="Include an endpoint to allow shutdown from the client",
+    )
+    # n8n tool utilities
+    # n8n_entry_points = list(server.EndPointRegistry._registry.keys())
+    n8n_entry_points = ["start", "start-interactive"]
+    parser_n8n = subparsers.add_parser(
+        "n8n", help="Manage n8n tools for models")
+    parser_n8n.add_argument(
+        "simulator", type=str, choices=simulators,
+        help="Name of the simulator to manage n8n tools for",
+    )
+    parser_n8n_act = parser_n8n.add_subparsers(
+        dest="utility", required=True,
+        help="Name of the utility to run.")
+    n8n_parsers = {}
+    n8n_parsers["create"] = parser_n8n_act.add_parser(
+        "create", help="Create an n8n tool")
+    n8n_parsers["update"] = parser_n8n_act.add_parser(
+        "update", help="Update an existing tool")
+    n8n_parsers["remove"] = parser_n8n_act.add_parser(
+        "remove", help="Remove an n8n tool")
+    n8n_parsers["query"] = parser_n8n_act.add_parser(
+        "query", help="Query an n8n tool")
+    for k, parser_x in n8n_parsers.items():
+        parser_x.add_argument(
+            "--name", type=str, nargs="+", action="extend",
+            choices=n8n_entry_points,
+            help="Name of the entry point(s)",
+        )
+        parser_x.add_argument(
+            "--toolname", type=str,
+            help="Name of the tool (single name must be provided)",
+        )
+        parser_x.add_argument(
+            "--output-tool", "--output", type=str, nargs='?', const=True,
+            help="Output the tool summary to a file",
+        )
+        parser_x.add_argument(
+            "--verbose", action="store_true",
+            help="Print all REST API responses",
+        )
+        if k != 'query':
+            parser_x.add_argument(
+                "--dry-run", action="store_true",
+                help="Don't actually do anything, just show requests.",
+            )
+    for k in ["create", "update"]:
+        parser_x = n8n_parsers[k]
+        parser_x.add_argument(
+            "--publish-for-address", type=str,
+            help=(
+                "Address for the service that should be used in the "
+                "published tool"
+            ),
+        )
+        parser_x.add_argument(
+            "--overwrite", action="store_true",
+            help="Overwrite any existing tool",
+        )
+        parser_x.add_argument(
+            "--output-request", type=str, nargs='?', const=True,
+            help="Output the tool creation request to a file",
+        )
+        parser_x.add_argument(
+            "--output-form", type=str, nargs='?', const=True,
+            help="Output the form for a tool to a file",
+        )
+    n8n_parsers["create"].add_argument(
+        "--update", action="store_true",
+        help="Update any existing tool",
+    )
+    # Profile
+    parser_profile = subparsers.add_parser(
+        "profile", help="Profile simulatr components")
+    parser_profile_target = parser_profile.add_subparsers(
+        dest="target", required=True,
+        help="Component(s) that should be profiled.",
+    )
+    CliArgHandler.add_subparser(
+        parser_profile_target, "all", profile.TargetBaseClass,
+        help="Profile all targets")
+    for k, v in profile.TargetRegistry._registry.items():
+        CliArgHandler.add_subparser(
+            parser_profile_target, k, v,
+            help=v._DESCRIPTION)
+    # ApsimX
+    parser_apsimx = subparsers.add_parser(
+        "apsimx", help="Run ApsimX model directly")
+    CliArgHandler.handle_model(
+        ApsimXEngine, parser_apsimx,
+        only_fields=[
+            "model_file",
+        ],
+        field_specific_kwargs={
+            "model_file": {
+                "type": str,
+                "names": ("model_file", ),
+            },
+        },
+    )
+    # Parse
     args = parser.parse_args()
     if args.action == "config":
         if args.section in ["directories", "files"]:
             args.value = os.path.abspath(os.path.expanduser(args.value))
         cfg.set(args.section, args.name, args.value)
         dst = cfg.write(level=args.level)
-        print(f"Set {args.name} in the \"{args.section}\" section of "
-              f"\"{dst}\" to \"{args.value}\" ")
+        logger.info(f"Set {args.name} in the \"{args.section}\" section"
+                    f" of \"{dst}\" to \"{args.value}\" ")
         return
     elif args.action == "install":
+        if not args.simulator:
+            args.simulator = simulators
         if args.directory:
-            cfg.set("directories", args.simulator, args.directory)
-        engine_cls = get_simulator_class(args.simulator)
-        engine_cls.install()
+            if len(args.simulator) > 1:
+                raise RuntimeError(
+                    f"Cannot specify an install directory for more "
+                    f"than one simulator ({len(args.simulator)} "
+                    f"specified, {args.simulator})")
+            cfg.set("directories", args.simulator[0], args.directory)
+        for simulator in args.simulator:
+            logger.info(f"Installing {simulator} simulator...")
+            engine_cls = get_simulator_class(simulator)
+            engine_cls.install(always_yes=args.always_yes,
+                               force=args.force)
     elif args.action == "create":
         engine_cls = get_simulator_class(args.simulator)
-        kws = {}
-        if args.simulator == "apsimx":
-            if args.crop_name:
-                kws["crop_name"] = args.crop_name
-            kws["from_example"] = args.from_example
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "simulator", "dst", "overwrite"]
+        }
         if args.dst and os.path.isfile(args.dst):
             if not args.overwrite:
                 raise RuntimeError(f"Model file already exists: "
                                    f"\"{args.dst}\"")
             os.remove(args.dst)
-        engine = engine_cls(
-            model_file=args.dst,
-            # interactive=args.interactive,  # TODO
-            actions=args.actions,
-            **kws
-        )
-        engine.model.generated = False  # Prevent cleanup
-        print(f"Created input file \"{engine.model.fname}\"")
-    elif args.action == "run":
-        kws = {"timestep": args.timestep}
-        if args.log_file is True:
-            log_file = args.simulator
+        if args.dst:
             if args.model_file:
+                raise RuntimeError("Cannot provide both \"--model-file\" "
+                                   "and \"--dst\"")
+            kws["model_file"] = args.dst
+        engine = engine_cls(**kws)
+        engine.model.generated = False  # Prevent cleanup
+        logger.info(f"Created input file \"{engine.model.fname}\"")
+    elif args.action == "run":
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "simulator", "log_file", "log_level"]
+        }
+        if getattr(args, "log_file", None) is True:
+            log_file = args.simulator
+            if getattr(args, "model_file", None):
                 log_file += "_" + os.path.splitext(
                     os.path.basename(args.model_file))[0]
-            elif args.simulator == "apsimx" and args.crop_name:
+            elif ((args.simulator == "apsimx"
+                   and getattr(args, "crop_name", None))):
                 log_file += "_" + args.crop_name
             args.log_file = os.path.join(os.getcwd(), log_file + ".log")
-        if args.log_file:
-            print(f"Log being written to \"{args.log_file}\"")
+        if getattr(args, "log_file", None):
+            logger.info(f"Log being written to \"{args.log_file}\"")
         logging.basicConfig(filename=args.log_file,
                             level=getattr(logging, args.log_level))
-        if args.model_file:
-            kws["model_file"] = args.model_file
-        if args.simulator == "apsimx":
-            if args.crop_name:
-                kws["crop_name"] = args.crop_name
-            kws["from_example"] = args.from_example
-        if args.actions:
-            kws["actions"] = args.actions
-        if args.state_variables:
-            kws["state_variables"] = args.state_variables
         run(args.simulator, **kws)
+    elif args.action == "serve":
+        server.run_server(
+            args.simulator,
+            host=args.host, port=args.port,
+            log_file=args.log_file,
+            log_level=args.log_level,
+            allow_shutdown=args.allow_shutdown,
+        )
+    elif args.action == "n8n":
+        if not args.name:
+            if args.utility in ["query", "remove"] and args.toolname:
+                args.name = [""]  # Won't be used
+            else:
+                args.name = n8n_entry_points
+        if len(args.name) > 1:
+            assert not args.toolname
+            for k in ["output_request", "output_tool", "output_form"]:
+                assert not isinstance(getattr(args, k, None), str)
+        if args.utility in ["create", "update"]:
+            if not args.publish_for_address:
+                args.publish_for_address = os.environ.get(
+                    "SIMULATR_REMOTE_SERVER_ADDRESS", None)
+        if args.utility == "update":
+            args.update = "required"
+        for name in args.name:
+            logger.info(f"{args.utility} {name}")
+            if args.utility in ["create", "update"]:
+                n8n.publish_n8n_service(
+                    args.simulator, name,
+                    service_address=args.publish_for_address,
+                    toolname=args.toolname,
+                    overwrite=args.overwrite,
+                    update=args.update,
+                    dry_run=args.dry_run,
+                    output_request=args.output_request,
+                    output_tool=args.output_tool,
+                    output_form=args.output_form,
+                    verbose=args.verbose,
+                )
+            elif args.utility == "remove":
+                n8n.remove_n8n_service(
+                    args.simulator, name,
+                    toolname=args.toolname,
+                    output=args.output_tool,
+                    dry_run=args.dry_run,
+                    verbose=args.verbose,
+                )
+            elif args.utility == "query":
+                response = n8n.query_n8n_service(
+                    args.simulator, name,
+                    toolname=args.toolname,
+                    output=args.output_tool,
+                    allow_multiple=True,
+                    verbose=args.verbose,
+                )
+                if not args.output_tool:
+                    logger.info(json.dumps(response, indent=2))
+            else:
+                raise NotImplementedError(
+                    f"n8n utility = \"{args.utility}\"")
+    elif args.action == "profile":
+        if args.target == "all":
+            targets = profile.TargetRegistry.registered_classes()
+        else:
+            targets = [args.target]
+        kws = {
+            k: v for k, v in vars(args).items()
+            if k not in ["action", "target"]
+        }
+        for target in targets:
+            profiler = profile.TargetRegistry.get_class(target)(**kws)
+            profiler.run()
+    elif args.action == "apsimx":
+        process = ApsimXEngine.start_direct_subprocess(
+            args.model_file,
+            csv=True,
+        )
+        process.wait(60)
+    else:
+        raise NotImplementedError(f"action = \"{args.action}\"")

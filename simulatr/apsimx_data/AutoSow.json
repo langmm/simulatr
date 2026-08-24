@@ -17,7 +17,6 @@
         "    public class Script : Model",
         "    {",
         "        [Link] private Clock Clock;",
-        "        [Link] private Fertiliser Fertiliser;",
         "        [Link] private Summary Summary;",
         "        [Link] private Soil Soil;",
         "        private Accumulator accumulatedRain;",

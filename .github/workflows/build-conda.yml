@@ -1,13 +1,9 @@
 name: Build and test conda recipe
 
 on:
-  release:
-    types: [created]
   push:
     branches-ignore:
       - gh-pages
-    tags:
-      - '*'
   schedule:
     - cron: 0 10 * * 1  # 3AM PST
   workflow_dispatch:
@@ -51,3 +47,16 @@ jobs:
           cd $RUNNER_TEMP
           micromamba run -n simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
           micromamba run -n simulatr-test simulatr --help
+
+  all_recipes_build:
+    runs-on: ubuntu-latest
+    name: Recipe builds on all operating systems
+    needs: [build-conda]
+    if: always()
+    steps:
+      - name: All tests ok
+        if: ${{ !(contains(needs.*.result, 'failure')) }}
+        run: exit 0
+      - name: Some tests failed
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1

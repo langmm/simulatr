@@ -5,29 +5,33 @@ import json
 import copy
 import time
 import zmq
+import platform
 import msgpack
 import subprocess
 import contextlib
 import datetime
 from functools import cached_property
 import numpy as np
-import pandas as pd
-from typing import Optional, Union, Any, List, Callable, Iterator, ClassVar
-from . import logger
+from typing import (
+    Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar
+)
+from pydantic import Field
+from pydantic.json_schema import SkipJsonSchema
+from . import logger, utils
 from .utils import cfg, LogPipe
 from .base import (
     readonly_cached_property,
     RecoverableError, ModelEngineError, InvalidActionError,
     RecoverableModelEngineError,
 )
+from .data import BaseWeatherFile, NASAPOWERWeatherFile
 from .crop import (
-    CropModelFile, BaseWeatherFile, CropModelEngine,
-    CropModelLLMPromptGenerator, CropModelEnv
+    CropModelFile,
+    CropModelEngine, CropModelLLMPromptGenerator, CropModelEnv
 )
 
 
 _apsimxdir = cfg['directories'].get('apsimx', None)
-_syncfile = os.path.join(cfg['directories']['data'], "Synchroniser.json")
 
 
 def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
@@ -46,183 +50,6 @@ def _read_resource(name, apsimx_dir: Optional[str] = _apsimxdir):
     resource = ApsimXFile(os.path.join(apsimx_dir, "Models", "Resources",
                                        f"{name}.json"))
     return resource.find(name)
-
-
-class ApsimXWeatherFile(BaseWeatherFile):
-    r"""Container for ApsimX weather data."""
-
-    _default_ext = ".met"
-    _power_names = {
-        "radn": "ALLSKY_SFC_SW_DWN",
-        "maxt": "T2M_MAX",
-        "mint": "T2M_MIN",
-        "rain": "PRECTOTCORR",
-        "vp": "T2MDEW",
-    }
-    _conv = {
-        # From PCSE
-        # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
-        #     evapotranspiration. Guidelines for computing crop water
-        #     requirements, FAO irrigation and drainage paper 56)
-        "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
-    }
-    _units = {
-        "radn": "MJ/m^2",
-        "maxt": "oC",
-        "mint": "oC",
-        "rain": "mm",
-        "vp": "hPa",
-        "tav": "oC",
-        "amp": "oC",
-        "latitude": "decimal degrees",
-        "longitude": "decimal degrees",
-        "elevation": "m",
-    }
-
-    @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        out = {
-            "constants": {},
-            "units": {},
-        }
-        with open(fname, "r") as fd:
-            for line in fd:
-                if line.startswith("[weather.met.weather]"):
-                    break
-            for line in fd:
-                if line.startswith("!"):
-                    continue
-                elif line.startswith("year"):
-                    names = line.split()
-                    for k, x in zip(names, fd.readline().split()):
-                        out["units"][k] = x.strip("()")
-                    out["columns"] = pd.read_csv(
-                        fd, sep=r"\s+", names=names,
-                    )
-                else:
-                    pattern = (
-                        r"(?P<name>\w+)\s+\=\s+(?P<value>[+-]?\d+(\.\d+)?)\s+"
-                        r"\((?P<units>(\w[\w\/\^ ]*)?)\)"
-                    )
-                    match = re.search(pattern, line)
-                    if not match:
-                        raise ValueError(f"Failed to parse .met line: "
-                                         f"\"{line}\"")
-                    match = match.groupdict()
-                    if match["units"]:
-                        out["units"][match["name"]] = match["units"]
-                    out["constants"][match["name"]] = match["value"]
-        return out
-
-    @classmethod
-    def _write(cls, fname: str, contents):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-            contents: File contents to write.
-
-        """
-        out = ["[weather.met.weather]"]
-        if "constants" in contents:
-            for k, v in contents["constants"].items():
-                out.append(f"{k} = {v} ({contents['units'].get(k, '')})")
-        column_order = ["year", "day"]
-        column_order += [k for k in contents["columns"].columns
-                         if k not in column_order]
-        units = {
-            k: f"({contents['units'].get(k, '')})"
-            for k in column_order
-        }
-        col_space = {k: max(len(k), len(v)) for k, v in units.items()}
-        for k in column_order:
-            v = units[k]
-            pad = (col_space[k] - len(v)) * " "
-            units[k] += pad
-        head, body = contents["columns"].to_string(
-            index=False, col_space=col_space, columns=column_order,
-        ).split("\n", maxsplit=1)
-        out.append(head)
-        out.append(" " + " ".join(list(units.values())))
-        out.append(body)
-        with open(fname, "w") as fd:
-            fd.write("\n".join(out))
-
-    @classmethod
-    def _from_power(cls, src: dict):
-        r"""Convert NASA power data into the correct format for this
-        file.
-
-        Args:
-            src: NASA power data.
-
-        Returns:
-            Converted data.
-
-        """
-        fill_value = float(src["header"]["fill_value"])
-        out = {"units": cls._units.copy()}
-        out["constants"] = {
-            "latitude": float(src["geometry"]["coordinates"][0]),
-            "longitude": float(src["geometry"]["coordinates"][1]),
-            "elevation": float(src["geometry"]["coordinates"][2]),
-            "tav": np.mean(
-                pd.Series(src["properties"]["parameter"]["T2M"])),
-        }
-        # description = [src["header"]["title"]]
-        columns = {}
-        for k, v in cls._power_names.items():
-            s = pd.Series(src["properties"]["parameter"][v])
-            s[s == fill_value] = np.nan
-            columns[k] = s
-        for k, v in cls._conv.items():
-            columns[k] = v(columns[k])
-        columns = pd.DataFrame(columns)
-        date = pd.to_datetime(columns.index, format="%Y%m%d")
-        columns["year"] = date.year
-        columns["day"] = date.dayofyear
-        ix = columns.isnull().any(axis=1)
-        columns = columns[~ix]
-        out["columns"] = columns
-        return out
-
-    @readonly_cached_property
-    def dates(self) -> np.ndarray:
-        r"""np.ndarray: Dates covered by this file."""
-        return (
-            (self.contents["columns"]["year"].to_numpy() - 1970).astype(
-                "datetime64[Y]")
-            + (self.contents["columns"]["day"].to_numpy() - 1).astype(
-                "timedelta64[D]")
-        )
-
-    @readonly_cached_property
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        return self.contents["constants"]["latitude"]
-
-    @readonly_cached_property
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        return self.contents["constants"]["longitude"]
-
-    def _make_interactive(self, actions: list):
-        r"""Modify this file to make it interactive.
-
-        Args:
-            actions: List of actions that should be enabled.
-
-        """
-        pass
 
 
 class ApsimXFileNode:
@@ -312,7 +139,7 @@ class ApsimXFileNode:
             ApsimXFileNode: New node.
 
         """
-        fname = os.path.join(cfg['directories']['data'], f"{name}.json")
+        fname = os.path.join(ApsimXEngine.data_dir(), f"{name}.json")
         return cls.from_file(fname, **kwargs)
 
     def __str__(self) -> str:
@@ -408,12 +235,12 @@ class ApsimXFileNode:
 
         """
         if self.has_parameter(parameter_name):
-            if "CROP" in self["Name"]:
-                prev = "CROP"
-            else:
+            if "CROP" not in self["Name"]:
                 prev = self.get_parameter(parameter_name)
-            self["Name"] = self["Name"].replace(prev, crop_name)
+                self["Name"] = self["Name"].replace(prev, crop_name)
             self.set_parameter(parameter_name, crop_name)
+        if "CROP" in self["Name"]:
+            self["Name"] = self["Name"].replace("CROP", crop_name)
         for x in self.children:
             x.specialize_crop(crop_name)
 
@@ -673,6 +500,199 @@ class ApsimXFileNode:
         return True
 
 
+class ApsimXWeatherFile(BaseWeatherFile):
+    r"""Container for ApsimX weather data."""
+
+    NAME = "apsimx"
+    _default_ext = ".met"
+    _power_names = {
+        "radn": "ALLSKY_SFC_SW_DWN",
+        "maxt": "T2M_MAX",
+        "mint": "T2M_MIN",
+        "rain": "PRECTOTCORR",
+        "vp": "T2MDEW",
+    }
+    _conv = {
+        # From PCSE
+        # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
+        #     evapotranspiration. Guidelines for computing crop water
+        #     requirements, FAO irrigation and drainage paper 56)
+        "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
+    }
+    _units = {
+        "radn": "MJ/m^2",
+        "maxt": "oC",
+        "mint": "oC",
+        "rain": "mm",
+        "vp": "hPa",
+        "tav": "oC",
+        "amp": "oC",
+        "latitude": "decimal degrees",
+        "longitude": "decimal degrees",
+        "elevation": "m",
+    }
+
+    @classmethod
+    def _read(cls, fname: str):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+
+        Returns:
+            object: File contents.
+
+        """
+        import pandas as pd
+        out = {
+            "constants": {},
+            "units": {},
+        }
+        with open(fname, "r") as fd:
+            for line in fd:
+                if line.startswith("[weather.met.weather]"):
+                    break
+            for line in fd:
+                if line.startswith("!"):
+                    continue
+                elif line.startswith("year"):
+                    names = line.split()
+                    for k, x in zip(names, fd.readline().split()):
+                        out["units"][k] = x.strip("()")
+                    out["columns"] = pd.read_csv(
+                        fd, sep=r"\s+", names=names,
+                    )
+                else:
+                    pattern = (
+                        r"(?P<name>\w+)\s+\=\s+(?P<value>[+-]?\d+(\.\d+)?)\s+"
+                        r"\((?P<units>(\w[\w\/\^ ]*)?)\)"
+                    )
+                    match = re.search(pattern, line)
+                    if not match:
+                        raise ValueError(f"Failed to parse .met line: "
+                                         f"\"{line}\"")
+                    match = match.groupdict()
+                    if match["units"]:
+                        out["units"][match["name"]] = match["units"]
+                    out["constants"][match["name"]] = match["value"]
+        return out
+
+    @classmethod
+    def _write(cls, fname: str, contents):
+        r"""Read a model input file.
+
+        Args:
+            fname: Path to file to read.
+            contents: File contents to write.
+
+        """
+        out = ["[weather.met.weather]"]
+        if "constants" in contents:
+            for k, v in contents["constants"].items():
+                out.append(f"{k} = {v} ({contents['units'].get(k, '')})")
+        column_order = ["year", "day"]
+        column_order += [k for k in contents["columns"].columns
+                         if k not in column_order]
+        units = {
+            k: f"({contents['units'].get(k, '')})"
+            for k in column_order
+        }
+        col_space = {k: max(len(k), len(v)) for k, v in units.items()}
+        for k in column_order:
+            v = units[k]
+            pad = (col_space[k] - len(v)) * " "
+            units[k] += pad
+        head, body = contents["columns"].to_string(
+            index=False, col_space=col_space, columns=column_order,
+        ).split("\n", maxsplit=1)
+        out.append(head)
+        out.append(" " + " ".join(list(units.values())))
+        out.append(body)
+        with open(fname, "w") as fd:
+            fd.write("\n".join(out))
+
+    @classmethod
+    def _from_base(cls, src: BaseWeatherFile):
+        r"""Convert weather data from another file format into the
+        correct format for this file.
+
+        Args:
+            src: NASA power data.
+
+        Returns:
+            Converted data.
+
+        """
+        if not isinstance(src, NASAPOWERWeatherFile):
+            return super()._from_base(src)
+        import pandas as pd
+        fill_value = float(src.contents["header"]["fill_value"])
+        out = {"units": cls._units.copy()}
+        out["constants"] = {
+            "latitude": src.latitude,
+            "longitude": src.longitude,
+            "elevation": float(src.contents["geometry"]["coordinates"][2]),
+            "tav": np.mean(
+                pd.Series(src.contents["properties"]["parameter"]["T2M"])),
+        }
+        # description = [src.contents["header"]["title"]]
+        columns = {}
+        for k, v in cls._power_names.items():
+            s = pd.Series(src.contents["properties"]["parameter"][v])
+            s[s == fill_value] = np.nan
+            columns[k] = s
+        for k, v in cls._conv.items():
+            columns[k] = v(columns[k])
+        columns = pd.DataFrame(columns)
+        date = pd.to_datetime(columns.index, format="%Y%m%d")
+        columns["year"] = date.year
+        columns["day"] = date.dayofyear
+        ix = columns.isnull().any(axis=1)
+        columns = columns[~ix]
+        out["columns"] = columns
+        return out
+
+    @readonly_cached_property
+    def dates(self) -> np.ndarray:
+        r"""np.ndarray: Dates covered by this file."""
+        return (
+            (self.contents["columns"]["year"].to_numpy() - 1970).astype(
+                "datetime64[Y]")
+            + (self.contents["columns"]["day"].to_numpy() - 1).astype(
+                "timedelta64[D]")
+        )
+
+    @readonly_cached_property
+    def latitude(self) -> float:
+        r"""float: Latitude (degrees)."""
+        return self.contents["constants"]["latitude"]
+
+    @readonly_cached_property
+    def longitude(self) -> float:
+        r"""float: Longitude (degrees)."""
+        return self.contents["constants"]["longitude"]
+
+    def update_param(self, contents: Any) -> None:
+        r"""Merge downloaded parameters into the current data.
+
+        Args:
+            contents: New data to incorporate.
+
+        """
+        for k in ["units", "contents", "columns"]:
+            # TODO: Handle dataframe in "columns"
+            self.contents[k].udpate(contents[k])
+
+    def _make_interactive(self, actions: list):
+        r"""Modify this file to make it interactive.
+
+        Args:
+            actions: List of actions that should be enabled.
+
+        """
+        pass
+
+
 class ApsimXFile(CropModelFile):
     r"""Container for manipulating .apsimx model files.
 
@@ -683,6 +703,7 @@ class ApsimXFile(CropModelFile):
 
     """
 
+    NAME = "apsimx"
     EXAMPLE = os.path.join("Examples", "Wheat.apsimx")
     ACTION_NODES = dict({
         "sow": {
@@ -705,8 +726,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Irrigation"},
             "required": True,
-            # "default":
-            # os.path.join(cfg['directories']['data'], "Irrigate.json"),
+            # "default": "Irrigate.json",
             "default": {
                 "$type": "Models.Irrigation, Models",
                 "Name": "Irrigation",
@@ -721,8 +741,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "Fertiliser"},
             "required": True,
-            # "default":
-            # os.path.join(cfg['directories']['data'], "Fertilize.json"),
+            # "default": "Fertilize.json",
             "default": {
                 "$type": "Models.Fertiliser, Models",
                 "Name": "Fertiliser",
@@ -807,8 +826,7 @@ class ApsimXFile(CropModelFile):
             "field": "FileName",
             "fget": lambda x: x.replace("%root%", _apsimxdir),
         },
-        # "soil_file": {
-        # }
+        "soil_file": False,
         "latitude": {
             "contains": {
                 "$type": "Models.Soils.Soil, Models",
@@ -831,8 +849,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "SowingDate",
-            "default": os.path.join(
-                cfg['directories']['data'], "SowOrHarvestByDate.json"),
+            "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -849,8 +866,7 @@ class ApsimXFile(CropModelFile):
             "parent": {"contains": {"Name": "Field"}},
             "contains": {"Name": "SowOrHarvestByDate"},
             "parameter": "HarvestDate",
-            "default": os.path.join(
-                cfg['directories']['data'], "SowOrHarvestByDate.json"),
+            "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
             "conflicts": [
                 {
@@ -977,7 +993,8 @@ class ApsimXFile(CropModelFile):
     @classmethod
     def from_crop_name(cls, crop_name: str, dst: str | None = None,
                        interactive: bool = False,
-                       actions: List[str] | None = None) -> CropModelFile:
+                       actions: List[str] | None = None,
+                       **kwargs: Any) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
         Args:
@@ -986,6 +1003,8 @@ class ApsimXFile(CropModelFile):
                 be saved.
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -1029,9 +1048,7 @@ class ApsimXFile(CropModelFile):
                     f"[{crop_name}].Total.Wt"
                 ],
                 EventNames=[
-                    # TODO: Daily?
-                    # "[Clock].DoReport",
-                    f"[{crop_name}].Harvesting",
+                    "[Clock].EndOfDay",
                 ],
                 GroupByVariableName=None,
             ),
@@ -1043,6 +1060,8 @@ class ApsimXFile(CropModelFile):
                 "Models.Irrigation, Models",
                 # ResourceName="Irrigation",
             ),
+            ApsimXFileNode.from_data("Soil"),
+            ApsimXFileNode.from_data("SurfaceOrganicMatter"),
             # SOIL:
             # "Models.Soils.Soil, Models"
             #    "Models.Soils.Physical, Models"
@@ -1104,12 +1123,25 @@ class ApsimXFile(CropModelFile):
         out = cls(dst, generated=True, contents=contents.contents)
         if interactive or actions:
             out.make_interactive(actions)
+        for k, v in kwargs.items():
+            out.set(k, v)
+        if ((("latitude" in kwargs and "longitude" in kwargs)
+             or ("start_time" in kwargs and "end_time" in kwargs))):
+            if "weather_file" not in kwargs:
+                out.set(
+                    "weather_file",
+                    ApsimXWeatherFile.fetch_data(
+                        out.get("latitude"), out.get("longitude"),
+                        out.get("start_time"), out.get("end_time"),
+                    )
+                )
+            # if "soil_file" not in kwargs:
+            # TODO: Get soil file and replace the Soil node
         return out
 
     @property
     def formal_crop_name(self) -> str:
         r"""str: Crop name used for resources."""
-        # return self.crop_name.title()
         return self.validate_crop_name(self.crop_name)
 
     def _get_external_name(self, name: str) -> str:
@@ -1340,6 +1372,8 @@ class ApsimXFile(CropModelFile):
             info = self.PARAM_NODES[name]
         if info is False:
             return
+        if name == "output_vars" and isinstance(value, list):
+            value = [self._get_internal_name(x) for x in value]
         try:
             anyset = False
             for xnode in self.findall_parameters(name, info=info):
@@ -1359,21 +1393,6 @@ class ApsimXFile(CropModelFile):
             raise KeyError(f"{name}: {e}")
 
     @classmethod
-    def _read(cls, fname: str):
-        r"""Read a model input file.
-
-        Args:
-            fname: Path to file to read.
-
-        Returns:
-            object: File contents.
-
-        """
-        with open(fname, 'r') as fd:
-            out = json.load(fd)
-        return out
-
-    @classmethod
     def _write(cls, fname: str, contents):
         r"""Read a model input file.
 
@@ -1385,7 +1404,7 @@ class ApsimXFile(CropModelFile):
         if isinstance(contents, ApsimXFileNode):
             contents = contents.contents
         with open(fname, "w") as fd:
-            json.dump(contents, fd, indent="    ")
+            json.dump(contents, fd, indent="  ")
 
     @readonly_cached_property
     def is_interactive(self) -> bool:
@@ -1446,6 +1465,8 @@ class ApsimXFile(CropModelFile):
         self.disable_parameter_conflicts(name, info=info, node={})
         default = info.get("default", None)
         if isinstance(default, str):
+            if not os.path.isabs(default):
+                default = os.path.join(ApsimXEngine.data_dir, default)
             default = ApsimXFile(default).contents
         if not default:
             logger.warning(
@@ -1844,7 +1865,8 @@ class ApsimXFile(CropModelFile):
             actions: List of actions that should be enabled.
 
         """
-        sync = ApsimXFile(_syncfile)
+        sync = ApsimXFile(os.path.join(ApsimXEngine.data_dir(),
+                                       "Synchroniser.json"))
         field = self.find("Field", required=True)
         for k, v in self.ACTION_NODES.items():
             parent = None
@@ -1936,6 +1958,11 @@ class ApsimXEngine(CropModelEngine):
     in another process."""
 
     _MODEL_NAME: ClassVar[str] = "apsimx"
+    _allow_bulk_set: ClassVar[bool] = True
+    _allow_bulk_get: ClassVar[bool] = True
+    _global_zmq_context: ClassVar[zmq.Context] = None
+    MINIMUM_TIMESTEP: ClassVar[datetime.timedelta] = datetime.timedelta(
+        days=1)
     STATUS_MESSAGES: ClassVar[list] = [
         "connect", "finished", "error", "recoverable_error",
     ]
@@ -2031,8 +2058,21 @@ class ApsimXEngine(CropModelEngine):
             },
         },
     }
+    EXAMPLE_STATE: ClassVar[Tuple[str, float]] = (
+        "[Grain].MaximumPotentialGrainSize.FixedValue",
+        0.043,
+    )
+    EXAMPLE_ACTION: ClassVar[Tuple[str, dict]] = (
+        "nitrogen", {"amount": 160.0},
+    )
 
-    from_example: Optional[Union[bool, str]] = True  # TODO: Update this
+    from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
+        default=False,
+        description="If True, copy the bundled example for the crop to "
+                    "use as the model file. If a string, the path to "
+                    "the example file to copy.",
+        json_schema_extra={"hidden_for_server": True},
+    )
 
     def model_post_init(self, __context: Any) -> None:
         r"""Initialize the engine.
@@ -2045,6 +2085,7 @@ class ApsimXEngine(CropModelEngine):
         """
         self.context = None
         self.socket = None
+        self.host = None
         self.port = None
         self.process = None
         self.stdout_pipe = None
@@ -2052,6 +2093,11 @@ class ApsimXEngine(CropModelEngine):
         self._status = None
         self._current_time = None
         super().model_post_init(__context)
+        if self.output_vars:
+            self.output_vars = [
+                self.model._get_external_name(x) for x in
+                self.output_vars
+            ]
         if not self.output_dir:
             # ApsimX saves output to the directory containing the
             # model input file
@@ -2063,8 +2109,15 @@ class ApsimXEngine(CropModelEngine):
         ]
 
     @classmethod
+    def apsim_direct(cls) -> str:
+        r"""Path to the apsimx models executable."""
+        return os.path.join(
+            cls.model_dir(), "bin", "Debug", "net8.0",
+            "Models.dll")
+
+    @classmethod
     def apsim_srv(cls) -> str:
-        r"""Path to the apsimx server."""
+        r"""Path to the apsimx server executable."""
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "ApsimZMQServer.dll")
@@ -2091,15 +2144,46 @@ class ApsimXEngine(CropModelEngine):
 
         """
         repourl = "https://github.com/APSIMInitiative/ApsimX.git"
-        subprocess.run(
-            ["git", "clone", repourl, model_dir], check=True)
-        sln_file = os.path.join(model_dir, "ApsimX.sln")
+        utils.partialclone(
+            repourl, model_dir,
+            patterns=[
+                "APSIM.*",
+                "CONTRIBUTING.md",
+                "README.md",
+                "LICENSE.md",
+                "Models/",
+                "Examples/*.apsimx",
+                "Examples/WeatherFiles/",
+                "DeepCloner.Core",
+                # The following are required if other projects built
+                # "ApsimNG",
+                # "ApsimX.sln",
+                "!Tests/",
+                "!Tools/",
+                "!Gtk.Sheet/",
+            ],
+        )
+        sln_file = os.path.join(
+            model_dir, "APSIM.Server", "ZMQ+msgpack",
+            "APSIM.ZMQServer.csproj")
+        # sln_file = os.path.join(
+        #     model_dir, "Models", "Models.csproj")
+        # sln_file = os.path.join(model_dir, "ApsimX.sln")
         if not os.path.isfile(sln_file):
             raise RuntimeError(f"APSIMX solution does not "
                                f"exist: \"{sln_file}\"")
         logger.info(f"Building APSIMX from \"{sln_file}\"")
         subprocess.run(
             ["dotnet", "build", sln_file], check=True)
+
+    @classmethod
+    def default_server_fields(cls) -> dict:
+        r"""dict: The default fields that should be used for a server."""
+        out = super().default_server_fields()
+        out["actions"] = [
+            k for k in out["actions"] if k not in ["sow", "harvest"]
+        ]
+        return out
 
     def create_model_file(self) -> CropModelFile:
         r"""Create a model input file.
@@ -2121,7 +2205,7 @@ class ApsimXEngine(CropModelEngine):
             return self.INPUT_FILE_TYPE.from_example(
                 src, dst=self.model_file,
                 interactive=True,
-                actions=list(self.action_map.keys()),
+                actions=list(self.actions.keys()),
             )
         return super().create_model_file()
 
@@ -2136,15 +2220,17 @@ class ApsimXEngine(CropModelEngine):
         r"""bool: True if the model engine is running and functioning."""
         if not super().is_operable:
             return False
-        return (self._status not in ["finished", "error", "terminated"])
+        return (self._status not in ["finished", "error", "terminated",
+                                     "never connected"])
 
     @property
     def current_time(self) -> datetime.datetime:
         r"""datetime.datetime: Current simulation time."""
         if self._current_time is None:
             if not self.is_operable:
-                return self.start_time
-            return self.get("[Clock].Today")
+                self._current_time = self.start_time
+            else:
+                self._current_time = self.get("[Clock].Today")
         return self._current_time
 
     @property
@@ -2153,9 +2239,14 @@ class ApsimXEngine(CropModelEngine):
         if self._status is None and self.socket is not None:
             self._status = self.socket.recv_string()
             if self._status == "paused":
+                prev = self._current_time
                 self._current_time = None
                 self.current_time
-                logger.debug(f"Simulation waiting at {self.current_time}")
+                if self.is_operable:
+                    logger.debug(
+                        f"Simulation waiting at {self.current_time}")
+                else:
+                    self._current_time = prev
             elif self._status in self.STATUS_MESSAGES:
                 out = self._status
                 self.send_command("ok")
@@ -2165,48 +2256,157 @@ class ApsimXEngine(CropModelEngine):
                                           f"\"{self._status}\"")
         return self._status
 
+    @classmethod
+    def get_output_file(cls, model_file: str,
+                        ext: Optional[str] = ".db") -> str:
+        r"""Get the expected output file path based on the input
+        model file path.
+
+        Args:
+            model_file: Input model file path.
+            ext: File extension.
+
+        Returns:
+            str: The expected output file path.
+
+        """
+        return os.path.join(os.path.splitext(model_file)[0] + ext)
+
     @property
     def output_file(self) -> str:
         r"""str: Path to the .db output file that will be produced."""
-        return os.path.join(
-            os.path.splitext(self.model.fname)[0] + ".db")
+        return self.get_output_file(self.model.fname)
 
-    def get_output_vars(self) -> List[str]:
-        r"""Get the output variables specified by the model file.
+    def get_results(self) -> Any:
+        r"""Get the simulation results."""
+        if os.path.isfile(self.output_file):
+            import pandas as pd
+            import sqlite3
+            # This currently errors due to missing report
+            conn = sqlite3.connect(self.output_file)
+            df = pd.read_sql_query("SELECT * FROM Report", conn)
+            conn.close()
+            return df.to_json()
+        return None
+
+    @classmethod
+    def global_zmq_context(cls) -> zmq.Context:
+        r"""Get a global zeromq context"""
+        if cls._global_zmq_context is None:
+            cls._global_zmq_context = zmq.Context()
+            cls._global_zmq_context.set(zmq.MAX_SOCKETS, 8000)
+            cls._global_zmq_context.setsockopt(zmq.LINGER, 0)
+            # cls._global_zmq_context.setsockopt(zmq.IMMEDIATE, 0)
+        return cls._global_zmq_context
+
+    @classmethod
+    def start_direct_subprocess(cls, model_file: str,
+                                verbose: Optional[bool] = False,
+                                ncpu: Optional[int] = None,
+                                csv: Optional[bool] = False,
+                                **kwargs) -> subprocess.Popen:
+        r"""Start an apsim model in a subprocess.
+
+        Args:
+            model_file: Path to model input file.
+            verbose: If True, the model should be run with verbose
+                output.
+            ncpu: Number of CPUs that the server should use.
+            csv: Output to a CSV.
+            \*\*kwargs: Additional keyword arguments are used to create
+                the subprocess.
 
         Returns:
-            list: Output variables
+            subprocess.Popen: Subprocess with the model running.
 
         """
-        out = super().get_output_vars()
-        return [self.model._get_external_name(x) for x in out]
+        cmd = [
+            "dotnet", cls.apsim_direct(),
+            model_file,
+        ]
+        if verbose:
+            cmd += ["--verbose"]
+        if ncpu:
+            cmd += ["--cpu-count", str(ncpu)]
+        if csv:
+            cmd += ["--csv"]
+        return utils.start_subprocess(cmd, **kwargs)
+
+    @classmethod
+    def start_server_subprocess(cls, model_file: str,
+                                protocol: Optional[str] = "interactive",
+                                host: Optional[str] = "127.0.0.1",
+                                port: Optional[str | int] = None,
+                                verbose: Optional[bool] = False,
+                                ncpu: Optional[int] = None,
+                                **kwargs) -> subprocess.Popen:
+        r"""Start the apsim server in a subprocess.
+
+        Args:
+            model_file: Path to model input file.
+            protocol: How the server should be run.
+            host: ZeroMQ host.
+            port: ZeroMQ port (required if portocol is "interactive").
+            verbose: If the server should be run with verbose output.
+            ncpu: Number of CPUs that the server should use.
+            \*\*kwargs: Additional keyword arguments are used to create
+                the subprocess.
+
+        Returns:
+            subprocess.Popen: Subprocess with the server running.
+
+        """
+        assert host and port
+        cmd = [
+            "dotnet", cls.apsim_srv(),
+            "-f", model_file,
+            "-P", protocol,
+            "-a", host,
+            "-p", str(port),
+        ]
+        assert protocol in ["oneshot", "interactive"]
+        if verbose:
+            cmd += ["-v"]
+        if ncpu:
+            cmd += ["-c", str(ncpu)]
+        return utils.start_subprocess(cmd, **kwargs)
 
     def _start(self):
         r"""Start a listening server on a random port."""
         self._current_time = None
         self._status = None
-        self.context = zmq.Context()
+        self.context = self.global_zmq_context()
+        self.host = "127.0.0.1"
         if self.socket is None:
             self.socket = self.context.socket(zmq.REP)
-            self.socket.bind("tcp://0.0.0.0:0")
+            self.socket.bind(f"tcp://{self.host}:0")
             self.port = self.socket.getsockopt(
                 zmq.LAST_ENDPOINT).decode().split(":")[-1]
         logger.info(f"Running model \"{self.model.fname}\"")
         logger.info(
             f"Listening on: {self.socket.getsockopt(zmq.LAST_ENDPOINT)}")
-        self.process = subprocess.Popen([
-            "dotnet", self.apsim_srv(),
-            "-p", self.port,
-            "-P", "interactive",
-            "-f", self.model.fname,
-        ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        self.stdout_pipe = LogPipe(
-            self.process.stdout, prefix="APSIMX: ")
-        self.stderr_pipe = LogPipe(
-            self.process.stderr, prefix="APSIMX", level="ERROR")
+        kws = {}
+        if platform.system() != 'Windows':
+            kws.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.process = self.start_server_subprocess(
+            self.model.fname,
+            host=self.host,
+            port=self.port,
+            **kws)
+        if platform.system() != 'Windows':
+            self.stdout_pipe = LogPipe(
+                self.process.stdout, prefix="APSIMX: ",
+                level=self.model_log_level)
+            self.stderr_pipe = LogPipe(
+                self.process.stderr, prefix="APSIMX", level="ERROR")
         logger.info(f"Started APSIMX process id: {self.process.pid}")
+        timeout = 10
+        timewait = 0.01
+        if platform.system() == 'Windows':
+            timeout = 20
+            timewait = 0.1
         tstart = time.time()
-        while time.time() - tstart < 10 and self.is_running:
+        while time.time() - tstart < timeout and self.is_running:
             try:
                 self._status = self.socket.recv_string(
                     flags=zmq.NOBLOCK)
@@ -2214,7 +2414,11 @@ class ApsimXEngine(CropModelEngine):
             except zmq.ZMQError as e:
                 if e.errno != zmq.EAGAIN:
                     raise
+                time.sleep(timewait)
         if self._status != "connect":
+            logger.error(f"Failed to connect after {timeout} seconds "
+                         f"(status = {self._status})")
+            self._status = "never connected"
             self.stop(cleanup=True)
             raise ModelEngineError("Failed to connect with the "
                                    "ApsimX ZMQ server")
@@ -2230,16 +2434,25 @@ class ApsimXEngine(CropModelEngine):
             self.end_time = self.get("[Clock].End")
         else:
             assert self.get("[Clock].End") == self.end_time
+        logger.debug("APSIMX Start complete")
 
     def _stop(self):
         r"""Stop the listening server and close the communication port."""
-        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable})")
+        logger.debug(f"ApsimX _stop (is_operable = {self.is_operable}, "
+                     f"is_running = {self.is_running}, "
+                     f"is_complete = {self.is_complete}, "
+                     f"current_time = {self._current_time})")
+        if self.is_running and self.is_complete and self._status == "paused":
+            self._resume(wait=True)
         if self.is_operable:
             try:
-                self.act("terminate")
+                with self.stop_on_error(("act", "terminate", tuple(), {})):
+                    self._act("terminate", {})
+                self._resume(wait=True)
                 if self.status != "finished":
                     raise ValueError(
-                        f"Status after terminate is \"{self.status}\"")
+                        f"Status after terminate is \"{self.status}\" "
+                        f"(is_complete = {self.is_complete})")
                 self._status = "terminated"
             except ModelEngineError:
                 pass
@@ -2247,25 +2460,22 @@ class ApsimXEngine(CropModelEngine):
         if self.socket is not None:
             self.socket.close()
         logger.debug("Terminating process")
-        if self.process is not None:
-            if self.process.poll() is None:
+        try:
+            if self.process is not None and self.process.poll() is None:
+                timeout = (10 if platform.system() == 'Windows' else 1)
                 logger.debug("Calling kill")
-                self.process.kill()
-                self.process.wait(timeout=1)
+                utils.kill_subprocess(self.process, timeout=timeout)
                 logger.debug("Kill returned")
                 logger.debug(f"Poll = {self.process.poll()}")
                 assert self.process.poll() is not None
-            # process = psutil.Process(self.process.pid)
-            # for proc in process.children(recursive=True):
-            #     proc.kill()
-            # process.kill()
-        logger.debug("Process closed")
-        if self.stderr_pipe is not None:
-            self.stderr_pipe.close()
-        if self.stderr_pipe is not None:
-            self.stderr_pipe.close()
-        if self.context is not None:
-            self.context.destroy()
+            logger.debug("Process closed")
+        finally:
+            if self.stderr_pipe is not None:
+                self.stderr_pipe.close()
+            if self.stderr_pipe is not None:
+                self.stderr_pipe.close()
+            # if self.context is not None:
+            #     self.context.destroy()
         if self._status != "error":
             self.context = None
             self.socket = None
@@ -2366,56 +2576,75 @@ class ApsimXEngine(CropModelEngine):
             error_cls = ModelEngineError
         return error_cls
 
-    def _get(self, name: str):
+    def _get(self, name: str | list):
         r"""Send a request to get the current value of a simulation state
         variable.
 
         Args:
-            name: Name of variable to get the value of.
+            name: Name(s) of variable to get the value of.
 
         Returns:
             object: Current variable value.
 
         """
         reply = None
+        expect_list = isinstance(name, list)
+        orig_names = (name if isinstance(name, list) else [name])
+        names = []
         try:
-            name = self.model._get_internal_name(name)
+            for name in orig_names:
+                name = self.model._get_internal_name(name)
+                names.append(name)
         except KeyError as e:
             raise InvalidActionError(e)
-        self.send_command("get", [name])
+        self.send_command("get", names)
         reply = self.recv_reply(unpack=True)
         if reply in self.ERROR_MESSAGES:
             raise self._reply_error(reply)(
                 f"get for \"{name}\" received error reply "
                 f"\"{reply}\""
             )
-        if isinstance(reply, msgpack.ext.Timestamp):
-            reply = reply.to_datetime().replace(tzinfo=None)
-        return reply
+        assert isinstance(reply, list) and len(reply) == len(names)
+        out = {}
+        for k, v in zip(orig_names, reply):
+            if isinstance(v, msgpack.ext.Timestamp):
+                v = v.to_datetime().replace(tzinfo=None)
+            out[k] = v
+        if not expect_list:
+            return out[orig_names[0]]
+        return out
 
-    def _set(self, name: str, value):
-        r"""Send a request to set a simulation state variable.
+    def _set(self, name: str | dict, value: Any = None) -> None:
+        r"""Send a request to set simulation state variable(s).
 
         Args:
             name: Name of the variable to update.
             value: New value for the named variable.
 
         """
+        if isinstance(name, dict):
+            values = name
+            assert value is None
+        else:
+            values = {name: value}
+        args = []
         try:
-            name = self.model._get_internal_name(name)
+            for name, value in values.items():
+                name = self.model._get_internal_name(name)
+                if isinstance(value, (datetime.datetime, datetime.date)):
+                    value = value.isoformat()
+                args += [name, value]
         except KeyError as e:
             raise InvalidActionError(e)
-        if isinstance(value, (datetime.datetime, datetime.date)):
-            value = value.isoformat()
-        self.send_command("set", [name, value])
+        self.send_command("set", args)
         reply = self.recv_reply()
         if reply != "ok":
             raise self._reply_error(reply)(
-                f"set for \"{name}\" received non-ok reply "
+                f"set for {values} received non-ok reply "
                 f"\"{reply}\""
             )
 
-    def _act(self, action: str, param: dict):
+    def _act(self, action: str | dict, param: dict = None) -> None:
         r"""Perform an action.
 
         Args:
@@ -2423,21 +2652,29 @@ class ApsimXEngine(CropModelEngine):
             param: Action parameters.
 
         """
-        args_flat = []
-        for k, v in param.items():
-            args_flat += [k, v]
-        logger.debug(f"_act: {[action] + args_flat}")
-        self.send_command("act", [action] + args_flat)
+        if isinstance(action, dict):
+            values = action
+            assert param is None
+        else:
+            values = {action: param}
+        args = []
+        for action, param in values.items():
+            args_flat = []
+            for k, v in param.items():
+                args_flat += [k, v]
+            args += [action] + args_flat
+        logger.debug(f"_act: {args}")
+        self.send_command("act", args)
         logger.debug("_act: recv_reply")
         reply = self.recv_reply()
         logger.debug(f"_act: recv_reply returned {reply}")
         if reply != "ok":
             raise self._reply_error(reply)(
-               f"act for \"{action}\" received non-ok reply "
+               f"act for {values} received non-ok reply "
                f"\"{reply}\""
             )
 
-    def resume(self, wait: Optional[bool] = False) -> None:
+    def _resume(self, wait: Optional[bool] = False) -> None:
         r"""Resume the simulation.
 
         Args:
@@ -2454,7 +2691,7 @@ class ApsimXLLMPromptGenerator(CropModelLLMPromptGenerator):
     r"""ApsimX LLM prompt generator."""
 
     # TODO: Verify units
-    DEFAULT_DESC_MAP = {
+    DEFAULT_DESC_MAP: ClassVar[dict] = {
         "[Clock].Today": (
             "Timeline", "Date/time"),
         "[CROP].LAI": (

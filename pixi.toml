@@ -4,15 +4,18 @@ version = "0.0.1"
 description = "Gym environment for reinforcement learning using process-based simulators like crop growth models"
 authors = ["Meagan Lang <langmm.astro@gmail.com>"]
 channels = ["conda-forge"]
-platforms = ["osx-64", "osx-arm64", "linux-64", "win-64"]
+platforms = ["osx-64", "osx-arm64", "linux-64", "linux-aarch64", "win-64"]
 
 [dependencies]
 python = ">=3.10,<3.15"
+fastapi = "*"
 gymnasium = "*"
 msgpack-python = "*"
 numpy = ">=1.13.0"
 pandas = "*"
+psutil = "*"
 pydantic = "*"
+pydantic-settings = "*"
 pyzmq = "*"
 requests = "*"
 
@@ -22,6 +25,7 @@ simulatr = { path = ".", editable = true }
 [feature.dev.dependencies]
 conda-index = "*"
 flake8 = "*"
+git-changelog = "*"
 myst-parser = "*"
 pytest = "*"
 pytest-cov = "*"
@@ -33,25 +37,34 @@ tox = "*"
 test = { cmd = "pytest", description = "Run the test suite" }
 lint = { cmd = "flake8 simulatr tests", description = "Lint the codebase" }
 docs = { cmd = "sphinx-build docs docs/_build", description = "Build the documentation" }
-build-conda = { cmd = "pixi publish --path recipe --target-dir build", description = "Build the conda package with pixi publish" }
+changelog = {
+    cmd = "git-changelog",
+    description = "Update the change log"
+}
+build-conda = {
+    cmd = "pixi publish --path recipe --target-dir build",
+    description = "Build the conda package with pixi publish"
+}
+build-docker-server = {
+    cmd = "docker build -f utils/Dockerfile.server --build-arg SIMULATOR={{ simulator }} -t {{ simulator }} .",
+    args = [
+      { arg = "simulator", default = "apsimx"},
+    ],
+    description = "Build a Docker image for launching a simulator server",
+}
+run-docker-server = {
+    cmd = "docker run -p {{ port }}:8000 {{ simulator }}",
+    args = [
+      { arg = "simulator", default = "apsimx"},
+      { arg = "port", default = "5000"},
+    ],
+    description = "Run a docker container launching a simulator server",
+}
 
 [feature.apsimx.dependencies]
 dotnet = ">=8.0.0,<9.0.0"
 gtk3 = "*"
-
-[feature.apsimx.tasks]
-install-apsimx = {
-    cmd = "python -m simulatr install apsimx --directory {{ directory }}",
-    args = [{ arg = "directory", default = "./models/apsimx" }],
-    description = "Install ApsimX from a local copy of the source code",
-}
-run-apsimx = {
-    cmd = "python -m simulatr run apsimx --crop-name {{ crop }}",
-    args = [
-        { arg = "crop", default = "Wheat" },
-    ],
-    description = "Run a simulation against a local ApsimX build",
-}
+git = "*"
 
 [feature.py310.dependencies]
 python = "3.10.*"
@@ -70,10 +83,10 @@ python = "3.14.*"
 
 [environments]
 default = []
-dev = ["dev"]
-apsimx = ["dev", "apsimx"]
 py310 = ["dev", "py310", "apsimx"]
 py311 = ["dev", "py311", "apsimx"]
 py312 = ["dev", "py312", "apsimx"]
 py313 = ["dev", "py313", "apsimx"]
 py314 = ["dev", "py314", "apsimx"]
+dev = ["dev", "py313", "apsimx"]
+prod = ["py313", "apsimx"]

@@ -29,7 +29,7 @@ console script:
 
 Both forms accept the same subcommands::
 
-   usage: simulatr [-h] {config,install,create,run} ...
+   usage: simulatr [-h] {config,install,create,run,serve,n8n} ...
 
 Overview
 ========
@@ -48,6 +48,10 @@ Overview
      - Create a simulator model input file.
    * - ``simulatr run``
      - Run a simulation.
+   * - ``simulatr serve``
+     - Launch one or more simulators as a FastAPI application.
+   * - ``simulatr n8n``
+     - Manage n8n tools that expose simulator endpoints.
 
 Configuration
 =============
@@ -82,29 +86,65 @@ The ``directories`` section supports the following options:
 * ``apsimx`` -- Directory containing the ApsimX installation.
 * ``nasa_power_weather_data`` -- Cache directory for downloaded NASA
   POWER weather data.
+* ``isric_soil_data`` -- Cache directory for downloaded ISRIC soil
+  data.
+* ``scratch`` -- Temporary directory for intermediate files generated
+  by the n8n tool utilities.
 
 .. _cli-install:
 
 Installing a simulator
 ======================
 
-``simulatr install apsimx`` installs ApsimX into the directory given by
-the ``apsimx`` configuration option (by default
-``./models/apsimx``), prompting for confirmation:
+``simulatr install`` installs one or more simulators. Without arguments
+every registered simulator is installed:
 
 .. code-block:: console
 
-   $ simulatr install apsimx
-   Install the apsimx model into ".../models/apsimx"? [Y/n]
+   $ simulatr install
 
-Use ``--directory`` to install into a different location and record it
-in the configuration at the same time:
+Select a specific simulator with ``--simulator``:
 
 .. code-block:: console
 
-   $ simulatr install apsimx --directory /Users/me/ApsimX
+   $ simulatr install --simulator apsimx
 
-If a valid installation already exists at the configured location, the
+Use ``--directory`` to install into a custom location and record it
+in the configuration at the same time. ``--directory`` cannot be used
+when more than one simulator is specified:
+
+.. code-block:: console
+
+   $ simulatr install --simulator apsimx --directory /Users/me/ApsimX
+
+Skip the confirmation prompt with ``--always-yes`` and force
+reinstallation of an already-installed simulator with ``--force``:
+
+.. code-block:: console
+
+   $ simulatr install --simulator apsimx --always-yes --force
+
+Arguments
+---------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--simulator SIM [SIM ...]``
+     - Simulator(s) to install. Defaults to all registered simulators.
+   * - ``--directory DIR``
+     - Custom install directory. Cannot be used with more than one
+       simulator.
+   * - ``--always-yes``
+     - Skip the confirmation prompt.
+   * - ``--force``
+     - Force reinstallation even if the simulator is already
+       installed.
+
+If a valid installation already exists at the configured location the
 command simply registers it and returns.
 
 Creating model input files
@@ -181,8 +221,9 @@ Running a simulation
 ====================
 
 ``simulatr run apsimx`` starts the ApsimX ZMQ server and runs a
-simulation. A working ApsimX installation is required (see
-:ref:`the install command <cli-install>` and the README).
+simulation using the ApsimX gymnasium environment. A working ApsimX
+installation is required (see :ref:`the install command <cli-install>`
+and the README).
 
 Run a simulation from a crop name:
 
@@ -196,22 +237,31 @@ Or from an existing model input file:
 
    $ simulatr run apsimx --model-file ./wheat.apsimx
 
-Setting the action timestep
----------------------------
+Running interactively
+---------------------
 
 By default the simulation runs continuously to completion
-(``--timestep 0``). A positive ``--timestep`` runs the simulation in
-daily steps and pauses for an action between steps:
+(``--timestep 0``). A positive ``--timestep`` pauses the simulation
+every ``timestep`` days and asks the user what action to take next. At
+each pause a prompt is generated from the current observation and the
+available actions:
 
 .. code-block:: console
 
    $ simulatr run apsimx --crop-name wheat --timestep 7
 
-Recording state variables
--------------------------
+The prompt describes the current state of the simulation and lists the
+available actions, along with the exact response format to use. Type
+your chosen action and press Enter. The response is parsed and applied
+to the simulation before it advances to the next step, for example::
 
-Use ``--state-variables`` to log the value of a set of simulation state
-variables at each step:
+   <answer>Apply 2 kg/ha of nitrogen fertilizer in the form of NO3</answer>
+
+Observations
+------------
+
+Use ``--state-variables`` to select which simulation state variables are
+included in the observation at each step:
 
 .. code-block:: console
 
@@ -223,10 +273,11 @@ variables at each step:
            "[Weather].Rain" \
            "[Soil].Water.PAW"
 
-The retrieved values are written to the engine's output file.
-
 Allowing actions
 ----------------
+
+The ``--actions`` option limits which interventions the user can choose
+from at each step:
 
 .. code-block:: console
 
@@ -247,3 +298,165 @@ The ``--log-level`` option controls the verbosity of logging and
 
    $ simulatr run apsimx --crop-name wheat \
        --log-file ./run.log --log-level DEBUG
+
+.. _cli-serve:
+
+Serving simulators
+==================
+
+``simulatr serve`` launches one or more simulators as a FastAPI web
+application. By default every installed simulator is exposed:
+
+.. code-block:: console
+
+   $ simulatr serve --simulator apsimx
+
+Select simulators explicitly with ``--simulator``, bind to a specific
+host and port, and optionally allow remote shutdown:
+
+.. code-block:: console
+
+   $ simulatr serve --simulator apsimx \
+       --host 0.0.0.0 --port 8000 \
+       --allow-shutdown
+
+Arguments
+---------
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--simulator SIM [SIM ...]``
+     - Simulator(s) to expose via REST endpoints. Defaults to all
+       installed simulators.
+   * - ``--port PORT``
+     - Port that the application is served on (default: ``5000``).
+   * - ``--host HOST``
+     - Host address to bind to (default: ``0.0.0.0``).
+   * - ``--log-file FILE``
+     - File to write log messages to.
+   * - ``--log-level LEVEL``
+     - Logging verbosity. Choices: ``NOTSET``, ``DEBUG``, ``INFO``,
+       ``WARNING``, ``ERROR``, ``CRITICAL`` (default: ``INFO``).
+   * - ``--allow-shutdown``
+     - Include a ``/shutdown`` endpoint that allows the client to
+       stop the server.
+
+.. _cli-n8n:
+
+n8n tools
+=========
+
+``simulatr n8n`` manages n8n workflow tools that wrap simulator REST
+APIs as web forms. A valid n8n API key must be available in the
+``X_N8N_API_KEY`` environment variable.
+
+.. code-block:: console
+
+   $ export X_N8N_API_KEY=<key>
+   $ simulatr n8n apsimx create --name start \
+       --publish-for-address <service-address>
+
+The ``SIMULATR_REMOTE_SERVER_ADDRESS`` environment variable is used as
+a fallback for the service address when ``--publish-for-address`` is
+not provided.
+
+Common arguments
+-----------------
+
+These arguments are available for every ``n8n`` subcommand
+(``create``, ``update``, ``remove``, ``query``):
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``simulator``
+     - Name of the simulator to manage tools for.
+   * - ``--name NAME [NAME ...]``
+     - Entry point(s) to act on. Choices: ``start``,
+       ``start-interactive``. Defaults to both entry points if not
+       specified.
+   * - ``--toolname NAME``
+     - Explicit name of the n8n tool. When provided for ``query`` or
+       ``remove``, ``--name`` is not required.
+   * - ``--output-tool FILE``, ``--output FILE``
+     - Output the tool summary to a JSON file. With no value, a
+       default filename is used.
+   * - ``--verbose``
+     - Print every REST API request and response.
+
+create
+------
+
+Creates a new n8n tool. Additional arguments:
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--publish-for-address ADDR``
+     - Base address of the simulator service the tool should call.
+   * - ``--overwrite``
+     - Remove any existing tool before creating the new one.
+   * - ``--update``
+     - Update the existing tool instead of failing when a tool with
+       the same name already exists.
+   * - ``--output-request [FILE]``
+     - Output the tool creation request to a JSON file.
+   * - ``--output-form [FILE]``
+     - Output the form definition to a JSON file.
+   * - ``--dry-run``
+     - Print requests instead of performing them.
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx create --name start \
+       --publish-for-address https://server.example.com \
+       --overwrite
+
+update
+------
+
+Updates an existing n8n tool. Accepts the same additional arguments
+as ``create`` above. The ``--update`` flag is set automatically
+so an existing tool is required:
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx update --name start \
+       --publish-for-address https://server.example.com
+
+remove
+------
+
+Removes an existing n8n tool. Additional arguments:
+
+.. list-table::
+   :widths: 30 70
+   :header-rows: 1
+
+   * - Flag
+     - Description
+   * - ``--dry-run``
+     - Print requests instead of performing them.
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx remove --name start
+
+query
+-----
+
+Queries the n8n service for tools matching a given name:
+
+.. code-block:: console
+
+   $ simulatr n8n apsimx query --name start

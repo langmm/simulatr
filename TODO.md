@@ -1,12 +1,20 @@
 # To do
 
-- [ ] Verify that tests pass on CI
-- [ ] Publish to PyPI
-- [ ] Publish to conda-forge
-- [ ] Update run CLI to use env
+## General
+
 - [ ] Add soil file parsing
-- [ ] Add human readable prompt for CLI
-- [ ] Add engine methods that can serve as decorators to add endpoints to a fastapi application
-- [ ] Move n8n server into this repo or its own?
-- [ ] Update n8n tool to use this repo
-- [ ] Redeploy
+- [ ] Improve human readable prompt for CLI and fix set/get description
+
+## Server
+
+### Short term
+
+- [ ] Mark file parameters with os.PathLike
+- [ ] Handle file uploads in n8n form generation (weather, soil, model files)
+- [ ] Add bearer token authentication when using pod deployment & redeploy since the pod deployment does not seem to implement beam bearer credential
+
+### Long term
+
+- [ ] Improved documentation
+- [ ] Endpoint for getting a list of state variables (this would require parsing C# files)
+- [ ] Auto test API examples/defaults

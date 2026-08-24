@@ -1,0 +1,16 @@
+{
+    "$type": "Models.Surface.SurfaceOrganicMatter, Models",
+    "SurfOM": [],
+    "Canopies": [],
+    "InitialResidueName": "wheat_stubble",
+    "InitialResidueType": "wheat",
+    "InitialResidueMass": 500.0,
+    "InitialStandingFraction": 0.0,
+    "InitialCPR": 0.0,
+    "InitialCNR": 100.0,
+    "Name": "SurfaceOrganicMatter",
+    "ResourceName": "SurfaceOrganicMatter",
+    "Children": [],
+    "Enabled": true,
+    "ReadOnly": false
+}

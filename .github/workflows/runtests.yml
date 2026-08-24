@@ -1,13 +1,9 @@
 name: Run tests
 
 on:
-  release:
-    types: [created]
   push:
     branches-ignore:
      - gh-pages
-    tags:
-     - '*'
   schedule:
     - cron: 0 10 * * 1  # 3AM PST
   workflow_dispatch:
@@ -55,11 +51,11 @@ jobs:
       - uses: prefix-dev/setup-pixi@v0.10.0
         with:
           environments: ${{ matrix.pixi-environment }}
-      - name: Install apsimx
-        run: pixi run -e ${{ matrix.pixi-environment }} install-apsimx
+      - name: Install simulators
+        run: pixi run -e ${{ matrix.pixi-environment }} python -m simulatr install
       - name: Run tests
         run: pixi run -e ${{ matrix.pixi-environment }} test -sv --log-cli-level=DEBUG
-        timeout-minutes: 2
+        timeout-minutes: 5
 
   docs:
     name: Build the docs

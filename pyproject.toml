@@ -15,11 +15,14 @@ dynamic = [
   "readme",
 ]
 dependencies = [
+    "fastapi",
     "gymnasium",
     "msgpack",
     "numpy>=1.13.0",
     "pandas",
+    "psutil",
     "pydantic",
+    "pydantic-settings",
     "pyzmq",
     "requests",
 ]
@@ -55,16 +58,17 @@ requires-python = ">= 3.10"
 simulatr = "simulatr.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/langmm/ApsimX"
-Documentation = "https://github.com/langmm/ApsimX"
-Repository = "https://github.com/langmm/ApsimX"
-Issues = "https://github.com/langmm/ApsimX/issues"
-Changelog = "https://github.com/langmm/ApsimX/blob/main/ApsimXGym/HISTORY.rst"
+Homepage = "https://github.com/langmm/simulatr"
+Documentation = "https://github.com/langmm/simulatr"
+Repository = "https://github.com/langmm/simulatr"
+Issues = "https://github.com/langmm/simulatr/issues"
+Changelog = "https://github.com/langmm/simulatr/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
   'build',
   'flake8',
+  'git-changelog',
   'myst-parser',
   'pytest',
   'pytest-cov',
@@ -108,7 +112,8 @@ filterwarnings = [
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:dateutil.*",
 ]
 markers = [
-  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "slow: marks tests as slow (enable with '--run-slow')",
+  "unstable: marks tests as being unstable (enable with --run-unstable)",
 ]
 addopts = ["-p", "pytest_cov"]
 
@@ -180,3 +185,9 @@ exclude = '''
 )/
 '''
 
+
+[tool.git-changelog]
+template = "keepachangelog"
+bump = "auto"
+output = "CHANGELOG.md"
+in-place = true

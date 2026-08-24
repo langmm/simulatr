@@ -6,8 +6,10 @@
    usage
    cli
    api
+   server
    dev
    models
+   history
 
 Indices and tables
 ==================

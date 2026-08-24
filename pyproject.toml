@@ -84,7 +84,6 @@ packages = ["simulatr"]
 simulatr = ["data/*"]
 
 [tool.setuptools_scm]
-root = ".."
 tag_regex = "^v(?P<version>[0-9]+\\.[0-9]+\\.[0-9]+)$"
 # scm.git.pre_parse = "fail_on_shallow"
 # version_scheme = "only-version"
@@ -93,7 +92,7 @@ scm.git.describe_command = ["git", "describe", "--tags", "--long", "--match", "v
 version_file = "simulatr/_version.py"
 
 [tool.setuptools.dynamic]
-readme = {file = ["README.md", "HISTORY.rst"]}
+readme = {file = ["README.md", "CHANGELOG.md"]}
 
 [tool.flake8]
 max-line-length = 88

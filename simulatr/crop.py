@@ -260,54 +260,39 @@ class CropModelEngine(BaseModelEngine):
         self.sync_param(["start_time", "end_time", "year"],
                         dont_update=True, required=True)
         self.sync_param("weather_file", dont_update=True)
-        download_weather_file = False
         if ((self.weather_file and not os.path.isfile(self.weather_file)
              and os.path.basename(self.weather_file) == "Dalby.met")):
             self.weather_file = self.weather_file.replace(
                 "Dalby.met", "AU_Dalby.met")
-        if self.weather_file and not os.path.isfile(self.weather_file):
-            logger.info(
-                f"The specified weather file (\"{self.weather_file}\") "
-                f"does not exist. Weather data will be downloaded from "
-                f"{self.WEATHER_FILE_TYPE.base_cls().NAME}"
-            )
-            self.del_param("weather_file")
-            download_weather_file = True
-        elif self.weather_file:
-            weather_file = self.WEATHER_FILE_TYPE(self.weather_file)
-            latitude = self.get_param("latitude", None, skip_file=True)
-            longitude = self.get_param("longitude", None, skip_file=True)
-            if not weather_file.covers_location(
-                    latitude=latitude, longitude=longitude,
-                    start=self.start_time, end=self.end_time,
+        sync_called = False
+        for category, data_cls in [
+                ("weather", self.WEATHER_FILE_TYPE),
+                # TODO
+                # ("soil", self.SOIL_FILE_TYPE),
+        ]:
+            param = f"{category}_file"
+            fname = getattr(self, param)
+            if not (fname
+                    or self.has_param("latitude", skip_file=True)
+                    or self.has_param("longitude", skip_file=True)):
+                continue
+            if not sync_called:
+                self.sync_param(["latitude", "longitude"],
+                                dont_update=True, required=True)
+            if data_cls.check_file_coverage(
+                    fname,
+                    self.latitude, self.longitude,
+                    self.start_time, self.end_time,
             ):
-                logger.info(
-                    f"The provided weather file (valid for "
-                    f"{weather_file.start_date} to "
-                    f"{weather_file.end_date}, "
-                    f"latitude={weather_file.latitude}, "
-                    f"longitude={weather_file.longitude}) does not "
-                    f"cover the simulation range ({self.start_time} to "
-                    f"{self.end_time}, latitude={latitude}, "
-                    f"longitude={longitude}). "
-                    f"Weather data will be downloaded from "
-                    f"{self.WEATHER_FILE_TYPE.base_cls().NAME}"
-                )
-                self.del_param("weather_file")
-                download_weather_file = True
-        elif (self.has_param("latitude", skip_file=True)
-              or self.has_param("longitude", skip_file=True)):
-            download_weather_file = True
-        if download_weather_file:
-            self.sync_param(["latitude", "longitude"],
-                            dont_update=True, required=True)
-            self.weather_file = self.WEATHER_FILE_TYPE.fetch_data(
+                continue
+            self.del_param(param)
+            new_file = data_cls.fetch_data(
                 self.latitude, self.longitude,
                 self.start_time, self.end_time,
             )
+            setattr(self, param, new_file)
             logger.info(
-                f"Downloaded weather data: \"{self.weather_file}\"")
-        # TODO: Soil file?
+                f"Downloaded {category} data: \"{new_file}\"")
         if self.sow_date is not None:
             self.actions.pop("sow", None)
         if self.harvest_date is not None:

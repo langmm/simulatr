@@ -261,6 +261,9 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
         if new_contents is not None:
             self.contents = new_contents
             self._clear_cached_properties()
+        parent_dir = os.path.dirname(self.fname)
+        if parent_dir and not os.path.isdir(parent_dir):
+            os.mkdir(parent_dir)
         self._write(self.fname, self.contents)
         self.generated = True
 
@@ -490,6 +493,58 @@ class BaseDataFile(BaseFile):
         return instance.fname
 
     @classmethod
+    def check_file_coverage(
+            cls, fname: str,
+            latitude: float,
+            longitude: float,
+            start_date: Union[datetime.date, datetime.datetime] = None,
+            end_date: Union[datetime.date, datetime.datetime] = None
+    ) -> bool:
+        r"""Check if a file is valid for the given location & time.
+
+        Args:
+            fname: Path to file to check. If not provided and any of
+                the location or time parameters are, this method will
+                return False.
+            latitude: Location latitude (degrees).
+            longitude: Location longitude (degrees).
+            start_date: Starting date for data.
+            end_date: Ending date for data.
+
+        Returns:
+            bool: True if the file is valid, False otherwise.
+
+        """
+        if not any(x is not None for x in [fname, latitude, longitude]):
+            return True
+        src = (cls if cls.URL else cls.DEFAULT_EXTERNAL_TYPE)
+        if fname and os.path.isfile(fname):
+            instance = cls(fname)
+            if instance.covers_location(latitude, longitude,
+                                        start=start_date,
+                                        end=end_date):
+                return True
+            logger.info(
+                f"The provided {cls.CATEGORY} file (valid for "
+                f"time={(instance.start_date, instance.end_date)}, "
+                f"latitude={instance.latitude}, "
+                f"longitude={instance.longitude}) does not "
+                f"cover the required time/location ("
+                f"time={(start_date, end_date)}, "
+                f"latitude={latitude}, "
+                f"longitude={longitude}). "
+                f"{cls.CATEGORY.title()} data will be downloaded from "
+                f"{src.DESC}"
+            )
+        elif fname:
+            logger.info(
+                f"The specified {cls.CATEGORY} file (\"{fname}\") "
+                f"does not exist. {cls.CATEGORY.title()} data will be "
+                f"downloaded from {src.DESC}"
+            )
+        return False
+
+    @classmethod
     def from_location(
             cls, latitude: float, longitude: float,
             start_date: Union[datetime.date, datetime.datetime] = None,
@@ -622,8 +677,6 @@ class BaseDataFile(BaseFile):
         data = cls.download_data(latitude, longitude,
                                  start_date, end_date,
                                  parameters=parameters)
-        if not os.path.isdir(os.path.dirname(fname)):
-            os.mkdir(os.path.dirname(fname))
         out = cls(fname, contents=data)
         out.write()
         return out

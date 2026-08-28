@@ -56,7 +56,7 @@ class TestDataBase:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def get_example_data(cls, get_data_cls, args, data_dir):
+    def get_example_data(cls, get_data_cls, args):
 
         def _get_example_data(name, return_fname=False):
             data_cls = get_data_cls(name)
@@ -69,14 +69,9 @@ class TestDataBase:
             suffix = ""
             if data_cls.DEFAULT_EXTERNAL_TYPE is not None:
                 suffix = f"_from_{data_cls.DEFAULT_EXTERNAL_TYPE.NAME}"
-            if name == "HUMERIS":
-                fname = data_cls.DEFAULT_CACHE_DIR
-            else:
-                fname = data_cls.format_filename(
-                    *args, cache_dir=data_dir,
-                    suffix=suffix)
+            fname = data_cls.format_filename(*args, suffix=suffix)
             if not data_cls.path_exists(fname):
-                # # data_cls.from_location(*args, cache_dir=data_dir)
+                # # data_cls.from_location(*args)
                 # print(name, fname)
                 # import pdb; pdb.set_trace()
                 pytest.skip(f"No example data for {name}: {fname}")
@@ -129,19 +124,6 @@ class TestDataBase:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def cache_dir(cls, name):
-        r"""str: Directory for test data."""
-        name_dir = name.replace(" ", "_")
-        out = os.path.join(os.getcwd(), f"test_cache_{name_dir}")
-        assert not os.path.exists(out)
-        try:
-            os.mkdir(out)
-            yield out
-        finally:
-            shutil.rmtree(out)
-
-    @pytest.fixture(scope="class")
-    @classmethod
     def args(cls, latitude, longitude, start_date, end_date):
         r"""tuple: Instance arguments."""
         return (latitude, longitude, start_date, end_date)
@@ -155,31 +137,33 @@ class TestDataBase:
 class TestDataDownload(TestDataBase):
     r"""Test base class for download."""
 
-    @pytest.fixture(scope="class")
+    @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def cache_dir(cls, name):
-        r"""str: Directory for test data."""
+    def using_temp_dir(cls, category, name):
         name_dir = name.replace(" ", "_")
-        out = os.path.join(os.getcwd(), f"test_cache_{name_dir}")
-        assert not os.path.exists(out)
+        temp_dir = os.path.join(os.getcwd(), f"test_cache_{name_dir}")
+        assert not os.path.exists(temp_dir)
         try:
-            os.mkdir(out)
-            yield out
+            os.mkdir(temp_dir)
+            with pytest.MonkeyPatch.context() as mp:
+                for k, v in FileMeta.get_registry(category).items():
+                    mp.setattr(v, "DEFAULT_CACHE_DIR", temp_dir)
+                yield
         finally:
-            shutil.rmtree(out)
+            shutil.rmtree(temp_dir)
 
     @pytest.mark.download
-    def test_download(self, data_cls, args, cache_dir):
+    def test_download(self, data_cls, args):
         r"""Test download."""
         if data_cls.URL is None:
             pytest.skip(f"Cannot download {data_cls.DESC} "
                         f"{data_cls.CATEGORY} data")
         # print("DOWNLOAD", data_cls.NAME, data_cls.PYTEST_MARKS)
         # import pdb; pdb.set_trace()
-        fname = data_cls.format_filename(*args, cache_dir=cache_dir)
+        fname = data_cls.format_filename(*args)
         assert not os.path.isfile(fname)
         try:
-            out = data_cls.from_location(*args, cache_dir=cache_dir)
+            out = data_cls.from_location(*args)
             assert out.fname == fname
             assert out.exists
             assert out.generated
@@ -198,13 +182,22 @@ class TestDataBaseNoDownload(TestDataBase):
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
+    def using_test_data(cls, category, data_dir):
+        with pytest.MonkeyPatch.context() as mp:
+            for k, v in FileMeta.get_registry(category).items():
+                if k != "HUMERIS":  # For local testing
+                    mp.setattr(v, "DEFAULT_CACHE_DIR", data_dir)
+            yield
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
     def download_disabled(cls, category):
 
         def fake_download_data(*args, **kwargs):
             raise RuntimeError("Download called")
 
         with pytest.MonkeyPatch.context() as mp:
-            for v in FileMeta.get_registry(category).values():
+            for k, v in FileMeta.get_registry(category).items():
                 mp.setattr(v, "download_and_save_data",
                            fake_download_data)
             yield
@@ -242,15 +235,12 @@ class TestDataBaseNoDownload(TestDataBase):
             if os.path.isfile(fname):
                 os.remove(fname)
 
-    def test_from_location(self, instance, data_cls, args, data_dir):
+    def test_from_location(self, instance, data_cls, args):
         r"""Check caching that a new file is not created."""
         assert data_cls.path_exists(instance.fname)
         assert instance.exists
         assert not instance.generated
-        if data_cls.NAME == "HUMERIS":
-            out = data_cls.from_location(*args)
-        else:
-            out = data_cls.from_location(*args, cache_dir=data_dir)
+        out = data_cls.from_location(*args)
         assert out.fname == instance.fname
 
     def test_covers_location(self, instance):

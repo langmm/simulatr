@@ -20,6 +20,7 @@ pydantic-settings = "*"
 pyzmq = "*"
 rasterio = "*"
 requests = "*"
+scipy = "*"
 
 [pypi-dependencies]
 simulatr = { path = ".", editable = true }

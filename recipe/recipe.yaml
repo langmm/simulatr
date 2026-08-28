@@ -29,6 +29,7 @@ requirements:
   run:
     - python >=${{ python_min }}
     - dotnet >=8.0.0,<9.0.0
+    - fastapi
     - gtk3
     - gymnasium
     - msgpack-python
@@ -37,7 +38,9 @@ requirements:
     - pydantic
     - pydantic-settings
     - pyzmq
+    - rasterio
     - requests
+    - scipy
 
 tests:
   - python:

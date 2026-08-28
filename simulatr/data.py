@@ -789,7 +789,7 @@ class BaseDataFile(BaseFile):
             return ((a[0] is None or a[0] == b)
                     and (a[1] is None or a[1] == b))
         elif not isinstance(b, tuple):
-            return (a is None or b is None or a == b)
+            return (a is None or b is None or np.allclose(a, b))
         if a is None or b == (None, None):
             return True
         if ((b[0] is not None
@@ -1333,7 +1333,7 @@ class SSURGOSoilFile(BaseSoilFile):
         return [x.tag for x in root[0][0][0][1][0][0]]
 
     @property
-    def data_frame(self):
+    def df(self):
         root = self.contents.getroot()
         data = {k: [] for k in self.parameters}
         for row in root[0][0][0][1][0]:

@@ -276,15 +276,16 @@ class CropModelEngine(BaseModelEngine):
                     or self.has_param("latitude", skip_file=True)
                     or self.has_param("longitude", skip_file=True)):
                 continue
-            if not sync_called:
-                self.sync_param(["latitude", "longitude"],
-                                dont_update=True, required=True)
             if data_cls.check_file_coverage(
                     fname,
-                    self.latitude, self.longitude,
+                    self.get_param("latitude", None, skip_file=True),
+                    self.get_param("longitude", None, skip_file=True),
                     self.start_time, self.end_time,
             ):
                 continue
+            if not sync_called:
+                self.sync_param(["latitude", "longitude"],
+                                dont_update=True, required=True)
             self.del_param(param)
             new_file = data_cls.fetch_data(
                 self.latitude, self.longitude,

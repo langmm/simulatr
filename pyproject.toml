@@ -27,6 +27,7 @@ dependencies = [
     "pyzmq",
     "rasterio",
     "requests",
+    "scipy",
 ]
 
 description = "Gym environment for reinforcement learning using ApsimX"

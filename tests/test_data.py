@@ -1,26 +1,47 @@
 import os
 import uuid
 import shutil
+import datetime
 from typing import Optional
 import pytest
 from simulatr.data import FileMeta
+from simulatr.utils import promptuser_boolean
+
+
+_select_classes = {}
+_create_data = False
 
 
 def _get_pytest_param(category: str,
                       for_download: Optional[bool] = False):
+    classes = FileMeta.get_registry(category)
+    if _select_classes.get(category, None):
+        classes = {k: classes[k] for k in _select_classes[category]}
     return [
         pytest.param(k, marks=[
             getattr(pytest.mark, kmark) for kmark in v.PYTEST_MARKS
             if for_download or kmark != "slow"
         ])
         if v.PYTEST_MARKS else k
-        for k, v in FileMeta.get_registry(category).items()
-        if k is not None
+        for k, v in classes.items()
+        if k is not None and not v.DONT_TEST
     ]
 
 
 def parametrize_data(category: str,
                      for_download: Optional[bool] = False):
+    r"""Decorator for parametrize a test class for each registered
+    class of a given data category.
+
+    Args:
+        category: Data file category.
+        for_download: True if the class being decorated will perform
+            downloads.
+
+    Returns:
+        pytest.mark.parametrize decoration function.
+
+    """
     return pytest.mark.parametrize(
         "name", _get_pytest_param(category, for_download=for_download),
         indirect=True)
@@ -50,7 +71,12 @@ class TestDataBase:
             if name is None or category is None:
                 pytest.skip("Data file category or name not defined "
                             "(base class)")
-            return FileMeta.get_class(category, name)
+            out = FileMeta.get_class(category, name)
+            if not out.tools_installed():
+                pytest.skip(
+                    f"Not all of the required tools are "
+                    f"installed: {out.REQUIRED_OPTIONAL_PACKAGES}")
+            return out
 
         return _get_data_cls
 
@@ -66,14 +92,20 @@ class TestDataBase:
             if data_cls.STATIC_LOCATION_LIMITS is None and args[0] is None:
                 pytest.skip("Cannot create location specific file "
                             "without a specific location")
+            if data_cls.STATIC_DATE_LIMITS is None and args[2] is None:
+                pytest.skip("Cannot create time specific file "
+                            "without a specific location")
             suffix = ""
             if data_cls.DEFAULT_EXTERNAL_TYPE is not None:
                 suffix = f"_from_{data_cls.DEFAULT_EXTERNAL_TYPE.NAME}"
             fname = data_cls.format_filename(*args, suffix=suffix)
+            if _create_data and not data_cls.path_exists(fname):
+                if promptuser_boolean(
+                        f"Create data for {data_cls.DESC} "
+                        f"{data_cls.CATEGORY} file at {fname}?",
+                        _gha_default=False):
+                    data_cls.from_location(*args)
             if not data_cls.path_exists(fname):
-                # # data_cls.from_location(*args)
-                # print(name, fname)
-                # import pdb; pdb.set_trace()
                 pytest.skip(f"No example data for {name}: {fname}")
             if return_fname:
                 return fname
@@ -84,6 +116,7 @@ class TestDataBase:
     @pytest.fixture(scope="class")
     @classmethod
     def data_cls(cls, get_data_cls, name):
+        r"""type: Class being tested."""
         return get_data_cls(name)
 
     @pytest.fixture(scope="class")
@@ -108,9 +141,11 @@ class TestDataBase:
         r"""datetime.date: Start date."""
         if data_cls.STATIC_DATE_LIMITS is not None:
             return None  # data_cls.STATIC_DATE_LIMITS[0]
-        if data_cls.DEFAULT_DATE_RANGE is None:
+        if data_cls.DEFAULT_DATE_RANGE is not None:
+            return data_cls.DEFAULT_DATE_RANGE[0]
+        if data_cls.DEFAULT_EXTERNAL_TYPE:
             return data_cls.DEFAULT_EXTERNAL_TYPE.DEFAULT_DATE_RANGE[0]
-        return data_cls.DEFAULT_DATE_RANGE[0]
+        return datetime.date(year=2020, month=3, day=1)
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -118,9 +153,11 @@ class TestDataBase:
         r"""datetime.date: End date."""
         if data_cls.STATIC_DATE_LIMITS is not None:
             return None  # data_cls.STATIC_DATE_LIMITS[1]
-        if data_cls.DEFAULT_DATE_RANGE is None:
+        if data_cls.DEFAULT_DATE_RANGE is not None:
+            return data_cls.DEFAULT_DATE_RANGE[1]
+        if data_cls.DEFAULT_EXTERNAL_TYPE:
             return data_cls.DEFAULT_EXTERNAL_TYPE.DEFAULT_DATE_RANGE[1]
-        return data_cls.DEFAULT_DATE_RANGE[1]
+        return datetime.date(year=2020, month=11, day=30)
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -131,6 +168,7 @@ class TestDataBase:
     @pytest.fixture(scope="class")
     @classmethod
     def instance(cls, name, get_example_data):
+        r"""Test instance of the targeted class."""
         return get_example_data(name)
 
 
@@ -139,7 +177,7 @@ class TestDataDownload(TestDataBase):
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def using_temp_dir(cls, category, name):
+    def using_temp_dir(cls, category, name, data_dir):
         name_dir = name.replace(" ", "_")
         temp_dir = os.path.join(os.getcwd(), f"test_cache_{name_dir}")
         assert not os.path.exists(temp_dir)
@@ -197,9 +235,10 @@ class TestDataBaseNoDownload(TestDataBase):
             raise RuntimeError("Download called")
 
         with pytest.MonkeyPatch.context() as mp:
-            for k, v in FileMeta.get_registry(category).items():
-                mp.setattr(v, "download_and_save_data",
-                           fake_download_data)
+            if not _create_data:
+                for k, v in FileMeta.get_registry(category).items():
+                    mp.setattr(v, "download_and_save_data",
+                               fake_download_data)
             yield
 
     def test_attributes(self, instance, latitude, longitude,
@@ -322,6 +361,10 @@ class TestSoilBase(TestDataBaseNoDownload):
     @classmethod
     def name_compatible(cls, request):
         return request.param
+
+    def test_soil_attributes(self, instance):
+        r"""Test soil specific attributes."""
+        assert instance.depths
 
 
 @parametrize_data("soil", for_download=True)

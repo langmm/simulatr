@@ -821,7 +821,7 @@ class ApsimXSoilFile(BaseSoilFile):
     DESC: ClassVar[str] = "ApsimX Soil"
     # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = ISRICSoilGridsFile
     # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = SSURGOSoilFile
-    _default_ext: ClassVar[str] = ".soil.json"
+    _default_ext: ClassVar[str] = ".json"
     REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
         "isric_soil_data": [
             "bdod",  # Bulk density of the fine earth fraction
@@ -941,7 +941,7 @@ class ApsimXSoilFile(BaseSoilFile):
     def depths(self) -> list:
         r"""list: List of (start, end) depth pairs covered by this
         file."""
-        physical = self._child("Models.Soils.Physical")
+        physical = self._child("Models.Soils.Physical, Models")
         return self.node_depths(physical)
 
     def node_depths(self, node: ApsimXFileNode) -> list:
@@ -1415,8 +1415,7 @@ class ApsimXSoilFile(BaseSoilFile):
         longitude = src.longitude
         # TODO: Set thickness based on bottomdepth?
         thickness = 10 * [200.0]
-        df = src.df.drop_duplicates(subset=["hzdept_r"]).sort_values(
-            'hzdept_r', ascending=True)
+        df = src.df
 
         def column(name: str, factor: Optional[float] = 1.0,
                    dtype: Optional[type] = np.float16):

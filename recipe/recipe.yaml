@@ -29,18 +29,22 @@ requirements:
   run:
     - python >=${{ python_min }}
     - dotnet >=8.0.0,<9.0.0
+    - earthaccess
     - fastapi
     - gtk3
     - gymnasium
+    - h5py
     - msgpack-python
     - numpy
     - pandas
+    - psutil
     - pydantic
     - pydantic-settings
     - pyzmq
     - rasterio
     - requests
     - scipy
+    - timezonefinder
 
 tests:
   - python:

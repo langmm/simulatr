@@ -1,0 +1,56 @@
+{
+    "task_id": "0a249513-42aa-402a-80b8-2a0dbd34cde1",
+    "status": "downloaded",
+    "latitude": 40.116,
+    "longitude": -88.243,
+    "start_date": "2020-03-01",
+    "end_date": "2020-11-30",
+    "files": {
+        "files": [
+            {
+                "sha256": "fa38ef70a4ba8e9996d9404ec63cceb8fbdd79a43d6c940fc8abcc1948fbb6e9",
+                "file_id": "4aad659f-bb54-4c59-9134-bf333108e482",
+                "file_name": "SPL4SMGP-008-results.csv",
+                "file_size": 463006,
+                "file_type": "csv",
+                "s3_url": "s3://appeears-output/0a249513-42aa-402a-80b8-2a0dbd34cde1/SPL4SMGP-008-results.csv"
+            },
+            {
+                "sha256": "fe2f6268be0d87a868f334519a5f4cde2b9990381ec3ef61099b805ed6474367",
+                "file_id": "679389c1-5637-40ba-a94c-6c90f4ea3fa3",
+                "file_name": "granule-list.txt",
+                "file_size": 321200,
+                "file_type": "txt",
+                "s3_url": "s3://appeears-output/0a249513-42aa-402a-80b8-2a0dbd34cde1/granule-list.txt"
+            },
+            {
+                "sha256": "7243baeecc49668b6b9d8e6b6ad3ef952929f79ee7cf9f608bcce146c3e9b0ab",
+                "file_id": "1df5f7a9-b425-48e1-9634-2739709290dc",
+                "file_name": "request.json",
+                "file_size": 1957,
+                "file_type": "json",
+                "s3_url": "s3://appeears-output/0a249513-42aa-402a-80b8-2a0dbd34cde1/request.json"
+            },
+            {
+                "sha256": "da7f797f9701f0160bf0789cfeaa1411faa1852edae0f760158132bc4dc6db56",
+                "file_id": "9f30a419-db00-4445-bc62-5658e5411489",
+                "file_name": "SPL4SMGP-008-metadata.xml",
+                "file_size": 16694,
+                "file_type": "xml",
+                "s3_url": "s3://appeears-output/0a249513-42aa-402a-80b8-2a0dbd34cde1/SPL4SMGP-008-metadata.xml"
+            },
+            {
+                "sha256": "6b2af84d3ca0c1a3114efa5485a246ec318a4958ce4d59e22ffae914553ebd7b",
+                "file_id": "ef3a85dc-12a6-4e43-b026-bb2fb42d5db9",
+                "file_name": "README.md",
+                "file_size": 29050,
+                "file_type": "txt",
+                "s3_url": "s3://appeears-output/0a249513-42aa-402a-80b8-2a0dbd34cde1/README.md"
+            }
+        ],
+        "created": "2026-08-31T21:30:36.639577",
+        "task_id": "0a249513-42aa-402a-80b8-2a0dbd34cde1",
+        "updated": "2026-09-01T01:01:14.233406",
+        "bundle_type": "point"
+    }
+}

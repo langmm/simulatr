@@ -22,7 +22,8 @@ from pydantic.json_schema import SkipJsonSchema
 from pydantic_settings import CliSuppress
 from . import logger
 from .utils import (
-    promptuser, NoDefault, readonly_cached_property, CachedPropertyMixin
+    promptuser, promptuser_boolean, NoDefault, readonly_cached_property,
+    CachedPropertyMixin
 )
 from .data import BaseFile
 
@@ -1922,18 +1923,13 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 f"specified directory. "
             )
         if always_yes:
-            ans = "Y"
+            ans = True
         else:
-            ans = ""
-        while ans not in ["N", "Y"]:
-            ans = promptuser(
+            ans = promptuser_boolean(
                 f"{prefix}Install the {cls._MODEL_NAME} model into "
                 f"\"{model_dir}\"? [Y/n]",
-                _gha_default="Y")
-            if ans.upper() in ["N", "Y"]:
-                break
-            print(f"Invalid answer \"{ans}\". Please answer Y or N...")
-        if ans.upper() == "N":
+                _gha_default=True)
+        if not ans:
             raise RuntimeError(
                 f"{cls._MODEL_NAME} model required to proceed")
         cls._install(model_dir)

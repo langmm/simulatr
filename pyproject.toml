@@ -15,8 +15,10 @@ dynamic = [
   "readme",
 ]
 dependencies = [
+    "earthaccess",
     "fastapi",
     "gymnasium",
+    "h5py",
     "matplotlib",
     "msgpack",
     "numpy>=1.13.0",
@@ -28,6 +30,7 @@ dependencies = [
     "rasterio",
     "requests",
     "scipy",
+    "timezonefinder",
 ]
 
 description = "Gym environment for reinforcement learning using ApsimX"
@@ -112,6 +115,7 @@ filterwarnings = [
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:pytz.*",
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:pandas.*",
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:dateutil.*",
+  "ignore:((.|\n)*)will be accessed as an attribute((.|\n)*):FutureWarning:earthaccess.*",
 ]
 markers = [
   "slow: marks tests as slow (enable with '--run-slow')",

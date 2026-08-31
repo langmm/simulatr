@@ -7,15 +7,17 @@ import numpy as np
 import datetime
 import requests
 import contextlib
+import importlib
 from functools import cached_property
-from abc import ABC, abstractmethod
+from abc import ABC
 from typing import (
-    Optional, Union, List, Any, Tuple, ClassVar, Iterator, Callable
+    Optional, Union, List, Any, Tuple, ClassVar, Iterator, Callable,
+    Mapping
 )
 from . import logger
 from .utils import (
     cfg, NoDefault, create_registry_metaclass, readonly_cached_property,
-    CachedPropertyMixin
+    CachedPropertyMixin, promptuser_boolean
 )
 
 
@@ -34,6 +36,7 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
     EXAMPLE: ClassVar[str] = None
     _EXPECTS_DIRECTORY: ClassVar[bool] = False
     _default_ext: ClassVar[str] = ".json"
+    DONT_TEST: ClassVar[bool] = False
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -97,6 +100,9 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
         if cls._default_ext.endswith(".json"):
             with open(fname, "r") as fd:
                 return json.load(fd)
+        elif cls._default_ext.endswith(".csv"):
+            import pandas as pd
+            return pd.read_csv(fname)
         raise NotImplementedError  # pragma: no cover
 
     @classmethod
@@ -112,6 +118,11 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
             with open(fname, "w") as fd:
                 json.dump(contents, fd, indent=4)
                 fd.write("\n")
+            return
+        elif cls._default_ext.endswith(".csv"):
+            import pandas as pd
+            assert isinstance(contents, pd.DataFrame)
+            fd.to_csv(index=False)
             return
         raise NotImplementedError  # pragma: no cover
 
@@ -340,6 +351,7 @@ class BaseDataFile(BaseFile):
         # Min latitude, max latitude, min longitude, max longitude
         Tuple[float, float, float, float]] = (-90.0, 90.0, -180.0, 180.0)
     PYTEST_MARKS: ClassVar[List[str]] = []
+    REQUIRED_OPTIONAL_PACKAGES: ClassVar[List[str]] = []
 
     @staticmethod
     def _on_registration(cls):
@@ -364,6 +376,30 @@ class BaseDataFile(BaseFile):
                 )
 
     @classmethod
+    def tools_installed(cls) -> bool:
+        r"""bool: Check if the required Python packages are installed."""
+        for x in cls.REQUIRED_OPTIONAL_PACKAGES:
+            try:
+                importlib.import_module(x)
+            except ImportError:
+                return False
+        return True
+
+    @classmethod
+    def confirm_download(cls, prefix: Optional[str] = "",
+                         dont_raise: Optional[bool] = False) -> bool:
+        r"""Ask the user to confirm if download should proceed."""
+        out = promptuser_boolean(
+            f"{prefix}Are you sure you want to download {cls.DESC} data? "
+            f"This dataset can require a large amount of resources "
+            f"(time/memory).",
+            _gha_default=False
+        )
+        if (not dont_raise) and (not out):
+            raise RuntimeError("User declined download")
+        return out
+
+    @classmethod
     def time_specific(cls) -> bool:
         r"""bool: True if the class tracks time, False otherwise."""
         return (cls.STATIC_DATE_LIMITS is None)
@@ -375,45 +411,67 @@ class BaseDataFile(BaseFile):
         return (cls.STATIC_LOCATION_LIMITS is None)
 
     @property
-    @abstractmethod
     def parameters(self) -> list:
         r"""list: Set of parameters contained by this file."""
         raise NotImplementedError  # pragma: no cover
 
-    @property
-    @abstractmethod
+    @readonly_cached_property
     def latitude(self) -> float:
         r"""float: Latitude (degrees)."""
         if self.STATIC_LOCATION_LIMITS is not None:
             return self.STATIC_LOCATION_LIMITS[:2]
+        elif isinstance(self.contents, dict) and "latitude" in self.contents:
+            return self.contents["latitude"]
         raise NotImplementedError  # pragma: no cover
 
-    @property
-    @abstractmethod
+    @readonly_cached_property
     def longitude(self) -> float:
         r"""float: Longitude (degrees)."""
         if self.STATIC_LOCATION_LIMITS is not None:
             return self.STATIC_LOCATION_LIMITS[2:]
+        elif isinstance(self.contents, dict) and "longitude" in self.contents:
+            return self.contents["longitude"]
         raise NotImplementedError  # pragma: no cover
 
-    @property
+    @readonly_cached_property
     def start_date(self) -> datetime.date:
         r"""datetime.date: Start of range covered by the file."""
         if self.STATIC_DATE_LIMITS is not None:
             return self.STATIC_DATE_LIMITS[0]
+        elif isinstance(self.contents, dict) and "start_date" in self.contents:
+            out = self.contents["start_date"]
+            if isinstance(out, str):
+                out = datetime.date.fromisoformat(out)
+            return out
         raise NotImplementedError  # pragma: no cover
 
-    @property
+    @readonly_cached_property
     def end_date(self) -> datetime.date:
         r"""datetime.date: End of range covered by the file."""
         if self.STATIC_DATE_LIMITS is not None:
             return self.STATIC_DATE_LIMITS[1]
+        elif isinstance(self.contents, dict) and "end_date" in self.contents:
+            out = self.contents["end_date"]
+            if isinstance(out, str):
+                out = datetime.date.fromisoformat(out)
+            return out
         raise NotImplementedError  # pragma: no cover
+
+    @readonly_cached_property
+    def timezone(self):
+        r"""datetime.tzinfo: Timezone information for the location."""
+        import timezonefinder
+        import pytz
+        tf = timezonefinder.TimezoneFinder()
+        return pytz.timezone(tf.certain_timezone_at(
+            lat=np.mean(self.latitude), lng=np.mean(self.longitude)))
 
     @classmethod
     def _f2str(cls, x: Any) -> str:
         r"""Convert a value to a string for use in a file name."""
-        if isinstance(x, datetime.date):
+        if isinstance(x, datetime.datetime):
+            return x.date().isoformat()
+        elif isinstance(x, datetime.date):
             return x.isoformat()
         elif isinstance(x, float):
             return str(x).replace(".", "p").replace("-", "n")
@@ -427,6 +485,22 @@ class BaseDataFile(BaseFile):
             return (cls._round_location(loc[0]),
                     cls._round_location(loc[1]))
         return loc
+
+    @classmethod
+    def _format_location(cls, latitude: float | Tuple[float, float],
+                         longitude: float | Tuple[float, float]):
+        latitude, longitude = cls._round_location((
+            latitude, longitude))
+        return f"{cls._f2str(latitude)}_{cls._f2str(longitude)}"
+
+    @classmethod
+    def _format_time(cls, start_date: Optional[datetime.date],
+                     end_date: Optional[datetime.date]):
+        return f"_{cls._f2str(start_date)}_to_{cls._f2str(end_date)}"
+
+    @classmethod
+    def _file_prefix(cls) -> str:
+        return f"{cls.NAME}_"
 
     @classmethod
     def format_filename(cls, latitude: float | Tuple[float, float],
@@ -453,11 +527,9 @@ class BaseDataFile(BaseFile):
 
         """
         cache_dir = cache_dir or cls.DEFAULT_CACHE_DIR
-        out = prefix
+        out = cls._file_prefix() + prefix
         if cls.location_specific():
-            latitude, longitude = cls._round_location((
-                latitude, longitude))
-            out += f"{cls._f2str(latitude)}_{cls._f2str(longitude)}"
+            out += cls._format_location(latitude, longitude)
         if cls.time_specific():
             if cls.DEFAULT_DATE_RANGE is not None:
                 start_date = start_date or cls.DEFAULT_DATE_RANGE[0]
@@ -465,7 +537,7 @@ class BaseDataFile(BaseFile):
             else:
                 assert start_date is not None
                 assert end_date is not None
-            out += f"_{cls._f2str(start_date)}_to_{cls._f2str(end_date)}"
+            out += cls._format_time(start_date, end_date)
         if suffix:
             out += suffix
         out += cls._default_ext
@@ -674,6 +746,8 @@ class BaseDataFile(BaseFile):
             BaseDataFile: File instance.
 
         """
+        if "slow" in cls.PYTEST_MARKS:
+            cls.confirm_download()
         data = cls.download_data(latitude, longitude,
                                  start_date, end_date,
                                  parameters=parameters)
@@ -848,7 +922,6 @@ class BaseDataFile(BaseFile):
         self.update_param(data)
         self.write(overwrite=True)
 
-    @abstractmethod
     def update_param(self, contents: Any) -> None:
         r"""Merge downloaded parameters into the current data.
 
@@ -887,7 +960,6 @@ class BaseWeatherFile(BaseDataFile):
     NAME: ClassVar[str] = None
 
     @property
-    @abstractmethod
     def dates(self) -> np.ndarray:
         r"""np.ndarray: Dates covered by this file."""
         raise NotImplementedError  # pragma: no cover
@@ -1021,7 +1093,6 @@ class BaseSoilFile(BaseDataFile):
         datetime.date(1, 1, 1), datetime.date.today())
 
     @property
-    @abstractmethod
     def depths(self) -> list:
         r"""list: List of (start, end) depth pairs covered by this
         file."""
@@ -1320,22 +1391,18 @@ class SSURGOSoilFile(BaseSoilFile):
             "latitude": str(latitude),
             "longitude": str(longitude),
         })
-        # out = ET.fromstring(req.content)
-        # out[0][0][0][1][0]
-        # Array of arrays of fields?
-        # import pdb; pdb.set_trace()
         return out
 
     @property
     def parameters(self) -> list:
         r"""list: Set of parameters contained by this file."""
-        root = self.contents.getroot()
-        return [x.tag for x in root[0][0][0][1][0][0]]
+        return list(self.df.columns)
 
-    @property
+    @readonly_cached_property
     def df(self):
+        r"""pandas.DataFrame: Data frame containing the data."""
         root = self.contents.getroot()
-        data = {k: [] for k in self.parameters}
+        data = {x.tag: [] for x in root[0][0][0][1][0][0]}
         for row in root[0][0][0][1][0]:
             for x in row:
                 if x.tag in self.STRING_FIELDS or x.text is None:
@@ -1344,6 +1411,8 @@ class SSURGOSoilFile(BaseSoilFile):
                     data[x.tag].append(float(x.text))
         import pandas as pd
         out = pd.DataFrame.from_dict(data)
+        out = out.drop_duplicates(subset=["hzdept_r"]).sort_values(
+            'hzdept_r', ascending=True)
         return out
 
     @property
@@ -1362,16 +1431,12 @@ class SSURGOSoilFile(BaseSoilFile):
     def depths(self) -> list:
         r"""list: List of (start, end) depth pairs covered by this
         file."""
-        raise NotImplementedError  # pragma: no cover
-
-    def update_param(self, contents: Any) -> None:
-        r"""Merge downloaded parameters into the current data.
-
-        Args:
-            contents: New data to incorporate.
-
-        """
-        raise NotImplementedError  # pragma: no cover
+        out = sorted([
+            (top, bottom) for top, bottom in
+            zip(self.df["hzdept_r"], self.df["hzdepb_r"])
+            if not (np.isnan(bottom) or np.isnan(top))
+        ])
+        return out
 
 
 class HUMERISSoilData(BaseSoilFile):
@@ -1404,6 +1469,10 @@ class HUMERISSoilData(BaseSoilFile):
     PYTEST_MARKS: ClassVar[List[str]] = ["slow"]
 
     @classmethod
+    def _file_prefix(cls) -> str:
+        return ""
+
+    @classmethod
     def download_and_save_data(
             cls, fname: str, *args: Any, **kwargs: Any
     ) -> "HUMERISSoilData":
@@ -1419,6 +1488,7 @@ class HUMERISSoilData(BaseSoilFile):
         """
         import urllib.request
         import zipfile
+        cls.confirm_download()
         fname_zip = f"{fname}.zip"
         pre_existing = os.path.isfile(fname_zip)
         if not pre_existing:
@@ -1471,14 +1541,700 @@ class HUMERISSoilData(BaseSoilFile):
     def depths(self) -> list:
         r"""list: List of (start, end) depth pairs covered by this
         file."""
-        # TODO: What is this?
-        return [(0, 0)]
+        return [(0, 30)]
 
-    def update_param(self, contents: Any) -> None:
-        r"""Merge downloaded parameters into the current data.
+
+class EarthDataAuth(CachedPropertyMixin):
+    r"""Wrapper class for handling authentication for NASA data products
+    through earthaccess."""
+
+    _global_auth = None
+
+    def __init__(self, *args, **kwargs):
+        import earthaccess
+        self.earthaccess = earthaccess
+        super().__init__(*args, **kwargs)
+        self.ea_auth  # Ensure its created via login
+
+    @classmethod
+    def get_global_earthaccess(cls):
+        r"""Get the global earthaccess import."""
+        return cls.get_global_auth().earthaccess
+
+    @classmethod
+    def get_global_auth(cls) -> "EarthDataAuth":
+        r"""Get the global authentication instance."""
+        if cls._global_auth is None:
+            cls._global_auth = cls()
+        return cls._global_auth
+
+    @readonly_cached_property
+    def ea_auth(self):
+        r"""earthaccess.auth.Auth: Authentication instance."""
+        return self.earthaccess.login()
+
+    @property
+    def username(self) -> str:
+        r"""str: User name."""
+        return self.ea_auth.username
+
+    @property
+    def password(self) -> str:
+        r"""str: Password."""
+        return self.ea_auth.password
+
+    @property
+    def token(self) -> str:
+        r"""str: Bearer authentication token."""
+        return self.ea_auth.token
+
+    @property
+    def auth(self):
+        r"""tuple: Username and password."""
+        if self.username and self.password:
+            return (self.username, self.password)
+        return None
+
+    def get_session(self) -> requests.Session:
+        r"""Get a requests session with the authentication in effect."""
+        out = requests.Session()
+        if self.auth:
+            out.auth = self.auth
+        if self.token:
+            out.headers["Authorization"] = (
+                f"Bearer {self.token['access_token']}")
+        return out
+
+
+class EarthDataAppEEARSToken(CachedPropertyMixin):
+    r"""Wrapper class for handling NASA AppEEARS authentication that
+    caches a bearer authentication token and renews it once it expires."""
+
+    URL: ClassVar[str] = (
+        "https://appeears.earthdatacloud.nasa.gov/api/login"
+    )
+    _global_auth = None
+
+    def __init__(self, fname: str = None) -> None:
+        r"""Create a new instance.
 
         Args:
-            contents: New data to incorporate.
+            fname: File where authentication token should be loaded from
+                or saved to for reuse.
 
         """
-        raise NotImplementedError  # pragma: no cover
+        if fname is None:
+            fname = os.path.join(os.getcwd(),
+                                 "earthdata_appeears_token.json")
+        self.fname: str = fname
+        self._token: Mapping[str, str] | None = None
+
+    @classmethod
+    def get_global_auth(cls) -> "EarthDataAppEEARSToken":
+        r"""Get the global authentication instance."""
+        if cls._global_auth is None:
+            cls._global_auth = cls()
+        return cls._global_auth
+
+    @classmethod
+    def get_global_session(cls, session: Optional[requests.Session] = None):
+        r"""Get a global requests session with the global authentication
+        in effect.
+
+        Args:
+            session: Existing session to use if provided.
+
+        """
+        if session is not None:
+            return session
+        return cls.get_global_auth().get_session()
+
+    @property
+    def token(self):
+        r"""dict: Bearer token."""
+        if self._token is None and os.path.isfile(self.fname):
+            with open(self.fname, 'r') as fd:
+                self._token = json.load(fd)
+        if self._token is not None:
+            texp = datetime.datetime.fromisoformat(
+                self._token["expiration"])
+            if texp > datetime.datetime.now(texp.tzinfo):
+                return self._token
+        logger.info("Creating a new AppEEARS bearer token")
+        ea_auth = EarthDataAuth.get_global_auth()
+        kws = {
+            "headers": {"Content-Length": 0},
+        }
+        with ea_auth.get_session() as s:
+            req = s.post(
+                "https://appeears.earthdatacloud.nasa.gov/api/login",
+                **kws
+            )
+        req.raise_for_status()
+        self._token = req.json()
+        with open(self.fname, 'w') as fd:
+            json.dump(self._token, fd)
+        return self._token
+
+    def get_session(self) -> requests.Session:
+        r"""Get a requests session with the authentication in effect."""
+        out = requests.Session()
+        out.headers["Authorization"] = (
+            f"{self.token['token_type']} {self.token['token']}")
+        return out
+
+
+class NASAAppEEARSData(BaseSoilFile):
+    r"""Wrapper for requesting data from the NASA AppEEARS REST API."""
+
+    NAME: ClassVar[str] = "AppEEARS"
+    DESC: ClassVar[str] = "NASA AppEEARS"
+    VERSION: ClassVar[str] = None
+    URL: ClassVar[str] = (
+        "https://appeears.earthdatacloud.nasa.gov/api")
+    STATIC_DATE_LIMITS: ClassVar[Tuple[datetime.date, datetime.date]] = None
+    DONT_TEST: ClassVar[bool] = True
+    PYTEST_MARKS: ClassVar[List[str]] = ["slow"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.exists:
+            self.complete_files()
+
+    @classmethod
+    def _file_prefix(cls) -> str:
+        return f"AppEEARS_{cls.NAME}_{cls.VERSION}_"
+
+    @property
+    def bundle_dir(self) -> str:
+        r"""str: Path to the directory containing downloaded results."""
+        return os.path.splitext(self.fname)[0] + "_results"
+
+    @readonly_cached_property
+    def df(self):
+        r"""pandas.DataFrame: Data frame containing the data."""
+        import pandas as pd
+        return pd.read_csv(os.path.join(
+            self.bundle_dir,
+            f"{self.NAME}-{self.VERSION}-results.csv"))
+
+    @readonly_cached_property
+    def metadata(self):
+        r"""xml.etree.ElementTree: Metadata associated with the results."""
+        import xml.etree.ElementTree as ET
+        fname = os.path.join(
+            self.bundle_dir,
+            f"{self.NAME}-{self.VERSION}-metadata.xml")
+        with open(fname, 'r') as fd:
+            return ET.parse(fd)
+
+    @property
+    def parameters(self) -> list:
+        r"""list: Set of parameters contained by this file."""
+        return list(self.df.columns)
+
+    @property
+    def status(self) -> str:
+        r"""str: Status of the task request."""
+        out = self.contents["status"]
+        if out in ["pending", "processing"]:
+            update = self.check_status(self.contents["task_id"])
+            if update != out:
+                self.contents["status"] = update
+                self.write(overwrite=True)
+                out = update
+        return out
+
+    @classmethod
+    def product(cls) -> str:
+        r"""str: Name of the product this class uses."""
+        return f"{cls.NAME}.{cls.VERSION}"
+
+    @classmethod
+    def products(cls) -> list:
+        r"""Get a list of products available via NASA AppEEARS"""
+        with EarthDataAppEEARSToken.get_global_session() as s:
+            return s.get(cls.URL + "/product").json()
+
+    @classmethod
+    def layers(cls, product: Optional[str] = None) -> dict:
+        r"""Get a list of layers available for a product on NASA AppEEARS"""
+        if product is None:
+            product = cls.product()
+        with EarthDataAppEEARSToken.get_global_session() as s:
+            return s.get(cls.URL + f"/product/{product}").json()
+
+    @classmethod
+    def download_data(
+            cls, latitude: float, longitude: float,
+            start_date: Optional[datetime.date] = None,
+            end_date: Optional[datetime.date] = None,
+            parameters: Optional[List[str]] = None,
+    ) -> dict:
+        r"""Use SDMTabularService to get SSURGO data via query.
+
+        Args:
+            fname: Path where the data should be saved.
+            latitude: Location latitude (degrees).
+            longitude: Location longitude (degrees).
+            start_date: Starting date for data [UNUSED].
+            end_date: Ending date for data [UNUSED].
+            parameters: Set of parameters to request.
+
+        Returns:
+            dict: JSON result.
+
+        """
+        task_name = os.path.splitext(
+            os.path.basename(cls.format_filename(
+                latitude, longitude,
+                start_date, end_date)))[0]
+        if parameters is None:
+            parameters = cls.DEFAULT_DOWNLOAD_PARAMETERS.copy()
+        task = {
+            "task_name": task_name,
+            "task_type": "point",
+            "params": {
+                "dates": [
+                    {
+                        "startDate": start_date.strftime("%m-%d-%Y"),
+                        "endDate": end_date.strftime("%m-%d-%Y"),
+                    },
+                ],
+                "layers": [],
+                "coordinates": [
+                    {
+                        "latitude": latitude,
+                        "longitude": longitude,
+                    }
+                ],
+            },
+        }
+        for parameter in parameters:
+            if isinstance(parameter, tuple):
+                task["params"]["layers"].append({
+                    "product": parameter[0],
+                    "layer": parameter[1],
+                })
+            else:
+                task["params"]["layers"].append({
+                    "product": cls.product(),
+                    "layer": parameter,
+                })
+        cls.confirm_download(
+            prefix=(
+                "AppEEARS tasks can take hours to complete so this "
+                "data will not be available immediately. "
+            )
+        )
+        with EarthDataAppEEARSToken.get_global_session() as s:
+            req = s.post(cls.URL + "/task", json=task)
+            req.raise_for_status()
+            out = req.json()
+        # This is the task_id for the test task
+        # out = {
+        #     "task_id": "0a249513-42aa-402a-80b8-2a0dbd34cde1",
+        #     "status": "pending",
+        # }
+        out.update(
+            latitude=latitude,
+            longitude=longitude,
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+        )
+        return out
+
+    @classmethod
+    def check_status(cls, task_id: str,
+                     session: Optional[requests.Session] = None) -> str:
+        r"""Check the status of an AppEEARS task.
+
+        Args:
+            task_id: Task ID string.
+            session: Requests session to reuse.
+
+        Returns:
+            str: Status string.
+
+        """
+        with EarthDataAppEEARSToken.get_global_session(session) as s:
+            req = s.get(cls.URL + f"/task/{task_id}")
+            contents = req.json()
+            return contents["status"]
+
+    @classmethod
+    def bundle_files(cls, task_id: str,
+                     session: Optional[requests.Session] = None) -> dict:
+        r"""Get a record of the files generated by a task.
+
+        Args:
+            task_id: Task ID string.
+            session: Requests session to reuse.
+
+        Returns:
+            dict: Task file summary.
+
+        """
+        with EarthDataAppEEARSToken.get_global_session(session) as s:
+            req = s.get(cls.URL + f"/bundle/{task_id}")
+            req.raise_for_status()
+            return req.json()
+
+    @classmethod
+    def download_files(cls, task_id: str, dst: str,
+                       bundle: Optional[dict] = None,
+                       session: Optional[requests.Session] = None) -> None:
+        r"""Download files produced by an AppEEARS task.
+
+        Args:
+            task_id: Task ID string.
+            dst: Directory where files should be downloaded to.
+            bundle: Pre-requested information about the files resulting
+                from an AppEEARS task.
+            session: Requests session to reuse.
+
+        """
+        cls.confirm_download()
+        os.makedirs(dst, exist_ok=True)
+        with EarthDataAppEEARSToken.get_global_session(session) as s:
+            if bundle is None:
+                bundle = cls.bundle_files(task_id, session=s)
+            else:
+                assert bundle["task_id"] == task_id
+            for finfo in bundle["files"]:
+                file_id = finfo["file_id"]
+                fpath = os.path.join(dst, finfo["file_name"])
+                if os.path.isfile(fpath):
+                    continue
+                req = s.get(cls.URL + f"/bundle/{task_id}/{file_id}",
+                            allow_redirects=True,
+                            stream=True)
+                with open(fpath, 'wb') as fd:
+                    for data in req.iter_content(chunk_size=8192):
+                        fd.write(data)
+
+    def complete_files(self) -> None:
+        r"""Download the individual files for the required times/dates
+        if they are available and have not been downloaded."""
+        if self.status in ["pending", "processing"]:
+            raise RuntimeError("Task has not finished running so "
+                               "the file are not available")
+        if self.status == "downloaded":
+            return
+        task_id = self.contents["task_id"]
+        if "files" not in self.contents:
+            self.contents["files"] = self.bundle_files(task_id)
+            self.write(overwrite=True)
+        self.download_files(task_id, self.bundle_dir,
+                            bundle=self.contents["files"])
+        self.contents["status"] = "downloaded"
+        self.write(overwrite=True)
+
+
+class SPL4SMGPData(NASAAppEEARSData):
+    r"""Wrapper for requesting SMAP L4 data from the NASA AppEEARS REST
+    API."""
+
+    NAME: ClassVar[str] = "SPL4SMGP"
+    DESC: ClassVar[str] = "SMAP L4 Soil Moisture Geophysical"
+    VERSION: ClassVar[str] = "008"
+    DEFAULT_DOWNLOAD_PARAMETERS: ClassVar[List[str]] = [
+        "Geophysical_Data_land_evapotranspiration_flux",
+        "Geophysical_Data_land_fraction_saturated",
+        "Geophysical_Data_land_fraction_wilting",
+        "Geophysical_Data_leaf_area_index",
+        "Geophysical_Data_mwrtm_vegopacity",
+        "Geophysical_Data_sm_profile",
+        "Geophysical_Data_sm_profile_pctl",
+        "Geophysical_Data_sm_profile_wetness",
+        "Geophysical_Data_sm_rootzone",
+        "Geophysical_Data_sm_rootzone_pctl",
+        "Geophysical_Data_sm_rootzone_wetness",
+        "Geophysical_Data_sm_surface",
+        "Geophysical_Data_sm_surface_wetness",
+        "Geophysical_Data_soil_water_infiltration_flux",
+        "Geophysical_Data_vegetation_greenness_fraction",
+        "Geophysical_Data_surface_temp",
+        # "Geophysical_Data_soil_temp_layer1",
+        # ...
+        # "Geophysical_Data_soil_temp_layer6",
+    ]
+
+    @property
+    def depths(self) -> list:
+        r"""list: List of (start, end) depth pairs covered by this
+        file."""
+        # return [(0, 5)]  # cm, Surface measurements
+        return [(0, 100)]  # cm, Root zone measurements
+
+
+class EarthaccessData(BaseSoilFile):
+    r"""Wrapper for requesting data via earthaccess."""
+
+    NAME: ClassVar[str] = "earthaccess"
+    VERSION: ClassVar[str] = None
+    URL: ClassVar[str] = None
+    STATIC_DATE_LIMITS: ClassVar[Tuple[datetime.date, datetime.date]] = None
+    DONT_TEST: ClassVar[bool] = True
+    PYTEST_MARKS: ClassVar[List[str]] = ["slow"]
+    _default_ext: ClassVar[str] = ".json"
+    REQUIRED_OPTIONAL_PACKAGES: ClassVar[List[str]] = ["earthaccess"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.exists:
+            self.download_missing()
+            self.collect_parameters()
+
+    def collect_parameters(self):
+        r"""Collect parameters from each map for the selected location."""
+        if "parameters" in self.contents:
+            return
+        import h5py
+        self.contents["parameters"] = {}
+        for i, fname in enumerate(self.contents["files"]):
+            time = self.contents["granules"][i]["time"]
+            with h5py.File(fname, "r") as f:
+                lat_grid = f["cell_lat"][:]
+                lon_grid = f["cell_lon"][:]
+                # TODO: Handle lon/lat ranges?
+                dist = (
+                    (lat_grid - self.latitude) ** 2
+                    + (lon_grid - self.longitude) ** 2
+                )
+                x, y = np.unravel_index(np.argmin(dist), dist.shape)
+                self.contents["parameters"].setdefault("time", [])
+                self.contents["parameters"]["time"].append(time)
+                for k in f["Geophysical_Data"].keys():
+                    self.contents["parameters"].setdefault(k, [])
+                    self.contents["parameters"][k].append(
+                        float(f["Geophysical_Data"][k][x, y]))
+        assert self.contents["parameters"]
+        self.write(overwrite=True)
+
+    def download_missing(self):
+        r"""Download any missing files"""
+        if "parameters" in self.contents:
+            return
+        files = [
+            os.path.join(self.product_dir(), x["native-id"])
+            for x in self.contents["granules"]
+        ]
+        missing = [x for x in files if not os.path.isfile(x)]
+        # if "parameters" in self.contents:
+        #     assert not missing
+        if not missing:
+            return
+        self.confirm_download(
+            prefix=(
+                f"{len(missing)}/{len(self.contents['granules'])} "
+                f"granules need to be downloaded. "
+            ))
+        for x in missing:
+            self.download_granule(x)
+        self.contents["files"] = files
+        self.write(overwrite=True)
+
+    @classmethod
+    def product_name(cls) -> str:
+        r"""str: Underlying product name."""
+        # EA_ prefix is added to avoid conflict with AppEEARS classes
+        assert cls.NAME.startswith("EA_")
+        return cls.NAME[3:]
+
+    @classmethod
+    def product_dir(cls) -> str:
+        r"""str: Directory where downloaded products will be stored."""
+        return os.path.join(EarthaccessData.DEFAULT_CACHE_DIR,
+                            cls.product_name())
+
+    @readonly_cached_property
+    def df(self):
+        r"""pandas.DataFrame: Data frame containing the data."""
+        import pandas as pd
+        return pd.DataFrame.from_dict(self.contents["parameters"])
+
+    @property
+    def parameters(self) -> list:
+        r"""list: Set of parameters contained by this file."""
+        return list(self.df.columns)
+
+    @classmethod
+    def get_granule_time(
+            cls, x, timezone: Optional[datetime.tzinfo] = None
+    ) -> datetime.datetime:
+        times = x["umm"]["TemporalExtent"]["RangeDateTime"]
+        start = datetime.datetime.fromisoformat(
+            times["BeginningDateTime"])
+        end = datetime.datetime.fromisoformat(
+            times["EndingDateTime"])
+        if timezone is not None:
+            start = start.astimezone(timezone)
+            end = end.astimezone(timezone)
+        return start + (end - start) / 2.0
+
+    @classmethod
+    def download_data(
+            cls, latitude: float, longitude: float,
+            start_date: Optional[datetime.date] = None,
+            end_date: Optional[datetime.date] = None,
+            parameters: Optional[List[str]] = None,
+            temporal_resolution: Optional[int | datetime.timedelta] = 10,
+    ) -> dict:
+        r"""Use earthaccess to get SMAP L4 data. This requires that
+        EARTHDATA_USERNAME and EARTHDATA_PASSWORD provide the necessary
+        credentials.
+
+        Args:
+            latitude: Location latitude (degrees).
+            longitude: Location longitude (degrees).
+            parameters: Set of parameters to request.
+            start_date: Starting date for data [UNUSED].
+            end_date: Ending date for data [UNUSED].
+
+        Returns:
+            dict: JSON result.
+
+        """
+        if parameters is None:
+            parameters = cls.DEFAULT_DOWNLOAD_PARAMETERS.copy()
+        if isinstance(temporal_resolution, int):
+            temporal_resolution = datetime.timedelta(temporal_resolution)
+        assert temporal_resolution >= datetime.timedelta(1)
+        kws = {}
+        if isinstance(latitude, tuple) and isinstance(longitude, tuple):
+            kws["bounding_box"] = (
+                longitude[0], latitude[0],
+                longitude[1], latitude[1]
+            )
+        elif isinstance(latitude, tuple):
+            assert isinstance(longitude, float)
+            kws["line"] = [
+                (longitude, latitude[0]),
+                (longitude, latitude[1]),
+            ]
+        elif isinstance(longitude, tuple):
+            assert isinstance(latitude, float)
+            kws["line"] = [
+                (longitude[0], latitude),
+                (longitude[1], latitude),
+            ]
+        elif isinstance(latitude, list) and isinstance(longitude, list):
+            assert len(latitude) == len(longitude)
+            kws["line"] = list(zip(longitude, latitude))
+        elif isinstance(latitude, float) and isinstance(longitude, float):
+            kws["point"] = (longitude, latitude)
+        else:
+            raise NotImplementedError(f"latitude = {latitude}, "
+                                      f"longitude = {longitude}")
+        if start_date is not None or end_date is not None:
+            assert start_date is not None
+            assert end_date is not None
+            kws["temporal"] = (
+                start_date.isoformat(), end_date.isoformat()
+            )
+        EarthDataAuth.get_global_auth()
+        earthaccess = EarthDataAuth.get_global_earthaccess()
+        results = earthaccess.search_data(
+            short_name=cls.product_name(),
+            downloadable=True,
+            version=cls.VERSION,
+            **kws
+        )
+        # Downsample based on temporal_resolution to reduce the number of
+        #   files downloaded. The sample with the time closest to noon
+        #   on the downsampled date at the selected location will be
+        #   used.
+        import timezonefinder
+        import pytz
+        tf = timezonefinder.TimezoneFinder()
+        timezone = pytz.timezone(tf.certain_timezone_at(
+            lat=np.mean(latitude), lng=np.mean(longitude)))
+        start_noon = datetime.datetime(
+            start_date.year, start_date.month, start_date.day, 12, 0, 0,
+            tzinfo=timezone,
+        )
+        nstep = int((end_date - start_date) / temporal_resolution)
+        dates = (start_date + temporal_resolution * np.arange(nstep)).tolist()
+        dates.append(end_date)
+        results_grouped = {}
+        for x in results:
+            time = cls.get_granule_time(x, timezone)
+            offset = time - start_noon
+            idx = int(np.round(offset / temporal_resolution))
+            rem = abs(offset - (idx * temporal_resolution)).total_seconds()
+            date = dates[idx]
+            results_grouped.setdefault(date, [])
+            results_grouped[date].append((rem, time, x))
+        results_selected = [
+            min(results_grouped[k], key=lambda x: x[0])
+            for k in sorted(results_grouped.keys())
+        ]
+        assert len(results_selected) == len(dates)
+        out = {
+            "latitude": latitude,
+            "longitude": longitude,
+            "start_date": start_date.isoformat(),
+            "end_date": end_date.isoformat(),
+            "granules": [
+                dict(x[2]["meta"], time=x[1].isoformat())
+                for x in results_selected
+            ],
+        }
+        return out
+
+    @classmethod
+    def download_granule(cls, granule: dict) -> str:
+        r"""Download a data granule from NASA systems using earthaccess.
+
+        Args:
+            granule: Granule metadata.
+
+        Returns:
+            str: The file where the granule was saved.
+
+        """
+        if not os.path.isdir(cls.product_dir()):
+            os.mkdir(cls.product_dir())
+        fname = os.path.join(cls.product_dir(), granule["native-id"])
+        if os.path.isfile(fname):
+            return fname
+        logger.info(f"Downloading granule {fname}")
+        EarthDataAuth.get_global_auth()
+        earthaccess = EarthDataAuth.get_global_earthaccess()
+        results = earthaccess.search_data(
+            short_name=cls.product_name(),
+            granule_name=granule["native-id"],
+            version=cls.VERSION,
+            downloadable=True,
+        )
+        assert len(results) == 1
+        files = earthaccess.download(results, cls.product_dir())
+        assert len(files) == 1
+        assert str(files[0]) == fname
+        return fname
+
+
+class SMAPL4SoilData(EarthaccessData):
+    r"""Wrapper for loading soil data from SMAP L4 using earthaccess."""
+
+    NAME: ClassVar[str] = "EA_SPL4SMGP"
+    DESC: ClassVar[str] = "SMAP L4 Soil Moisture Geophysical"
+    VERSION: ClassVar[str] = "008"
+    URL: ClassVar[str] = "https://nsidc.org/data/spl4smgp/versions/8"
+    # STATIC_LOCATION_LIMITS: ClassVar[
+    #     # Min latitude, max latitude, min longitude, max longitude
+    #     Tuple[float, float, float, float]] = (
+    #         -85.044, 85.044, -180.0, 180.0
+    #     )
+    # DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = (
+    #     datetime.date(2015, 3, 31), datetime.date(2026, 5, 8))
+    DATE_LIMITS: ClassVar[Tuple[datetime.date, datetime.date]] = (
+        datetime.date(2015, 3, 31), datetime.date.today())
+
+    @property
+    def depths(self) -> list:
+        r"""list: List of (start, end) depth pairs covered by this
+        file."""
+        # return [(0, 5)]  # cm, Surface measurements
+        return [(0, 100)]  # cm, Root zone measurements

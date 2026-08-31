@@ -3,6 +3,9 @@ simulatr/_version.py
 
 # Generated directories
 HUMERIS
+apsimx_met
+ssurgo_soil_data
+tests/data/SPL4SMGP/
 isric_soil_data
 nasa_power_weather_data
 models

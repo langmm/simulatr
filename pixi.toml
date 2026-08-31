@@ -8,8 +8,10 @@ platforms = ["osx-64", "osx-arm64", "linux-64", "linux-aarch64", "win-64"]
 
 [dependencies]
 python = ">=3.10,<3.15"
+earthaccess = "*"
 fastapi = "*"
 gymnasium = "*"
+h5py = "*"
 matplotlib = "*"
 msgpack-python = "*"
 numpy = ">=1.13.0"
@@ -21,6 +23,7 @@ pyzmq = "*"
 rasterio = "*"
 requests = "*"
 scipy = "*"
+timezonefinder = "*"
 
 [pypi-dependencies]
 simulatr = { path = ".", editable = true }

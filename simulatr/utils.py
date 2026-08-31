@@ -154,7 +154,7 @@ def partialclone(repourl: str, dst: str = None,
     # pprint.pprint(sorted(glob.glob(os.path.join(dst, "*"))))
 
 
-def promptuser(prompt: str, _gha_default: str = ""):
+def promptuser(prompt: str, _gha_default: str = "") -> str:
     r"""Prompt for input from the user. Set to default if GITHUB_ACTIONS
     environment variable is set.
 
@@ -169,6 +169,30 @@ def promptuser(prompt: str, _gha_default: str = ""):
     if os.environ.get("GITHUB_ACTIONS", None):
         return _gha_default
     return input(prompt)
+
+
+def promptuser_boolean(prompt: str, _gha_default: bool = True) -> bool:
+    r"""Prompt for yes or no input from the user. Set to default if
+    GITHUB_ACTIONS environment variable is set.
+
+    Args:
+        prompt: Prompt to provide the user with.
+        _gha_default: Default when GITHUB_ACTIONS set.
+
+    Returns:
+        bool: User response.
+
+    """
+    if os.environ.get("GITHUB_ACTIONS", None):
+        return True
+    ans = ""
+    ans_yes = ["y", "yes"]
+    ans_all = ans_yes + ["n", "no"]
+    while ans.lower() not in ans_all:
+        ans = promptuser(f"{prompt} [Y/N] ")
+        if ans.lower() in ans_all:
+            return (ans.lower() in ans_yes)
+        print(f"Invalid answer \"{ans}\". Please answer Y or N...")
 
 
 class LogPipe(threading.Thread):
@@ -537,6 +561,11 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
                     namespace: Dict[str, Any], **kwargs: Any):
             cls = super().__new__(mcs, name, bases, namespace, **kwargs)
             mcs._register(cls)
+            if ((getattr(cls, "DONT_TEST", False)
+                 and "DONT_TEST" not in namespace)):
+                # Prevent inheritance so that this can be used for base
+                # classes that should not be tested directly
+                cls.DONT_TEST = False
             return cls
 
         @classmethod

@@ -32,7 +32,7 @@
         {
           "$type": "Models.Climate.Weather, Models",
           "ConstantsFile": null,
-          "FileName": "40p116_n88p243_1984-07-01_to_2026-05-08_from_nasa_power_weather_data.met",
+          "FileName": "apsimx_met_40p116_n88p243_1984-07-01_to_2026-05-08_from_nasa_power_weather_data.met",
           "ExcelWorkSheetName": "",
           "Name": "Weather",
           "ResourceName": null,

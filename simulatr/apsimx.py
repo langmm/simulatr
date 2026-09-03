@@ -14,7 +14,8 @@ from functools import cached_property
 from collections import OrderedDict
 import numpy as np
 from typing import (
-    Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar
+    Optional, Union, Any, List, Tuple, Callable, Iterator, ClassVar,
+    Mapping
 )
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
@@ -586,6 +587,31 @@ class ApsimXWeatherFile(BaseWeatherFile):
             "PRECTOTCORR",  # mm
         ],
     }
+    HEADER_PARAMETERS: ClassVar[List[str]] = [
+        "longitude", "latitude", "elevation",
+        "start_date", "end_date", "tav",
+    ]
+    PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
+        "radn": "MJ/m2/day",
+        "maxt": "oC",
+        "mint": "oC",
+        "rain": "mm",
+        "vp": "hPa",
+        "tav": "oC",
+        "amp": "oC",
+        "latitude": "decimal degrees",
+        "longitude": "decimal degrees",
+        "elevation": "m",
+    }
+    PARAMETER_ALIASES: ClassVar[Mapping[str, str]] = {
+        "radn": "radiation_surface",
+        "vp": "vapor_pressure",
+        "rain": "precipitation",
+        "tav": "temperature_avg",
+        "amp": "temperature_amp",
+        "maxt": "temperature_min",
+        "mint": "temperature_max",
+    }
     _power_names: ClassVar[dict] = {
         "radn": "ALLSKY_SFC_SW_DWN",
         "maxt": "T2M_MAX",
@@ -605,26 +631,54 @@ class ApsimXWeatherFile(BaseWeatherFile):
             -237.3 * np.log(vp / 6.108)
             / (np.log(vp / 6.108) - 17.27)),
     }
-    _units: ClassVar[dict] = {
-        "radn": "MJ/m^2",
-        "maxt": "oC",
-        "mint": "oC",
-        "rain": "mm",
-        "vp": "hPa",
-        "tav": "oC",
-        "amp": "oC",
-        "latitude": "decimal degrees",
-        "longitude": "decimal degrees",
-        "elevation": "m",
-    }
 
-    @property
-    def parameters(self) -> list:
+    @readonly_cached_property
+    def _internal_parameters(self) -> list:
         r"""list: Set of power parameters contained by this file."""
+        # TODO: Maybe constants should not be included here?
         return (
             list(self.contents["constants"].keys())
             + list(self.contents["columns"].columns)
         )
+
+    def _get(self, name: str):
+        r"""Get a parameter from the file.
+
+        Args:
+            name: Parameter name.
+
+        Returns:
+            Parameter value.
+
+        Raises:
+            KeyError: If name is not a valid parameter name.
+
+        """
+        if name == "start_date":
+            return min(self.dates).astype(datetime.date)
+        elif name == "end_date":
+            return max(self.dates).astype(datetime.date)
+        elif name in self.HEADER_PARAMETERS:
+            return self.contents["constants"][name]
+        return np.array(self.contents["columns"][name])
+
+    def _set(self, name: str, value: Any) -> Any:
+        r"""Set a parameter in the file.
+
+        Args:
+            name: Parameter name.
+            value: Parameter value.
+
+        Raises:
+            KeyError: If name is not a valid parameter name.
+
+        """
+        if name in ["start_date", "end_date"]:
+            raise RuntimeError(f"Cannot set {name} directly")
+        elif name in self.HEADER_PARAMETERS:
+            self.contents["constants"][name] = value
+            return
+        self.contents["columns"][name] = value
 
     @classmethod
     def _read(cls, fname: str):
@@ -719,7 +773,9 @@ class ApsimXWeatherFile(BaseWeatherFile):
         """
         import pandas as pd
         fill_value = float(src.contents["header"]["fill_value"])
-        out = {"units": cls._units.copy()}
+        # Units could maybe be taken from src, but then the format
+        # expected in .met files would need to be verified
+        out = {"units": cls.PARAMETER_UNITS.copy()}
         out["constants"] = {
             "latitude": src.latitude,
             "longitude": src.longitude,
@@ -842,11 +898,69 @@ class ApsimXSoilFile(BaseSoilFile):
             "wv1500",  # Volumetric water content at 1500 kPa (mm/mm)
         ]
     }
+    HEADER_PARAMETERS: ClassVar[List[str]] = [
+        "Latitude", "Longitude",
+    ]
+    PARAMETER_ALIASES: ClassVar[Mapping[str, str]] = {
+        "Latitude": "latitude",
+        "Longitude": "longitude",
+        "Thickness": "thickness",
+        "ParticleSizeSand": "sand",
+        "ParticleSizeSilt": "silt",
+        "ParticleSizeClay": "clay",
+        "Rocks": "rocks",
+        "BD": "bulk_density",
+        # "AirDry": "",
+        "LL15": "wilting_point",
+        "DUL": "dul",
+        "SAT": "sat",
+        "KS": "ksat",
+        "LL": "wilting_point",
+        # "KL": "",
+        # "XF": "",
+        # "SWCON": "",
+        "Carbon": "organic_carbon",
+        "SoilCNRatio": "",
+        # "FBiom": "",
+        # "FInert": "",
+        # "FOM": "",
+        "PH": "pH",
+        "CEC": "cec",
+    }
+    PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
+        "ParticleSizeSand": "%",
+        "ParticleSizeSilt": "%",
+        "ParticleSizeClay": "%",
+        "Rocks": "fraction",
+        "BD": "g/cm3",
+        "AirDry": "",
+        "LL15": "mm/mm",
+        "DUL": "mm/mm",
+        "SAT": "mm/mm",
+        "KS": "",
+        "LL": "",
+        "KL": "",
+        "XF": "",
+        "SWCON": "",
+        "Carbon": "%",
+        "SoilCNRatio": "",
+        "FBiom": "",
+        "FInert": "",
+        "FOM": "",
+        "PH": "",  # 1:5 water
+        "CEC": "cmol/kg",
+        "NO3": "ppm",
+        "NH4": "ppm",
+        "Urea": "kg/ha",
+    }
+    DEFAULT_MAX_DEPTH: ClassVar[float | None] = 200.0
+    DEFAULT_NLAYERS: ClassVar[float | None] = 10
     _layer_nodes: ClassVar[OrderedDict] = OrderedDict([
         # ("SoilPhysical", [
         ("Models.Soils.Physical, Models", [
             "ParticleSizeSand", "ParticleSizeSilt", "ParticleSizeClay",
             "Rocks", "BD", "AirDry", "LL15", "DUL", "SAT", "KS",
+            "Thickness",
         ]),
         # ("SoilCrop", [  # No thickness
         ("Models.Soils.SoilCrop, Models", [
@@ -855,6 +969,7 @@ class ApsimXSoilFile(BaseSoilFile):
         # ("SoilWaterBalance", [
         ("Models.WaterModel.WaterBalance, Models", [
             "SWCON",
+            "Thickness",
         ]),
         # ("SoilOrganic", [
         ("Models.Soils.Organic, Models", [
@@ -863,14 +978,17 @@ class ApsimXSoilFile(BaseSoilFile):
             "FBiom",
             "FInert",
             "FOM",
+            "Thickness",
         ]),
         # ("SoilChemical", [
         ("Models.Soils.Chemical, Models", [
             "PH", "CEC",
+            "Thickness",
         ]),
         # ("SoilSolute", [
         ("Models.Soils.Solute, Models", [
             "InitialValues",
+            "Thickness",
         ]),
     ])
 
@@ -938,53 +1056,57 @@ class ApsimXSoilFile(BaseSoilFile):
         )
 
     @readonly_cached_property
-    def depths(self) -> list:
-        r"""list: List of (start, end) depth pairs covered by this
-        file."""
-        physical = self._child("Models.Soils.Physical, Models")
-        return self.node_depths(physical)
-
-    def node_depths(self, node: ApsimXFileNode) -> list:
-        r"""list: List of (start, end) depth pairs covered by this node
-        (in cm)"""
-        out, start = [], 0
-        for thickness in node["Thickness"]:
-            end = start + thickness // 10  # mm -> cm
-            out.append((start, end))
-            start = end
-        return out
-
-    @classmethod
-    def depths2thickness(cls, depths: list) -> list:
-        r"""Convert a list of (start, end) depth pairs (in cm) to
-        thicknesses (in mm).
-
-        Args:
-            depths: (start, end) depth pairs (in cm).
-
-        Returns:
-            list: Thicknesses (in mm).
-
-        """
-        return [(end - start) * 10 for start, end in depths]
-
-    @property
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        return self.contents["Latitude"]
-
-    @property
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        return self.contents["Longitude"]
-
-    @readonly_cached_property
-    def parameters(self) -> list:
+    def _internal_parameters(self) -> list:
         r"""list: Set of soil parameters contained by this file."""
         out = []
-        for v in self._layer_nodes.values():
-            out += v
+        for node, param in self._layer_nodes.items():
+            out += [
+                k for k in param
+                if self._child(node).get(k, None) is not None
+            ]
         return out
+
+    def _get(self, name: str):
+        r"""Get a parameter from the file.
+
+        Args:
+            name: Parameter name.
+
+        Returns:
+            Parameter value.
+
+        Raises:
+            KeyError: If name is not a valid parameter name.
+
+        """
+        if name in self.HEADER_PARAMETERS:
+            return self.contents[name]
+        for node, param in self._layer_nodes.items():
+            if name in param:
+                return np.array(self._child(node)[name])
+        raise KeyError(name)
+
+    def _set(self, name: str, value: Any) -> Any:
+        r"""Set a parameter in the file.
+
+        Args:
+            name: Parameter name.
+            value: Parameter value.
+
+        Raises:
+            KeyError: If name is not a valid parameter name.
+
+        """
+        if name in self.HEADER_PARAMETERS:
+            self.contents[name] = value
+            return
+        match = False
+        for node, param in self._layer_nodes.items():
+            if name in param:
+                self._child(node)[name] = value
+                match = True
+        if not match:
+            raise KeyError(name)
 
     def update_param(self, contents: Any) -> None:
         r"""Merge downloaded parameters into the current data.
@@ -1401,11 +1523,11 @@ class ApsimXSoilFile(BaseSoilFile):
         return out.contents
 
     @classmethod
-    def _from_ssurgo_soil_data(cls, src: SSURGOSoilFile) -> dict:
+    def _from_ssurgo_soilgrids_data(cls, src: SSURGOSoilFile) -> dict:
         r"""Convert SSURGO data into the correct format for this file.
 
         Args:
-            src: SSURGO data.ISRIC SoilGrids data.
+            src: SSURGO data.
 
         Returns:
             dict: Converted data.

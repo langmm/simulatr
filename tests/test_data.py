@@ -87,12 +87,14 @@ class TestDataBase:
         def _get_example_data(name, return_fname=False):
             data_cls = get_data_cls(name)
             # TODO: Arguments for compatible class when this class
-            #   has STATIC_LOCATION_LIMITS, but the compatible class
+            #   has STATIC_PARAMETERS, but the compatible class
             #   does not. Raise error in from_compatible
-            if data_cls.STATIC_LOCATION_LIMITS is None and args[0] is None:
+            if (("latitude" not in data_cls.STATIC_PARAMETERS
+                 and args[0] is None)):
                 pytest.skip("Cannot create location specific file "
                             "without a specific location")
-            if data_cls.STATIC_DATE_LIMITS is None and args[2] is None:
+            if (("start_date" not in data_cls.STATIC_PARAMETERS
+                 and args[2] is None)):
                 pytest.skip("Cannot create time specific file "
                             "without a specific location")
             suffix = ""
@@ -123,24 +125,24 @@ class TestDataBase:
     @classmethod
     def latitude(cls, data_cls):
         r"""float: Test latitude."""
-        if data_cls.STATIC_LOCATION_LIMITS is not None:
-            return None  # data_cls.STATIC_LOCATION_LIMITS[:2]
-        return 40.116  # Limit of NASA POWER
+        if "latitude" in data_cls.STATIC_PARAMETERS:
+            return None  # data_cls.STATIC_PARAMETERS["latitude"]
+        return 40.116  # Precision limit of NASA POWER
 
     @pytest.fixture(scope="class")
     @classmethod
     def longitude(cls, data_cls):
         r"""float: Test longitude."""
-        if data_cls.STATIC_LOCATION_LIMITS is not None:
-            return None  # data_cls.STATIC_LOCATION_LIMITS[2:]
-        return -88.243  # Limit of NASA POWER
+        if "longitude" in data_cls.STATIC_PARAMETERS:
+            return None  # data_cls.STATIC_PARAMETERS["longitude"]
+        return -88.243  # Precision limit of NASA POWER
 
     @pytest.fixture(scope="class")
     @classmethod
     def start_date(cls, data_cls):
         r"""datetime.date: Start date."""
-        if data_cls.STATIC_DATE_LIMITS is not None:
-            return None  # data_cls.STATIC_DATE_LIMITS[0]
+        if "start_date" in data_cls.STATIC_PARAMETERS:
+            return None  # data_cls.STATIC_PARAMETERS["start_date"]
         if data_cls.DEFAULT_DATE_RANGE is not None:
             return data_cls.DEFAULT_DATE_RANGE[0]
         if data_cls.DEFAULT_EXTERNAL_TYPE:
@@ -151,8 +153,8 @@ class TestDataBase:
     @classmethod
     def end_date(cls, data_cls):
         r"""datetime.date: End date."""
-        if data_cls.STATIC_DATE_LIMITS is not None:
-            return None  # data_cls.STATIC_DATE_LIMITS[1]
+        if "end_date" in data_cls.STATIC_PARAMETERS:
+            return None  # data_cls.STATIC_PARAMETERS["end_date"]
         if data_cls.DEFAULT_DATE_RANGE is not None:
             return data_cls.DEFAULT_DATE_RANGE[1]
         if data_cls.DEFAULT_EXTERNAL_TYPE:
@@ -244,13 +246,30 @@ class TestDataBaseNoDownload(TestDataBase):
     def test_attributes(self, instance, latitude, longitude,
                         start_date, end_date, assert_allclose):
         r"""Test basic attributes."""
-        assert instance.parameters
+        assert instance.internal_parameters
+        assert instance.external_parameters
         if instance.location_specific():
             assert instance.latitude == instance._round_location(latitude)
             assert instance.longitude == instance._round_location(longitude)
         if instance.time_specific():
             assert instance.start_date == start_date
             assert instance.end_date == end_date
+
+    def test_get(self, instance):
+        r"""Test get for all listed parameters."""
+        parameters = instance.internal_parameters(
+            include_header=True, include_calculated=True)
+        assert parameters
+        print(parameters)
+        for k in parameters:
+            instance.get(k)
+
+    def test_universal_parameter_map(self, instance):
+        r"""Test universal_parameter_map."""
+        out = instance.universal_parameter_map
+        import pprint
+        pprint.pprint(out)
+        assert out
 
     def test_from_compatible(self, data_cls, data_dir,
                              name_compatible, get_example_data):

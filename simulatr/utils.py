@@ -32,6 +32,9 @@ cfg = PackageConfig(
         'urls': {
             'n8n_api': "https://tools.uiuc.chat/api/v1",
         },
+        'apsimx': {
+            'commit': '331bfae1fef2ef51b8792f5575dea7bb818b4694',
+        },
     },
 )
 
@@ -111,8 +114,9 @@ def kill_subprocess(process: subprocess.Popen, timeout: int = 1):
     process.wait(timeout=timeout)
 
 
-def partialclone(repourl: str, dst: str = None,
-                 patterns: List[str] = []):
+def partialclone(repourl: str, dst: Optional[str] = None,
+                 patterns: Optional[List[str]] = [],
+                 commit: Optional[str] = None):
     r"""Clone a git repository, only including certain files/directories.
 
     Args:
@@ -120,6 +124,7 @@ def partialclone(repourl: str, dst: str = None,
         dst: Directory that the repository should be cloned into.
         patterns: One or more patterns specifying which files/directories
             to include in the cloned repository.
+        commit: SHA for the commit that should be cloned.
 
     """
     import tempfile
@@ -130,6 +135,9 @@ def partialclone(repourl: str, dst: str = None,
         if not os.path.isdir(dst):
             subprocess.run(
                 ["git", "clone", repourl, dst], check=True)
+        if commit:
+            subprocess.run(
+                ["git", "switch", "--detach", commit], check=True)
         return
     with tempfile.TemporaryDirectory() as tmpdir:
         fpattern = os.path.join(tmpdir, "patterns.txt")
@@ -144,8 +152,16 @@ def partialclone(repourl: str, dst: str = None,
                 shell=True, check=True, cwd=dst)
         cmds = [
             f"git sparse-checkout set --stdin < {fpattern}",
-            "git read-tree -mu HEAD",
         ]
+        if commit:
+            cmds += [
+                f"git fetch --depth 1 origin {commit}"
+                "git read-tree -mu FETCH_HEAD",
+            ]
+        else:
+            cmds += [
+                "git read-tree -mu HEAD",
+            ]
         for cmd in cmds:
             subprocess.run(cmd, shell=True, check=True,
                            cwd=dst)

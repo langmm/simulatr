@@ -45,7 +45,7 @@ jobs:
         shell: bash -leo pipefail {0}
         run: |
           cd $RUNNER_TEMP
-          micromamba run -n simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
+          micromamba run -n simulatr-test python -c "import simulatr, os; from simulatr import utils; d = utils.cfg['directories']['apsimx_data']; assert os.path.isfile(os.path.join(d, 'Synchroniser.json')); print('import and data files OK')"
           micromamba run -n simulatr-test simulatr --help
 
   all_recipes_build:

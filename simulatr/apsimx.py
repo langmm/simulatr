@@ -3337,6 +3337,7 @@ class ApsimXEngine(CropModelEngine):
                 "!Tools/",
                 "!Gtk.Sheet/",
             ],
+            commit=cfg["apsimx"]["commit"],
         )
         sln_file = os.path.join(
             model_dir, "APSIM.Server", "ZMQ+msgpack",

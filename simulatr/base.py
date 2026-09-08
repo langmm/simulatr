@@ -2537,7 +2537,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         if (((not reset) and self.output_file
              and os.path.isfile(self.output_file))):
             if not self.overwrite:
-                logger.warn(
+                logger.warning(
                     f"Output already exists: {self.output_file} and "
                     f"overwrite not set")
                 return
@@ -2547,7 +2547,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         self._start()
         if self.non_interactive:
             if self.initial_param_dynamic:
-                logger.warn(
+                logger.warning(
                     f"Cannot set parameters directly for a non-interactive "
                     f"run. The following will be discarded: "
                     f"{self.initial_param_dynamic}"

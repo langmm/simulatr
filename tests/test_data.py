@@ -84,7 +84,9 @@ class TestDataBase:
     @classmethod
     def get_example_data(cls, get_data_cls, args):
 
-        def _get_example_data(name, return_fname=False):
+        def _get_example_data(name, return_fname=False,
+                              compatible_type=None,
+                              optional=False):
             data_cls = get_data_cls(name)
             # TODO: Arguments for compatible class when this class
             #   has STATIC_PARAMETERS, but the compatible class
@@ -98,8 +100,12 @@ class TestDataBase:
                 pytest.skip("Cannot create time specific file "
                             "without a specific location")
             suffix = ""
-            if data_cls.DEFAULT_EXTERNAL_TYPE is not None:
-                suffix = f"_from_{data_cls.DEFAULT_EXTERNAL_TYPE.NAME}"
+            if compatible_type is None:
+                compatible_type = data_cls.DEFAULT_EXTERNAL_TYPE
+            if isinstance(compatible_type, type):
+                compatible_type = compatible_type.NAME
+            if compatible_type:
+                suffix = f"_from_{compatible_type}"
             fname = data_cls.format_filename(*args, suffix=suffix)
             if _create_data and not data_cls.path_exists(fname):
                 if promptuser_boolean(
@@ -107,7 +113,7 @@ class TestDataBase:
                         f"{data_cls.CATEGORY} file at {fname}?",
                         _gha_default=False):
                     data_cls.from_location(*args)
-            if not data_cls.path_exists(fname):
+            if (not optional) and (not data_cls.path_exists(fname)):
                 pytest.skip(f"No example data for {name}: {fname}")
             if return_fname:
                 return fname
@@ -266,15 +272,21 @@ class TestDataBaseNoDownload(TestDataBase):
 
     def test_universal_parameter_map(self, instance):
         r"""Test universal_parameter_map."""
-        out = instance.universal_parameter_map
+        out = instance.universal_parameter_map(
+            include_header=True, include_calculated=True)
         import pprint
         pprint.pprint(out)
         assert out
 
     def test_from_compatible(self, data_cls, data_dir,
-                             name_compatible, get_example_data):
+                             name_compatible, get_example_data,
+                             compare_bytes_files,
+                             assert_nested_allclose):
         r"""Test creation of file from a compatible file type."""
         compatible_example = get_example_data(name_compatible)
+        compatible_example_result = get_example_data(
+            data_cls.NAME,  # return_fname=True,
+            compatible_type=name_compatible, optional=True)
         fname = os.path.join(
             data_dir, str(uuid.uuid4()) + data_cls._default_ext)
         assert not data_cls.path_exists(fname)
@@ -284,6 +296,21 @@ class TestDataBaseNoDownload(TestDataBase):
             assert out.fname == fname
             assert out.exists
             assert out.generated
+            if compatible_example_result.exists:
+                # compare_bytes_files(
+                #     out.fname, compatible_example_result.fname)
+                assert_nested_allclose(
+                    out.contents, compatible_example_result.contents,
+                    rtol=1e-06
+                )
+            elif data_cls.NAME == name_compatible:
+                pass
+            elif data_cls.NAME != "apsimx_soil":
+                pass
+            elif promptuser_boolean(
+                    f"Create data for conversion from {name_compatible} "
+                    f"to {data_cls.NAME}?", _gha_default=False):
+                shutil.copy(out.fname, compatible_example_result.fname)
         except NotImplementedError:
             if name_compatible in data_cls.REQUIRED_EXTERNAL_PARAMETERS:
                 raise

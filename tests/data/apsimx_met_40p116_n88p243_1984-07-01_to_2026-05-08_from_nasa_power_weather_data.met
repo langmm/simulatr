@@ -4,7 +4,7 @@ longitude = -88.243 (decimal degrees)
 elevation = 208.77 (m)
 tav = 11.210697324524105 (oC)
  year  day     radn   maxt   mint  rain        vp
- ()   ()  (MJ/m^2) (oC) (oC) (mm) (hPa)
+ ()   ()  (MJ/m^2/day) (oC) (oC) (mm) (hPa)
  1984  183    22.20  24.28  12.44  0.00 17.020553
  1984  184    23.03  26.73  16.34  4.14 18.652661
  1984  185    19.65  28.84  16.71 18.25 23.820593

@@ -45,6 +45,7 @@ requirements:
     - requests
     - scipy
     - timezonefinder
+    - yggdrasil-python-rapidjson
 
 tests:
   - python:

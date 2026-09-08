@@ -142,3 +142,24 @@ def compare_bytes():
         assert actual == expected
 
     return _compare_bytes
+
+
+@pytest.fixture(scope="session")
+def compare_bytes_files(compare_bytes):
+    r"""Compare files by bytes.
+
+    Args:
+        actual (str): Actual file path.
+        expected (str): Expected file path.
+
+    """
+
+    def _compare_bytes_files(actual, expected):
+        assert os.path.isfile(actual)
+        with open(actual, 'rb') as fd:
+            actual_bytes = fd.read()
+        with open(expected, 'rb') as fd:
+            expected_bytes = fd.read()
+        compare_bytes(actual_bytes, expected_bytes)
+
+    return _compare_bytes_files

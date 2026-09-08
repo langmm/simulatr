@@ -1,7 +1,6 @@
 import os
 import re
 import glob
-import json
 import copy
 import time
 import zmq
@@ -10,6 +9,7 @@ import msgpack
 import subprocess
 import contextlib
 import datetime
+import json
 from functools import cached_property
 from collections import OrderedDict
 import numpy as np
@@ -30,7 +30,7 @@ from .data import (
     BaseWeatherFile, BaseSoilFile,
     NASAPOWERWeatherFile,
     ISRICSoilGridsFile,
-    SSURGOSoilFile
+    SSURGOSoilFile,
 )
 from .crop import (
     CropModelFile,
@@ -587,12 +587,20 @@ class ApsimXWeatherFile(BaseWeatherFile):
             "PRECTOTCORR",  # mm
         ],
     }
+    REQUIRED_PARAMETERS: ClassVar[List[str]] = [
+        "longitude", "latitude", "elevation", "tav",
+        "radn",
+        "maxt",
+        "mint",
+        "rain",
+        "vp",
+    ]
     HEADER_PARAMETERS: ClassVar[List[str]] = [
-        "longitude", "latitude", "elevation",
+        "latitude", "longitude", "elevation",
         "start_date", "end_date", "tav",
     ]
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
-        "radn": "MJ/m2/day",
+        "radn": "MJ/m^2/day",
         "maxt": "oC",
         "mint": "oC",
         "rain": "mm",
@@ -609,33 +617,26 @@ class ApsimXWeatherFile(BaseWeatherFile):
         "rain": "precipitation",
         "tav": "temperature_avg",
         "amp": "temperature_amp",
-        "maxt": "temperature_min",
-        "mint": "temperature_max",
+        "maxt": "temperature_max",
+        "mint": "temperature_min",
     }
-    _power_names: ClassVar[dict] = {
-        "radn": "ALLSKY_SFC_SW_DWN",
-        "maxt": "T2M_MAX",
-        "mint": "T2M_MIN",
-        "rain": "PRECTOTCORR",
-        "vp": "T2MDEW",
+    UNIT_ALIASES: ClassVar[Mapping[str, str]] = {
+        "oC": "degC",
+        "decimal degrees": "degrees",
     }
-    _conv: ClassVar[dict] = {
-        # From PCSE
-        # Allen, R.G., Pereira, L.S., Raes, D. and Smith, M. (1998) Crop
-        #     evapotranspiration. Guidelines for computing crop water
-        #     requirements, FAO irrigation and drainage paper 56)
-        "vp": lambda x: 6.108 * np.exp((17.27 * x) / (x + 237.3)),  # hPa
-    }
-    _inv_conv: ClassVar[dict] = {
-        "T2MDEW": lambda vp: (
-            -237.3 * np.log(vp / 6.108)
-            / (np.log(vp / 6.108) - 17.27)),
-    }
+
+    @classmethod
+    def empty_contents(cls):
+        r"""Create empty contents for a file wrapper instance."""
+        import pandas as pd
+        return {
+            "constants": {},
+            "columns": pd.DataFrame(),
+        }
 
     @readonly_cached_property
     def _internal_parameters(self) -> list:
         r"""list: Set of power parameters contained by this file."""
-        # TODO: Maybe constants should not be included here?
         return (
             list(self.contents["constants"].keys())
             + list(self.contents["columns"].columns)
@@ -706,7 +707,11 @@ class ApsimXWeatherFile(BaseWeatherFile):
                 elif line.lstrip().startswith("year"):
                     names = line.strip().split()
                     for k, x in zip(names, fd.readline().strip().split()):
-                        out["units"][k] = x.strip("()")
+                        # out["units"][k] = cls.UNIT_ALIASES.get(
+                        #     x.strip("()"))
+                        x_units = x.strip("()")
+                        if x_units:
+                            out["units"][k] = x.strip("()")
                     out["columns"] = pd.read_csv(
                         fd, sep=r"\s+", names=names,
                     )
@@ -736,7 +741,10 @@ class ApsimXWeatherFile(BaseWeatherFile):
         """
         out = ["[weather.met.weather]"]
         if "constants" in contents:
-            for k, v in contents["constants"].items():
+            for k in cls.HEADER_PARAMETERS:
+                if k not in contents["constants"]:
+                    continue
+                v = contents["constants"][k]
                 out.append(f"{k} = {v} ({contents['units'].get(k, '')})")
         column_order = ["year", "day"]
         column_order += [k for k in contents["columns"].columns
@@ -760,70 +768,46 @@ class ApsimXWeatherFile(BaseWeatherFile):
             fd.write("\n".join(out))
 
     @classmethod
-    def _from_nasa_power_weather_data(cls, src: NASAPOWERWeatherFile):
+    def _from_compatible(cls, src: BaseWeatherFile):
         r"""Convert weather data from another file format into the
         correct format for this file.
 
         Args:
-            src: NASA power data.
+            src: Universal weather parameters.
 
         Returns:
             Converted data.
 
         """
         import pandas as pd
-        fill_value = float(src.contents["header"]["fill_value"])
-        # Units could maybe be taken from src, but then the format
-        # expected in .met files would need to be verified
-        out = {"units": cls.PARAMETER_UNITS.copy()}
+        parameters = src.get_universal_parameter_map(cls)
+        out = {}
         out["constants"] = {
-            "latitude": src.latitude,
-            "longitude": src.longitude,
-            "elevation": float(src.contents["geometry"]["coordinates"][2]),
-            "tav": np.mean(
-                pd.Series(src.contents["properties"]["parameter"]["T2M"])),
+            k: float(parameters[k]) for k in
+            ["longitude", "latitude", "elevation", "tav"]
         }
-        # description = [src.contents["header"]["title"]]
-        columns = {}
-        for k, v in cls._power_names.items():
-            s = pd.Series(src.contents["properties"]["parameter"][v])
-            s[s == fill_value] = np.nan
-            columns[k] = s
-        for k, v in cls._conv.items():
-            columns[k] = v(columns[k])
+        columns = {
+            "year": src.dates.year,
+            "day": src.dates.dayofyear,
+        }
+        for k in cls.REQUIRED_PARAMETERS:
+            if k in cls.HEADER_PARAMETERS:
+                continue
+            columns[k] = pd.Series(parameters[k])
+        out["units"] = {
+            k: v for k, v in cls.PARAMETER_UNITS.items()
+            if k in out["constants"] or k in columns
+        }
+        # TODO
+        # fill_value = float(src.contents["header"]["fill_value"])
+        # for k in list(columns.keys()):
+        #     s = columns[k]
+        #     s[s == fill_value] = np.nan
+        #     columns[k] = s
         columns = pd.DataFrame(columns)
-        date = pd.to_datetime(columns.index, format="%Y%m%d")
-        columns["year"] = date.year
-        columns["day"] = date.dayofyear
         ix = columns.isnull().any(axis=1)
         columns = columns[~ix]
         out["columns"] = columns
-        return out
-
-    def _to_nasa_power_weather_data(self):
-        out = {
-            "header": {
-                "start": self.start_date.strftime("%Y%m%d"),
-                "end": self.end_date.strftime("%Y%m%d"),
-            },
-            "geometry": {
-                "coordinates": [
-                    self.contents["constants"]["longitude"],
-                    self.contents["constants"]["latitude"],
-                    self.contents["constants"]["elevation"],
-                ]
-            },
-            "properties": {
-                "parameter": {
-                    "T2M": self.contents["constants"]["tav"],
-                },
-            },
-        }
-        for k, v in self._power_names.items():
-            x = self.contents["columns"][k]
-            if v in self._inv_conv:
-                x = self._inv_conv[v](x)
-            out["properties"]["parameter"][v] = x.tolist()
         return out
 
     @readonly_cached_property
@@ -837,16 +821,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
         )
         return out
 
-    @readonly_cached_property
-    def latitude(self) -> float:
-        r"""float: Latitude (degrees)."""
-        return self.contents["constants"]["latitude"]
-
-    @readonly_cached_property
-    def longitude(self) -> float:
-        r"""float: Longitude (degrees)."""
-        return self.contents["constants"]["longitude"]
-
     def update_param(self, contents: Any) -> None:
         r"""Merge downloaded parameters into the current data.
 
@@ -857,15 +831,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
         for k in ["units", "contents", "columns"]:
             # TODO: Handle dataframe in "columns"
             self.contents[k].udpate(contents[k])
-
-    def _make_interactive(self, actions: list):
-        r"""Modify this file to make it interactive.
-
-        Args:
-            actions: List of actions that should be enabled.
-
-        """
-        pass
 
 
 class ApsimXSoilFile(BaseSoilFile):
@@ -937,8 +902,8 @@ class ApsimXSoilFile(BaseSoilFile):
         "LL15": "mm/mm",
         "DUL": "mm/mm",
         "SAT": "mm/mm",
-        "KS": "",
-        "LL": "",
+        "KS": "mm/day",
+        "LL": "mm/mm",
         "KL": "",
         "XF": "",
         "SWCON": "",
@@ -1055,6 +1020,37 @@ class ApsimXSoilFile(BaseSoilFile):
             required=True,
         )
 
+    @classmethod
+    def empty_contents(cls):
+        r"""Create empty contents for a file wrapper instance."""
+        return ApsimXFileNode.from_data(
+            "Soil",
+            DataSource=None,
+            Comments=None,
+            Children=[
+                ApsimXFileNode.from_data(
+                    "SoilPhysical",
+                    Children=[
+                        ApsimXFileNode.from_data(
+                            "SoilCrop",
+                        ).contents,
+                    ],
+                ).contents,
+                ApsimXFileNode.from_data("SoilWaterBalance").contents,
+                ApsimXFileNode.from_data("SoilOrganic").contents,
+                ApsimXFileNode.from_data("SoilChemical").contents,
+                ApsimXFileNode.from_data("SoilWater").contents,
+                ApsimXFileNode.from_param(
+                    "Models.Soils.Nutrients.Nutrient, Models",
+                    ResourceName="Nutrient",
+                ).contents,
+                cls.create_solute("NO3", [], [], "ppm"),
+                cls.create_solute("NH4", [], [], "ppm"),
+                cls.create_solute("Urea", [], [], "kg/ha"),
+                ApsimXFileNode.from_data("SoilTemperature").contents,
+            ],
+        ).contents
+
     @readonly_cached_property
     def _internal_parameters(self) -> list:
         r"""list: Set of soil parameters contained by this file."""
@@ -1086,12 +1082,14 @@ class ApsimXSoilFile(BaseSoilFile):
                 return np.array(self._child(node)[name])
         raise KeyError(name)
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -1103,7 +1101,10 @@ class ApsimXSoilFile(BaseSoilFile):
         match = False
         for node, param in self._layer_nodes.items():
             if name in param:
-                self._child(node)[name] = value
+                self._child(node)[name] = (
+                    value.tolist() if isinstance(value, np.ndarray)
+                    else value
+                )
                 match = True
         if not match:
             raise KeyError(name)
@@ -1120,228 +1121,26 @@ class ApsimXSoilFile(BaseSoilFile):
                 if k in param:
                     self._child(node)[k] = v
 
-    @staticmethod
-    def _interp_profile(y, xold, xnew, kind: Optional[str] = "linear"):
-        from scipy import interpolate
-        # xranges = xold.max() - xold.min()
-        yinterp = interpolate.interp1d(
-            xold, y, kind=kind, assume_sorted=False,
-            fill_value='extrapolate')
-        return yinterp(xnew)
-
-    @staticmethod
-    def _var_profile(layers: int | np.ndarray,
-                     a: Optional[float] = 0.5,
-                     b: Optional[float] = 0.5) -> np.ndarray:
-        r"""Create a variable profile that following an exponential
-        dependency on layer depth via a * x * e^(-b * x) if a > 0 and
-        .
-
-        This was adapted from apsimNGpy.
+    def calculate_missing(self, depths: Optional[list] = None,
+                          thickness: Optional[list] = None,
+                          **kwargs: Any):
+        r"""Calculate missing parameters that are required.
 
         Args:
-            layers: Array of layer depths or number of even layers.
-            a: Scale factor for the profile.
-            b: Exponential scale factor for the profile.
-
-        Returns:
-            np.ndarray: Array of profile values at each layer.
-
-        """
-        if isinstance(layers, list):
-            layers = np.array(layers)
-        if isinstance(layers, int):
-            depthn = np.arange(1, layers + 1, 1)
-        elif isinstance(layers, np.ndarray):
-            depthn = 1 + (
-                len(layers)
-                * (layers - layers.min())
-                / (layers.max() - layers.min())
-            )
-        if a < 0:
-            raise RuntimeError(f"a cannot be negative (a = {a})")
-        elif (a > 0 and b != 0):
-            ep = -b * depthn
-            result = (a * depthn) * np.exp(ep)
-            return result / result.max()
-        elif (a == 0 and b != 0):
-            ep = -b * depthn
-            result = np.exp(ep) / np.exp(-b)
-            return result
-        elif (a == 0 or b == 0):
-            out = depthn.copy()
-            out[1:] -= out[:-1]
-            return out
-        raise RuntimeError(f"Invalid parameters a = {a}, b = {b}")
-
-    @staticmethod
-    def _sr_dul(clay_pct: float, sand_pct: float,
-                om_pct: float) -> float:
-        r"""Estimate drained upper limit (field capacity) from soil
-        texture and organic matter using the Saxton and Rawls (2006)
-        pedotransfer function Eq. 2 (Theta_33).
-
-        Args:
-            clay_pct: Clay content (%).
-            sand_pct: Sand content (%).
-            om_pct: Organic matter content (%).
-
-        Returns:
-            float: Drained upper limit (m3/m3).
+            depths: List of top & bottom depths defining each layer in
+                the soil profile (in cm).
+            thickness: The thickness of each layer (in cm). Only used if
+                depths is not provided.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                parent class's method.
 
         """
-        clay = clay_pct / 100
-        sand = sand_pct / 100
-        ans0 = (-0.251 * sand + 0.195 * clay + 0.011 * om_pct
-                + 0.006 * sand * om_pct - 0.027 * clay * om_pct
-                + 0.452 * sand * clay + 0.299)
-        return ans0 + (1.283 * ans0**2 - 0.374 * ans0 - 0.015)
-
-    @staticmethod
-    def _sr_ll(clay_pct: float, sand_pct: float,
-               om_pct: float) -> float:
-        r"""Estimate lower limit (wilting point) from soil texture and
-        organic matter using the Saxton and Rawls (2006) pedotransfer
-        function Eq. 1 (Theta_1500).
-
-        Args:
-            clay_pct: Clay content (%).
-            sand_pct: Sand content (%).
-            om_pct: Organic matter content (%).
-
-        Returns:
-            float: Lower limit (m3/m3).
-
-        """
-        clay = clay_pct / 100
-        sand = sand_pct / 100
-        ans0 = (-0.024 * sand + 0.487 * clay + 0.006 * om_pct
-                + 0.005 * sand * om_pct - 0.013 * clay * om_pct
-                + 0.068 * sand * clay + 0.031)
-        return ans0 + (0.14 * ans0 - 0.02)
-
-    @staticmethod
-    def _sr_dul_s(clay_pct: float, sand_pct: float,
-                  om_pct: float) -> float:
-        r"""Estimate saturated water content from soil texture and
-        organic matter using the Saxton and Rawls (2006) pedotransfer
-        function Eq. 3 (Theta_{S-33}).
-
-        Args:
-            clay_pct: Clay content (%).
-            sand_pct: Sand content (%).
-            om_pct: Organic matter content (%).
-
-        Returns:
-            float: Saturated water content (m3/m3).
-
-        """
-        clay = clay_pct / 100
-        sand = sand_pct / 100
-        ans0 = (0.278 * sand + 0.034 * clay + 0.022 * om_pct
-                - 0.018 * sand * om_pct - 0.027 * clay * om_pct
-                - 0.584 * sand * clay + 0.078)
-        return ans0 + (0.636 * ans0 - 0.107)
-
-    @staticmethod
-    def _sr_sat(sand_pct: float, dul: float, dul_s: float) -> float:
-        r"""Estimate saturated water content from the drained upper
-        limit using the Saxton and Rawls (2006) pedotransfer function
-        Eq. 5 (Theta_S).
-
-        Args:
-            sand_pct: Sand content (%).
-            dul: Drained upper limit (m3/m3).
-            dul_s: Saturated water content estimate (m3/m3).
-
-        Returns:
-            float: Saturated water content (m3/m3).
-
-        """
-        return dul + dul_s - 0.097 * (sand_pct / 100) + 0.043
-
-    @classmethod
-    def _sr_ks(cls, clay_pct: float, sand_pct: float,
-               om_pct: float) -> float:
-        r"""Estimate saturated hydraulic conductivity from soil texture
-        and organic matter using the Saxton and Rawls (2006)
-        pedotransfer function (Eq. 16 K_s).
-
-        Args:
-            clay_pct: Clay content (%).
-            sand_pct: Sand content (%).
-            om_pct: Organic matter content (%).
-
-        Returns:
-            float: Saturated hydraulic conductivity (mm/day).
-
-        """
-        dul = cls._sr_dul(clay_pct, sand_pct, om_pct)
-        dul_s = cls._sr_dul_s(clay_pct, sand_pct, om_pct)
-        ll15 = cls._sr_ll(clay_pct, sand_pct, om_pct)
-        sat = cls._sr_sat(sand_pct, dul, dul_s)
-        b = (np.log(1500) - np.log(33)) / (np.log(dul) - np.log(ll15))
-        return 1930 * (sat - dul) ** (3 - 1 / b) * 24  # mm/day
-
-    @staticmethod
-    def _texture_class(clay_pct: float, sand_pct: float) -> str:
-        r"""Get the soil texture class from the USDA clay and sand
-        fractions converted to the international system (Minasny et
-        al., 2001).
-
-        Args:
-            clay_pct: Clay content (%).
-            sand_pct: Sand content (%).
-
-        Returns:
-            str: Texture class name.
-
-        """
-        clay = clay_pct / 100
-        silt = (100 - clay_pct - sand_pct) / 100
-        intl_clay = clay
-        intl_silt = max(
-            0.0,
-            -0.0041 - 0.127 * clay + 0.553 * silt
-            + 0.17 * clay**2 - 0.19 * silt**2 + 0.59 * clay * silt)
-        intl_sand = 1 - intl_clay - intl_silt
-        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.40:
-            return "silty clay"
-        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.26:
-            return "silty clay loam"
-        if intl_sand < 0.75 - intl_clay:
-            return "silty loam"
-        if (intl_clay >= 0.40 + (0.305 - 0.40) / (0.635 - 0.35)
-                * (intl_sand - 0.35)
-                and intl_clay < 0.50 + (0.305 - 0.50) / (0.635 - 0.50)
-                * (intl_sand - 0.50)):
-            return "clay"
-        if (intl_clay >= 0.26 + (0.305 - 0.26) / (0.635 - 0.74)
-                * (intl_sand - 0.74)):
-            return "sandy clay"
-        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
-                * (intl_sand - 0.49)
-                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
-                * (intl_sand - 0.775)):
-            return "clay loam"
-        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
-                * (intl_sand - 0.49)):
-            return "sandy clay loam"
-        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
-                * (intl_sand - 0.775)
-                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
-                * (intl_sand - 0.775)):
-            return "loam"
-        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
-                * (intl_sand - 0.775)):
-            return "sandy loam"
-        if (intl_clay < 0.0 + (0.08 - 0.0) / (0.88 - 0.93)
-                * (intl_sand - 0.93)):
-            return "loamy sand"
-        return "sand"
-
-    def calculate_missing(self):
-        r"""Calculate missing parameters that are required."""
+        # TODO: Generic minimum number of layers
+        if len(self.depths) == 1 and (depths is None
+                                      and thickness is None):
+            thickness = 200.0 * np.ones((10, ))
+        super().calculate_missing(depths=depths, thickness=thickness,
+                                  **kwargs)
         curveparam_a = 0.0
         curveparam_b = 0.2
         # TODO: Check for scalars and interpolate?
@@ -1359,7 +1158,7 @@ class ApsimXSoilFile(BaseSoilFile):
              and self.physical.contents.get("ParticleSizeSand", None)
              and self.organic.contents.get("Carbon", None))):
             self.physical.contents["LL15"] = [
-                self._sr_ll(c, s, o)
+                self.wilting_point_from_texture(c / 100, s / 100, o)
                 for c, s, o in zip(
                         self.physical.contents["ParticleSizeClay"],
                         self.physical.contents["ParticleSizeSand"],
@@ -1371,7 +1170,7 @@ class ApsimXSoilFile(BaseSoilFile):
              and self.physical.contents.get("ParticleSizeSand", None)
              and self.organic.contents.get("Carbon", None))):
             self.physical.contents["DUL"] = [
-                self._sr_dul(c, s, o)
+                self.dul_s_from_texture(c / 100, s / 100, o)
                 for c, s, o in zip(
                         self.physical.contents["ParticleSizeClay"],
                         self.physical.contents["ParticleSizeSand"],
@@ -1397,7 +1196,7 @@ class ApsimXSoilFile(BaseSoilFile):
              and self.physical.contents.get("ParticleSizeSand", None)
              and self.organic.contents.get("Carbon", None))):
             self.physical.contents["KS"] = [
-                self._sr_ks(c, s, o)
+                self.ksat_from_texture(c / 100, s / 100, o)
                 for c, s, o in zip(
                         self.physical.contents["ParticleSizeClay"],
                         self.physical.contents["ParticleSizeSand"],
@@ -1420,7 +1219,7 @@ class ApsimXSoilFile(BaseSoilFile):
         if (((not self.root.contents.get("SoilType", None))
              and self.physical.contents.get("ParticleSizeClay", None)
              and self.physical.contents.get("ParticleSizeSand", None))):
-            self.root.contents["SoilType"] = self._texture_class(
+            self.root.contents["SoilType"] = self.texture_class(
                 self.physical.contents["ParticleSizeClay"][0],
                 self.physical.contents["ParticleSizeSand"][0]
             )
@@ -1433,12 +1232,12 @@ class ApsimXSoilFile(BaseSoilFile):
         nlayers = len(layers)
         if not self.crop_soil.contents.get("KL", None):
             self.crop_soil.contents["KL"] = (
-                0.06 * self._var_profile(
+                0.06 * self.create_profile(
                     layers, a=curveparam_a, b=curveparam_b)
             ).tolist()
         if not self.crop_soil.contents.get("XF", None):
             self.crop_soil.contents["XF"] = (
-                self._var_profile(layers, a=curveparam_a, b=0)
+                self.create_profile(layers, a=curveparam_a, b=0)
             ).tolist()
         if not self.organic.contents.get("FOMCNRatio", None):
             self.organic.contents["FOMCNRatio"] = 40.0
@@ -1446,7 +1245,7 @@ class ApsimXSoilFile(BaseSoilFile):
             self.organic.contents["SoilCNRatio"] = nlayers * [12.0]
         if not self.organic.contents.get("FBiom", None):
             self.organic.contents["FBiom"] = (
-                0.045 * self._var_profile(
+                0.045 * self.create_profile(
                     layers, a=curveparam_a, b=curveparam_b)
             ).tolist()
             # TODO: Scale?
@@ -1454,7 +1253,7 @@ class ApsimXSoilFile(BaseSoilFile):
             self.organic.contents["FBiom"][1] = 0.035
         if not self.organic.contents.get("FInert", None):
             self.organic.contents["FInert"] = (
-                0.83 * self._var_profile(
+                0.83 * self.create_profile(
                     layers, a=curveparam_a, b=-0.01)
             ).tolist()
             # TODO: Scale?
@@ -1462,21 +1261,21 @@ class ApsimXSoilFile(BaseSoilFile):
             self.organic.contents["FInert"][1] = 0.668
         if not self.organic.contents.get("FOM", None):
             self.organic.contents["FOM"] = (
-                160 * self._var_profile(
+                160 * self.create_profile(
                     layers, a=curveparam_a, b=curveparam_b)
             ).tolist()
         if (("NO3" in self.solutes
              and not self.solutes["NO3"].contents.get(
                  "InitialValues", None))):
             self.solutes["NO3"].contents["InitialValues"] = (
-                0.5 * self._var_profile(
+                0.5 * self.create_profile(
                     layers, a=curveparam_a, b=0.01)
             ).tolist()
         if (("NH4" in self.solutes
              and not self.solutes["NH4"].contents.get(
                  "InitialValues", None))):
             self.solutes["NH4"].contents["InitialValues"] = (
-                0.05 * self._var_profile(
+                0.05 * self.create_profile(
                     layers, a=curveparam_a, b=0.01)
             ).tolist()
         if (("Urea" in self.solutes
@@ -1551,7 +1350,7 @@ class ApsimXSoilFile(BaseSoilFile):
         def interp(y):
             return [
                 float(x) for x in
-                cls._interp_profile(y, bottomdepth, bottomdepth_new)
+                cls.interp_profile(y, bottomdepth, bottomdepth_new)
             ]
 
         sand = column("sandtotal_r")
@@ -1660,9 +1459,9 @@ class ApsimXSoilFile(BaseSoilFile):
             dict: Converted data.
 
         """
-        latitude = src.latitude
-        longitude = src.longitude
-        depths = src.depths
+        latitude = src.latitude.value
+        longitude = src.longitude.value
+        depths = cls.remove_units(src.depths)
         data = {}
         for layer in src.contents["properties"]["layers"]:
             data[layer["name"]] = {}
@@ -1752,6 +1551,31 @@ class ApsimXSoilFile(BaseSoilFile):
         ).contents
         if out["Comments"] is None:
             out["Comments"] = (
+                f"Generated by simulatr from {src.DESC} data"
+            )
+        return out
+
+    @classmethod
+    def _from_compatible(cls, src: BaseSoilFile):
+        r"""Convert data from another file format into the correct
+        format for this file.
+
+        Args:
+            src: Base class data.
+
+        Returns:
+            Converted data.
+
+        """
+        out = super()._from_compatible(src)
+        # if out.contents["DataSource"] is None:
+        #     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        #     out.contents["DataSource"] = (
+        #         f"Original source is {src.DESC} ({src.URL}) "
+        #         f"retrieved on {now}"
+        #     )
+        if out.contents["Comments"] is None:
+            out.contents["Comments"] = (
                 f"Generated by simulatr from {src.DESC} data"
             )
         return out

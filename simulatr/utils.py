@@ -6,6 +6,8 @@ import logging
 import typing
 import argparse
 import datetime
+import numpy as np
+from yggdrasil_rapidjson import units
 from functools import cached_property
 from typing import (
     Optional, Union, Any, List, ClassVar, Tuple, Dict, Callable
@@ -42,6 +44,35 @@ cfg = PackageConfig(
 class NoDefault:
     r"""Dummy class for defaults."""
     pass
+
+
+# TODO: These can be removed once ufuncs fixed in yggdrasil_rapidjson
+
+def mean(x):
+    if isinstance(x, (units.Quantity, units.QuantityArray)):
+        return units.Quantity(np.mean(x.value), x.units)
+    return np.mean(x)
+
+
+def log(x):
+    if ((isinstance(x, (units.Quantity, units.QuantityArray))
+         and x.is_dimensionless())):
+        return np.log(x.value)
+    return np.log(x)
+
+
+def exp(x):
+    if ((isinstance(x, (units.Quantity, units.QuantityArray))
+         and x.is_dimensionless())):
+        return np.exp(x.value)
+    return np.exp(x)
+
+
+def pow(x, y):
+    if ((isinstance(x, (units.Quantity, units.QuantityArray))
+         and x.is_dimensionless())):
+        return np.pow(x.value, y)
+    return np.pow(x, y)
 
 
 def start_subprocess(*args, **kwargs) -> subprocess.Popen:
@@ -547,8 +578,9 @@ class FieldSource(BaseModel):
                 continue
 
 
-def create_registry_metaclass(key_attr: str | tuple = "_NAME",
-                              base_type: type = None):
+def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
+                              base_type: Optional[type] = None,
+                              noninheritable_attr: Optional[dict] = {}):
     r"""Class factor for creating a metaclass for registering
     classes.
 
@@ -556,6 +588,9 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
         key_attr: Attribute(s) that should be used to register classes.
         base_type: Type that classes using this metaclass will inherit
             from.
+        noninheritable_attr: Dictionary of class attributes that should
+            not be inherited and the value they should be reset to in
+            child classes.
 
     Returns:
         type: New registr metaclass.
@@ -576,12 +611,13 @@ def create_registry_metaclass(key_attr: str | tuple = "_NAME",
         def __new__(mcs, name: str, bases: Tuple[type, ...],
                     namespace: Dict[str, Any], **kwargs: Any):
             cls = super().__new__(mcs, name, bases, namespace, **kwargs)
+            for k, v in noninheritable_attr.items():
+                if getattr(cls, k, v) != v and k not in namespace:
+                    # Prevent inheritance (e.g. so that this can be used
+                    #   for base classes that should not be tested
+                    #   directly)
+                    setattr(cls, k, v)
             mcs._register(cls)
-            if ((getattr(cls, "DONT_TEST", False)
-                 and "DONT_TEST" not in namespace)):
-                # Prevent inheritance so that this can be used for base
-                # classes that should not be tested directly
-                cls.DONT_TEST = False
             return cls
 
         @classmethod

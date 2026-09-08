@@ -2,19 +2,21 @@ import os
 import copy
 import uuid
 import glob
-import json
 import numpy as np
 import datetime
 import requests
 import contextlib
 import importlib
+import json
+# import yggdrasil_rapidjson as json
+from yggdrasil_rapidjson import units as rj_units
 from functools import cached_property
 from abc import ABC
 from typing import (
     Optional, Union, List, Any, Tuple, ClassVar, Iterator, Callable,
     Mapping
 )
-from . import logger
+from . import logger, utils
 from .utils import (
     cfg, NoDefault, create_registry_metaclass, readonly_cached_property,
     CachedPropertyMixin, promptuser_boolean
@@ -22,7 +24,11 @@ from .utils import (
 
 
 FileMeta = create_registry_metaclass(
-    ("CATEGORY", "NAME"), ABC
+    ("CATEGORY", "NAME"), ABC,
+    noninheritable_attr={
+        "DONT_TEST": False,
+        "IS_BASE_CLASS": False,
+    },
 )
 
 
@@ -37,6 +43,7 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
     _EXPECTS_DIRECTORY: ClassVar[bool] = False
     _default_ext: ClassVar[str] = ".json"
     DONT_TEST: ClassVar[bool] = False
+    IS_BASE_CLASS: ClassVar[bool] = False
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -217,16 +224,20 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
             bool: True if the file or directory exists.
 
         """
+        if fpath is None:
+            return False
         if cls._EXPECTS_DIRECTORY:
             return os.path.isdir(fpath)
         return os.path.isfile(fpath)
 
-    def get(self, name: str, default: Any = NoDefault) -> Any:
+    def get(self, name: str, default: Any = NoDefault,
+            **kwargs: Any) -> Any:
         r"""Get a parameter from the file.
 
         Args:
             name: Parameter name.
             default: Value to return if the parameter can't be found.
+            \*\*kwargs: Additional keyword arguments are passed to _get.
 
         Returns:
             Parameter value.
@@ -235,7 +246,7 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
         if name in self._cached_properties:
             return self._cached_properties[name]
         try:
-            out = self._get(name)
+            out = self._get(name, **kwargs)
             self._cached_properties[name] = out
             return out
         except KeyError:
@@ -243,19 +254,20 @@ class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
                 return default
             raise
 
-    def set(self, name: str, value: Any) -> None:
+    def set(self, name: str, value: Any, **kwargs: Any) -> None:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            \*\*kwargs: Additional keyword arguments are passed to _set.
 
         Raises:
             KeyError: If name is not a valid parameter name.
 
         """
         with self.prevent_overwrite():
-            self._set(name, value)
+            self._set(name, value, **kwargs)
 
     def write(self, new_contents: Optional[dict] = None,
               overwrite: Optional[bool] = False) -> None:
@@ -337,10 +349,14 @@ class BaseDataFile(BaseFile):
 
     CACHED: ClassVar[bool] = True
     URL: ClassVar[str] = None
+    UNIVERSAL_PARAMETERS: ClassVar[List[str]] = []
+    SUPPORTED_PARAMETERS: ClassVar[List[str]] = []
+    SUPPORTED_UNIVERSAL_PARAMETERS: ClassVar[List[str]] = []
     DEFAULT_EXTERNAL_TYPE: ClassVar[type] = None
     DEFAULT_DOWNLOAD_PARAMETERS: ClassVar[List[str]] = []
     REQUIRED_DOWNLOAD_PARAMETERS: ClassVar[List[str]] = []
     REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {}
+    REQUIRED_PARAMETERS: ClassVar[List[str]] = []
     HEADER_PARAMETERS: ClassVar[List[str]] = []
     STATIC_PARAMETERS: ClassVar[dict] = {}
     PARAMETER_DEFAULTS: ClassVar[dict] = {}
@@ -348,7 +364,6 @@ class BaseDataFile(BaseFile):
         "latitude": (-90.0, 90.0),
         "longitude": (-180.0, 180.0),
     }
-    UNIVERSAL_PARAMETERS: ClassVar[List[str]] = []
     DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = None
     DEFAULT_CACHE_DIR: ClassVar[str] = None
     PYTEST_MARKS: ClassVar[List[str]] = []
@@ -357,10 +372,20 @@ class BaseDataFile(BaseFile):
     PARAMETER_ALIASES_REV: ClassVar[Mapping[str, str]] = {}
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {}
     PARAMETER_CALCULATORS: ClassVar[dict] = {}
+    PARAMETER_FILL_VALUE: ClassVar[float | dict | None] = None
+    UNIVERSAL_LOCATION_PARAMETERS: ClassVar[List[str]] = [
+        "latitude", "longitude",
+    ]
+    UNIT_ALIASES: ClassVar[Mapping[str, str]] = {}
+    UNIT_ALIASES_REV: ClassVar[Mapping[str, str]] = {}
+    IS_BASE_CLASS: ClassVar[bool] = True
 
     @staticmethod
     def _on_registration(cls):
-        if cls.NAME is not None:
+        if cls.IS_BASE_CLASS:
+            cls.DONT_TEST = True
+        else:
+            assert cls.NAME is not None
             cls.PARAMETER_CALCULATORS = copy.deepcopy(
                 cls.PARAMETER_CALCULATORS)
             if cls.DESC is None:
@@ -394,6 +419,23 @@ class BaseDataFile(BaseFile):
             cls.PARAMETER_ALIASES_REV = {
                 v: k for k, v in cls.PARAMETER_ALIASES.items()
             }
+            cls.UNIT_ALIASES_REV = {
+                v: k for k, v in cls.UNIT_ALIASES.items()
+            }
+            cls.SUPPORTED_PARAMETERS = sorted(list(set(
+                cls.HEADER_PARAMETERS
+                + cls.REQUIRED_PARAMETERS
+                + list(cls.STATIC_PARAMETERS.keys())
+                + list(cls.PARAMETER_ALIASES.keys())
+                + list(cls.PARAMETER_DEFAULTS.keys())
+                + list(cls.PARAMETER_LIMITS.keys())
+                + list(cls.PARAMETER_UNITS.keys())
+            )))
+            cls.SUPPORTED_UNIVERSAL_PARAMETERS = []
+            for k in cls.SUPPORTED_PARAMETERS:
+                kuni = cls.PARAMETER_ALIASES.get(k, k)
+                if kuni in cls.UNIVERSAL_PARAMETERS:
+                    cls.SUPPORTED_UNIVERSAL_PARAMETERS.append(kuni)
             for k in ["latitude", "longitude"]:
                 cls.PARAMETER_UNITS.setdefault(k, "degrees")
             if not cls.DEFAULT_DOWNLOAD_PARAMETERS:
@@ -404,6 +446,10 @@ class BaseDataFile(BaseFile):
                          or k in cls.PARAMETER_UNITS)
                         and k not in cls.HEADER_PARAMETERS)
                 ]
+
+    def __init__(self, *args, **kwargs):
+        self._CALCULATING = []
+        super().__init__(*args, **kwargs)
 
     @classmethod
     def tools_installed(cls) -> bool:
@@ -438,6 +484,8 @@ class BaseDataFile(BaseFile):
 
         return _parameter_calculation
 
+    # def _can_calculate(self, name: str) -> bool:
+
     def calculate_parameter(self, name: str) -> Any:
         r"""Try calculating a parameter using registered parameter
         calculators.
@@ -453,15 +501,22 @@ class BaseDataFile(BaseFile):
 
         """
         name_int, name_ext = self.param_name_aliases(name)
-        for iname in [name_int, name_ext]:
+        for iname in set([name_int, name_ext]):
             for method, required in self.PARAMETER_CALCULATORS.get(iname, []):
-                if not hasattr(self, method):
-                    continue
+                if ((name_ext in self._CALCULATING
+                     or any(x in self._CALCULATING for x in required))):
+                    raise KeyError(f"Recursive {iname}")
+                self._CALCULATING.append(iname)
                 try:
-                    args = tuple([self.get(x) for x in required])
-                    return getattr(self, method)(*args)
-                except KeyError:
-                    pass
+                    if not hasattr(self, method):
+                        continue
+                    try:
+                        args = tuple([self.get(x) for x in required])
+                        return getattr(self, method)(*args)
+                    except KeyError:
+                        pass
+                finally:
+                    self._CALCULATING.pop()
         raise KeyError(name)
 
     @classmethod
@@ -490,8 +545,128 @@ class BaseDataFile(BaseFile):
         return ("latitude" not in cls.STATIC_PARAMETERS)
 
     @classmethod
-    def add_units(cls, name: str, value: Any,
+    def get_units(cls, value: Any) -> str:
+        r"""Get value units if it has any.
+
+        Args:
+            value: Parameter value.
+
+        Returns:
+            str: Units string if the value has any units, None if it
+                does not.
+
+        """
+        if isinstance(value, (rj_units.Quantity, rj_units.QuantityArray)):
+            return str(value.units)
+        elif value is None or isinstance(value, (float, np.ndarray,
+                                                 datetime.date, str)):
+            return None
+        elif isinstance(value, (list, tuple)):
+            if len(value) == 0:
+                return None
+            out = cls.get_units(value[0])
+            assert all(cls.get_units(v) == out for v in value)
+            return out
+        elif isinstance(value, GeoTIFFWrapper):
+            return value.units
+        else:
+            raise TypeError(type(value))
+        return value
+
+    @classmethod
+    def remove_units(cls, value: Any) -> Any:
+        r"""Remove units from a parameter value.
+
+        Args:
+            value: Parameter value.
+
+        Returns:
+            Value without units.
+
+        """
+        if isinstance(value, (rj_units.Quantity, rj_units.QuantityArray)):
+            return value.value
+        elif value is None or isinstance(value, (float, np.ndarray,
+                                                 datetime.date, str)):
+            return value
+        elif isinstance(value, list):
+            return [cls.remove_units(v) for v in value]
+        elif isinstance(value, tuple):
+            return tuple([cls.remove_units(v) for v in value])
+        elif isinstance(value, GeoTIFFWrapper):
+            value = copy.deepcopy(value)
+            value.units = None
+            return value
+        else:
+            raise TypeError(type(value))
+        return value
+
+    @classmethod
+    def add_units(cls, value: Any, value_units: str,
                   return_scalar: Optional[bool] = False) -> Any:
+        r"""Add units to a parameter value. If it already has units,
+        the value will be converted.
+
+        Args:
+            value: Parameter value.
+            value_units: Units to add/convert value to.
+            return_scalar: If True, return the value scalar without
+                units after performing any conversion.
+
+        Returns:
+            Value with units.
+
+        """
+        if value_units is None:
+            if return_scalar:
+                return cls.remove_units(value)
+            return value
+        if isinstance(value, (rj_units.Quantity, rj_units.QuantityArray)):
+            out = value.to(value_units)
+            if return_scalar:
+                return out.value
+            return out
+        if value is None or isinstance(value, (datetime.date, str)):
+            return value
+        elif isinstance(value, float):
+            if return_scalar:
+                return value
+            return rj_units.Quantity(value, value_units)
+        elif isinstance(value, list):
+            out = [
+                cls.add_units(v, value_units,
+                              return_scalar=return_scalar)
+                for v in value
+            ]
+            if all(isinstance(x, rj_units.Quantity) for x in out):
+                out_units = out[0].units
+                out_value = [x.value for x in out]
+                return rj_units.QuantityArray(
+                    np.array(out_value), out_units)
+            elif all(isinstance(x, float) for x in out):
+                return np.array(out)
+            return out
+        elif isinstance(value, tuple):
+            return tuple([
+                cls.add_units(v, value_units,
+                              return_scalar=return_scalar)
+                for v in value
+            ])
+        elif isinstance(value, np.ndarray):
+            if return_scalar:
+                return value
+            return rj_units.QuantityArray(value, value_units)
+        elif isinstance(value, GeoTIFFWrapper):
+            out = copy.deepcopy(value)
+            out.units = value_units
+            if return_scalar:
+                out.units = None
+            return out
+        raise TypeError(type(value))
+
+    @classmethod
+    def add_param_units(cls, name: str, value: Any,
+                        return_scalar: Optional[bool] = False) -> Any:
         r"""Add units to a parameter value.
 
         Args:
@@ -504,34 +679,15 @@ class BaseDataFile(BaseFile):
             Value with units.
 
         """
-        # TODO: Enable
-        # from yggdrasil_rapidjson import units
-        # name_int, name_ext = cls.param_name_aliases(name)
-        # if name_int not in cls.PARAMETER_UNITS:
-        #     assert not isinstance(value, units.QuantityArray)
-        #     return value
-        # if isinstance(value, (units.Quantity, units.QuantityArray)):
-        #     out = value.to(cls.PARAMETER_UNITS[name_int])
-        #     if return_scalar:
-        #         return out.value
-        #     return out
-        # if return_scalar:
-        #     return value
-        # if isinstance(value, None):
-        #     return None
-        # elif isinstance(value, float):
-        #     return units.Quantity(value, cls.PARAMETER_UNITS[name_int])
-        # elif isinstance(value, list):
-        #     return units.QuantityArray(
-        #         np.array(value), cls.PARAMETER_UNITS[name_int])
-        # elif isinstance(value, tuple):
-        #     return tuple([cls.add_units(name_int, v) for v in value])
-        # elif isinstance(value, np.ndarray):
-        #     return units.QuantityArray(
-        #         np.array(value), cls.PARAMETER_UNITS[name_int])
-        # else:
-        #     raise TypeError(type(value))
-        return value
+        name_int, name_ext = cls.param_name_aliases(name)
+        if name_int not in cls.PARAMETER_UNITS:
+            if return_scalar:
+                return cls.remove_units(value)
+            return value
+        value_units = cls.PARAMETER_UNITS[name_int]
+        value_units = cls.UNIT_ALIASES.get(value_units, value_units)
+        return cls.add_units(value, value_units,
+                             return_scalar=return_scalar)
 
     @classmethod
     def get_from_other(cls, src: "BaseDataFile", name: str,
@@ -553,16 +709,18 @@ class BaseDataFile(BaseFile):
         """
         name_int, name_ext = cls.param_name_aliases(name)
         out = src.get(name_ext, default)
-        out = cls.add_units(name_int, out,
-                            return_scalar=(not with_units))
+        out = cls.add_param_units(name_int, out,
+                                  return_scalar=(not with_units))
         return out
 
-    def get(self, name: str, default: Optional[Any] = NoDefault) -> Any:
+    def get(self, name: str, default: Optional[Any] = NoDefault,
+            **kwargs: Any) -> Any:
         r"""Get a parameter from the file.
 
         Args:
             name: Parameter name.
             default: Value to return if the parameter can't be found.
+            \*\*kwargs: Additional keyword arguments are passed to _get.
 
         Returns:
             Parameter value.
@@ -579,7 +737,11 @@ class BaseDataFile(BaseFile):
                 include_header=True, include_calculated=True)
             try:
                 if name_int in parameters:
-                    out = super().get(name_int)
+                    out = super().get(name_int, **kwargs)
+                    if isinstance(out, np.ndarray):
+                        fill_value = self.param_fill_value(name_int)
+                        if fill_value is not None:
+                            out[out == fill_value] = np.nan
                 elif name_int in parameters_calculated:
                     out = self.calculate_parameter(name_int)
             except KeyError:
@@ -590,29 +752,37 @@ class BaseDataFile(BaseFile):
                         f"{name_int} not supported. Valid parameters:"
                         f" {parameters + parameters_calculated}")
                 out = default
-        out = self.add_units(name_int, out)
+        out = self.add_param_units(name_int, out)
         if name_ext in ["start_date", "end_date"] and isinstance(out, str):
             out = datetime.date.fromisoformat(out)
         return out
 
-    def set(self, name: str, value: Any) -> None:
+    def set(self, name: str, value: Any, **kwargs: Any) -> None:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            \*\*kwargs: Additional keyword arguments are passed to _set.
 
         Raises:
             KeyError: If name is not a valid parameter name.
 
         """
         name_int, name_ext = self.param_name_aliases(name)
+        value = self.add_param_units(name_int, value, return_scalar=True)
+        value_units = self.get_units(value)
+        assert value_units is None
+        if name_int not in self.SUPPORTED_PARAMETERS:
+            raise KeyError(f"Unsupported parameter \"{name}\"")
         if name_ext in self.STATIC_PARAMETERS:
+            if value == self.STATIC_PARAMETERS[name_ext]:
+                return
             raise RuntimeError(f"Cannot set static parameter \"{name}\"")
-        value = self.add_units(name_int, value, return_scalar=True)
-        return super().set(name_int, value)
+        return super().set(name_int, value, **kwargs)
 
-    def param_name_aliases(self, name: str) -> Tuple[str, str]:
+    @classmethod
+    def param_name_aliases(cls, name: str) -> Tuple[str, str]:
         r"""Get the internal & external aliases for a given parameter
         name.
 
@@ -625,11 +795,27 @@ class BaseDataFile(BaseFile):
         """
         name_ext = name
         name_int = name
-        if name in self.PARAMETER_ALIASES:
-            name_ext = self.PARAMETER_ALIASES[name_int]
-        elif name in self.PARAMETER_ALIASES_REV:
-            name_int = self.PARAMETER_ALIASES_REV[name_ext]
+        if name in cls.PARAMETER_ALIASES:
+            name_ext = cls.PARAMETER_ALIASES[name_int]
+        elif name in cls.PARAMETER_ALIASES_REV:
+            name_int = cls.PARAMETER_ALIASES_REV[name_ext]
         return (name_int, name_ext)
+
+    def param_fill_value(self, name: str) -> float:
+        r"""Get the value indicating missing data for a parameter.
+
+        Args:
+            name: Parameter name.
+
+        Returns:
+            float: Fill value.
+
+        """
+        if ((self.PARAMETER_FILL_VALUE is None
+             or isinstance(self.PARAMETER_FILL_VALUE, float))):
+            return self.PARAMETER_FILL_VALUE
+        name_int = self.internal_param_name(name)
+        return self.PARAMETER_FILL_VALUE.get(name_int, None)
 
     @classmethod
     def internal_param_name(cls, name: str) -> str:
@@ -661,8 +847,17 @@ class BaseDataFile(BaseFile):
             return [cls.external_param_name(x) for x in name]
         return cls.PARAMETER_ALIASES.get(name, name)
 
+    @classmethod
+    def supports_parameters(cls, *args: str):
+        r"""Check if the file supports one or more parameters."""
+        for name in args:
+            name_int = cls.internal_param_name(name)
+            if name_int not in cls.SUPPORTED_PARAMETERS:
+                return False
+        return True
+
     def has_parameters(self, *args: str):
-        r"""Check if the model has one or more parameters."""
+        r"""Check if the file has one or more parameters."""
         parameters = self.internal_parameters(
             include_header=True, include_calculated=True)
         for name in args:
@@ -687,9 +882,14 @@ class BaseDataFile(BaseFile):
                 k for k in self.HEADER_PARAMETERS if k not in out
             ]
         if include_calculated:
+            out_external = self.external_param_name(out)
             additional = [
                 k for k, v in self.PARAMETER_CALCULATORS.items()
-                if bool([x for x in v if hasattr(self, x[0])])
+                if bool([x for x in v if (
+                        hasattr(self, x[0])
+                        and all(xx in out_external or xx in
+                                self.PARAMETER_CALCULATORS
+                                for xx in x[1]))])
             ]
             out = out + [
                 k for k in self.internal_param_name(additional)
@@ -715,10 +915,126 @@ class BaseDataFile(BaseFile):
         return self._external_parameters
 
     @readonly_cached_property
-    def universal_parameter_map(self) -> dict:
+    def _internal_parameter_map(self) -> dict:
+        r"""dict: Map of parameters using internal names."""
+        parameters = self.internal_parameters(
+            include_header=True, include_calculated=True)
+        out = {}
+        for k in parameters:
+            try:
+                out[k] = self.get(k)
+            except KeyError:
+                pass
+        return out
+
+    def internal_parameter_map(self, **kwargs) -> dict:
+        r"""dict: Map of parameters using internal names."""
+        parameters = self.internal_parameters(**kwargs)
+        parameter_map = self._internal_parameter_map
+        return {k: parameter_map[k] for k in parameters}
+
+    @readonly_cached_property
+    def _universal_parameter_map(self) -> dict:
         r"""dict: Map of parameters using universal names."""
-        return {k: self.get(k) for k in self.UNIVERSAL_PARAMETERS
-                if k in self.external_parameters()}
+        parameters = self.external_parameters(
+            include_header=True, include_calculated=True)
+        out = {}
+        for k in self.UNIVERSAL_PARAMETERS:
+            if k not in parameters:
+                continue
+            try:
+                out[k] = self.get(k)
+            except KeyError:
+                pass
+        return out
+
+    def universal_parameter_map(self, **kwargs) -> dict:
+        r"""dict: Map of parameters using universal names."""
+        parameters = self.external_parameters(**kwargs)
+        parameter_map = self._universal_parameter_map
+        return {k: parameter_map[k] for k in parameters
+                if k in parameter_map}
+
+    def get_universal_parameter_map(
+            self, dst: type,
+            keep_units: Optional[bool] = False,
+            latitude: Optional[float] = None,
+            longitude: Optional[float] = None,
+    ) -> dict:
+        r"""Get the universal parameter map with the names & units
+        expected for another file type of the same category.
+
+        Args:
+            dst: File type that the universal parameters should be
+                returned for.
+            keep_units: If True, don't strip units from the returned
+                parameters after conversion.
+            latitude: The latitude to sample.
+            longitude: The longitude to sample.
+
+        Returns:
+            dict: Map of parameters using parameter names and units for
+                dst file type.
+
+        """
+        parameters = self.universal_parameter_map(
+            include_header=True, include_calculated=True)
+        out = {
+            dst.internal_param_name(k): dst.add_param_units(
+                k, v, return_scalar=(not keep_units))
+            for k, v in parameters.items()
+            if dst.PARAMETER_ALIASES_REV.get(k, k) in
+            dst.SUPPORTED_PARAMETERS
+        }
+        if "latitude" in dst.STATIC_PARAMETERS:
+            assert isinstance(dst.STATIC_PARAMETERS["latitude"], tuple)
+            if ((self.STATIC_PARAMETERS.get("latitude", None)
+                 != dst.STATIC_PARAMETERS["latitude"])):
+                raise NotImplementedError
+        elif "latitude" in self.STATIC_PARAMETERS:
+            assert isinstance(self.STATIC_PARAMETERS["latitude"], tuple)
+            if latitude is None or longitude is None:
+                raise NotImplementedError
+            out = dst.resample_parameter_map_location(
+                out, latitude=latitude, longitude=longitude)
+        return out
+
+    @classmethod
+    def resample_parameter_map_location(
+            cls, parameters: dict,
+            latitude: Optional[float] = None,
+            longitude: Optional[float] = None,
+    ):
+        r"""Resample parameters for a location.
+
+        Args:
+            latitude: The latitude to sample.
+            longitude: The longitude to sample.
+
+        Returns:
+            dict: Resampled parameter map.
+
+        """
+        if latitude is None and longitude is None:
+            return parameters
+        assert latitude is not None
+        assert longitude is not None
+        out = {
+            "latitude": latitude,
+            "longitude": longitude,
+        }
+        for k, v in parameters.items():
+            if k in out:
+                continue
+            if k in cls.HEADER_PARAMETERS:
+                out[k] = v
+            else:
+                out[k] = cls.interp_location(
+                    parameters[k],
+                    parameters["latitude"], parameters["longitude"],
+                    latitude, longitude
+                )
+        return out
 
     @readonly_cached_property
     def latitude(self) -> float:
@@ -752,7 +1068,9 @@ class BaseDataFile(BaseFile):
     @classmethod
     def _f2str(cls, x: Any) -> str:
         r"""Convert a value to a string for use in a file name."""
-        if isinstance(x, datetime.datetime):
+        if isinstance(x, (rj_units.Quantity, rj_units.QuantityArray)):
+            return cls._f2str(x.value)
+        elif isinstance(x, datetime.datetime):
             return x.date().isoformat()
         elif isinstance(x, datetime.date):
             return x.isoformat()
@@ -1068,6 +1386,7 @@ class BaseDataFile(BaseFile):
             cls, fbase: "BaseDataFile",
             fname: Optional[str] = None,
             cache_dir: Optional[str] = None,
+            **kwargs: Any
     ) -> "BaseDataFile":
         r"""Create a data file from another file of the same category.
 
@@ -1076,6 +1395,8 @@ class BaseDataFile(BaseFile):
             fname: File name where the data should be written to.
             cache_dir: Directory where the data should be cached. Only
                 used if fname is not provided.
+            \*\*kwargs: Additional keyword arguments are passed to
+                calculate_missing.
 
         """
         if fname is None:
@@ -1091,11 +1412,13 @@ class BaseDataFile(BaseFile):
                 cache_dir=cache_dir,
             )
         if cls.path_exists(fname):
+            assert not kwargs
             return cls(fname)
         if fbase.NAME == cls.NAME:
             contents = fbase.contents
             # contents = copy.deepcopy(fbase.contents)
         else:
+            # TODO: Get this based on required universal parameters
             if fbase.NAME in cls.REQUIRED_EXTERNAL_PARAMETERS:
                 fbase.add_missing_param(
                     cls.REQUIRED_EXTERNAL_PARAMETERS[fbase.NAME])
@@ -1105,18 +1428,27 @@ class BaseDataFile(BaseFile):
                 contents = getattr(fbase, f"_to_{cls.NAME}")()
             else:
                 contents = cls._from_compatible(fbase)
+        if isinstance(contents, cls):
+            contents = contents.contents
         out = cls(fname, contents=contents)
-        out.calculate_missing()
+        out.calculate_missing(**kwargs)
         out.write()
         return out
 
     @classmethod
-    def _from_compatible(cls, src: "BaseDataFile"):
+    def empty_contents(cls):
+        r"""Create empty contents for a file wrapper instance."""
+        raise NotImplementedError
+
+    @classmethod
+    def _from_compatible(cls, src: "BaseDataFile", **kwargs: Any):
         r"""Convert data from another file format into the correct
         format for this file.
 
         Args:
             src: Base class data.
+            \*\*kwargs: Additional keyword arguments are passed to
+                get_universal_parameter_map.
 
         Returns:
             Converted data.
@@ -1124,8 +1456,16 @@ class BaseDataFile(BaseFile):
         """
         if isinstance(src, cls):
             return src.contents
-        raise NotImplementedError(
-            f"Conversion from {type(src)} to {cls}")  # pragma: no cover
+        parameters = src.get_universal_parameter_map(cls, **kwargs)
+        # print(f"{src.NAME} -> {cls.NAME}")
+        # import pprint; pprint.pprint(parameters)
+        # import pdb; pdb.set_trace()
+        out = cls(None, contents=cls.empty_contents())
+        for k, v in parameters.items():
+            out.set(k, v, allow_add=True)
+        # raise NotImplementedError(
+        #     f"Conversion from {type(src)} to {cls}")  # pragma: no cover
+        return out
 
     @classmethod
     def _check_inside_range(
@@ -1274,6 +1614,8 @@ class BaseWeatherFile(BaseDataFile):
     CATEGORY: ClassVar[str] = "weather"
     NAME: ClassVar[str] = None
     UNIVERSAL_PARAMETERS: ClassVar[List[str]] = [
+        "start_date",
+        "end_date",
         "latitude",
         "longitude",
         "elevation",
@@ -1289,6 +1631,7 @@ class BaseWeatherFile(BaseDataFile):
         "temperature_dew",
         "wind_speed",
     ]
+    IS_BASE_CLASS: ClassVar[bool] = True
 
     @property
     def dates(self) -> np.ndarray:
@@ -1305,17 +1648,21 @@ class BaseWeatherFile(BaseDataFile):
             requirements, FAO irrigation and drainage paper 56)
 
         """
-        return 6.108 * np.exp((17.27 * Tdew) / (Tdew + 237.3))
+        a = rj_units.Quantity(6.108, "hPa")
+        b = rj_units.Quantity(237.3, "degC")
+        return a * utils.exp((17.27 * Tdew) / (Tdew + b))
 
     @BaseDataFile.parameter_calculation("temperature_dew", "vapor_pressure")
     def dewpoint_from_vaporpressure(self, vp):
         r"""Inverse of vaporpressure_from_dewpoint."""
-        return (-237.3 * np.log(vp / 6.108)
-                / (np.log(vp / 6.108) - 17.27))
+        a = rj_units.Quantity(6.108, "hPa")
+        b = rj_units.Quantity(237.3, "degC")
+        return (-b * utils.log(vp / a)
+                / (utils.log(vp / a) - 17.27))
 
     @BaseDataFile.parameter_calculation("temperature_avg", "temperature")
     def average_temperature(self, temp):
-        return np.mean(temp)
+        return utils.mean(temp)
 
 
 class NASAPOWERWeatherFile(BaseWeatherFile):
@@ -1335,6 +1682,10 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
     # TODO move DEFAULT_DATE_RANGE in DEFAULT_PARAMETERS
     DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = (
         datetime.date(1984, 7, 1), datetime.date(2026, 5, 8))
+    REQUIRED_PARAMETERS: ClassVar[List[str]] = [
+        "latitude", "longitude", "elevation",
+        "start_date", "end_date",
+    ]
     HEADER_PARAMETERS: ClassVar[List[str]] = [
         "latitude", "longitude", "elevation",
         "start_date", "end_date"
@@ -1356,16 +1707,43 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
         "elevation": "m",
         "TOA_SW_DWN": "MJ/m^2/day",
         "ALLSKY_SFC_SW_DWN": "MJ/m^2/day",
-        "T2M": "oC",
-        "T2M_MIN": "oC",
-        "T2M_MAX": "oC",
-        "T2MDEW": "oC",
+        "T2M": "degC",
+        "T2M_MIN": "degC",
+        "T2M_MAX": "degC",
+        "T2MDEW": "degC",
         "WS2M": "m/s",
         "PRECTOTCORR": "mm",
     }
     _coord_params: ClassVar[List[str]] = [
         "longitude", "latitude", "elevation",
     ]
+
+    @classmethod
+    def empty_contents(cls):
+        r"""Create empty contents for a file wrapper instance."""
+        return {
+            "header": {
+                "fill_value": "SOMETHING",
+            },
+            "geometry": {
+                "coordinates": [],
+            },
+            "properties": {
+                "parameter": {},
+            },
+        }
+
+    def param_fill_value(self, name: str) -> float:
+        r"""Get the value indicating missing data for a parameter.
+
+        Args:
+            name: Parameter name.
+
+        Returns:
+            float: Fill value.
+
+        """
+        return float(self.contents["header"]["fill_value"])
 
     @readonly_cached_property
     def _internal_parameters(self) -> list:
@@ -1396,12 +1774,14 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
         out = self.contents["properties"]["parameter"][name]
         return np.array([out[k] for k in sorted(out.keys())])
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -1418,6 +1798,9 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
                 "%Y%m%d")
             return
         assert len(value) == len(self.dates)
+        if (((not allow_add)
+             and name not in self.contents["properties"]["parameter"])):
+            raise KeyError(name)
         self.contents["properties"]["parameter"][name] = {
             date.strftime("%Y%m%d"): v
             for date, v in zip(self.dates, value)
@@ -1479,6 +1862,39 @@ class NASAPOWERWeatherFile(BaseWeatherFile):
         logger.debug("Successfully retrieved data from NASA POWER")
         return req.json()
 
+    @classmethod
+    def _from_compatible(cls, src: BaseWeatherFile):
+        r"""Convert weather data from another file format into the
+        correct format for this file.
+
+        Args:
+            src: Universal weather parameters.
+
+        Returns:
+            Converted data.
+
+        """
+        parameters = src.get_universal_parameter_map(cls)
+        out = {
+            "header": {
+                "start": src.start_date.strftime("%Y%m%d"),
+                "end": src.end_date.strftime("%Y%m%d"),
+            },
+            "geometry": {
+                "coordinates": [
+                    parameters[k] for k in cls._coord_params
+                ]
+            },
+            "properties": {
+                "parameter": {
+                    k: (v.tolist() if isinstance(v, np.ndarray) else v)
+                    for k, v in parameters.items()
+                    if k not in cls.HEADER_PARAMETERS
+                },
+            },
+        }
+        return out
+
 
 class BaseSoilFile(BaseDataFile):
     r"""Base class for soil files."""
@@ -1498,6 +1914,7 @@ class BaseSoilFile(BaseDataFile):
         "longitude",
         "top_depth",
         "bottom_depth",
+        "thickness",
         "pH",
         "clay",
         "silt",
@@ -1514,6 +1931,82 @@ class BaseSoilFile(BaseDataFile):
         "sat",              # Saturated water content
         "cec",              # Cation exchange capacity
     ]
+    # UNIVERSAL_LAYER_PARAMETERS: ClassVar[List[str]] = []
+    UNIVERSAL_LAYER_DEPTH_PARAMETERS: ClassVar[List[str]] = [
+        "top_depth", "bottom_depth", "thickness", "depths"
+    ]
+    LAYER_DEPTH_PARAMETERS: ClassVar[List[str]] = []
+    LAYER_PARAMETERS: ClassVar[List[str]] = []
+    IS_BASE_CLASS: ClassVar[bool] = True
+
+    @staticmethod
+    def _on_registration(cls):
+        BaseDataFile._on_registration(cls)
+        if cls.NAME is not None:
+            cls.LAYER_DEPTH_PARAMETERS = []
+            for k in cls.UNIVERSAL_LAYER_DEPTH_PARAMETERS:
+                kint = cls.PARAMETER_ALIASES_REV.get(k, k)
+                if kint in cls.SUPPORTED_PARAMETERS:
+                    cls.LAYER_DEPTH_PARAMETERS.append(kint)
+            cls.LAYER_PARAMETERS = [
+                k for k in cls.SUPPORTED_PARAMETERS
+                if k not in (cls.HEADER_PARAMETERS
+                             + cls.LAYER_DEPTH_PARAMETERS)
+            ]
+
+    def set(self, name: str, value: Any,
+            allow_resize: Optional[bool] = False,
+            **kwargs: Any) -> None:
+        r"""Set a parameter in the file.
+
+        Args:
+            name: Parameter name.
+            value: Parameter value.
+            allow_resize: If True, allow the parameter to be resized.
+            \*\*kwargs: Additional keyword arguments are passed to _set.
+
+        Raises:
+            KeyError: If name is not a valid parameter name.
+            ValueError: If name is setting a layer parameter and does
+                not have a size matching the expected number of layers.
+
+        """
+        if allow_resize or self.nlayers == 0:
+            name_int = self.internal_param_name(name)
+            if name_int in self.LAYER_DEPTH_PARAMETERS:
+                nlayers = self.get_param_nlayers(value)
+                if nlayers != self.nlayers:
+                    self.resize_layer_parameters(nlayers)
+        else:
+            name_int = self.internal_param_name(name)
+            if name_int in self.LAYER_PARAMETERS:
+                nlayers = self.get_param_nlayers(value)
+                if nlayers != self.nlayers:
+                    raise ValueError(
+                        f"New value for \"{name}\" contains data for "
+                        f"{nlayers} layers, but the data set currently "
+                        f"includes {self.nlayers} layers."
+                    )
+        return super().set(name, value, **kwargs)
+
+    @classmethod
+    def get_param_nlayers(cls, value: Any) -> int:
+        r"""Calculate the number of layers described by layer parameter
+        data.
+
+        Args:
+            value: Layer parameter data.
+
+        Returns:
+            int: Number of layers that value describes.
+
+        """
+        return len(value)
+
+    @readonly_cached_property
+    def nlayers(self) -> int:
+        r"""int: Number of soil layers covered by this file."""
+        return len(self.depths)
 
     @readonly_cached_property
     def depths(self) -> list:
@@ -1523,10 +2016,11 @@ class BaseSoilFile(BaseDataFile):
 
     @BaseDataFile.parameter_calculation("depths", "top_depth",
                                         "bottom_depth")
-    def depth_from_split(self, top_depth, bottom_depth):
-        if isinstance(top_depth, float):
+    @classmethod
+    def depth_from_split(cls, top_depth, bottom_depth):
+        if isinstance(top_depth, (float, rj_units.Quantity)):
             top_depth = [top_depth]
-        if isinstance(bottom_depth, float):
+        if isinstance(bottom_depth, (float, rj_units.Quantity)):
             bottom_depth = [bottom_depth]
         assert len(top_depth) == len(bottom_depth)
         return [
@@ -1534,8 +2028,10 @@ class BaseSoilFile(BaseDataFile):
         ]
 
     @BaseDataFile.parameter_calculation("depths", "thickness")
-    def depth_from_thickness(self, thickness):
-        out, top = [], 0
+    @classmethod
+    def depth_from_thickness(cls, thickness):
+        prev_units = cls.get_units(thickness)
+        out, top = [], cls.add_units(0.0, prev_units)
         for x in thickness:
             bottom = top + x
             out.append((top, bottom))
@@ -1544,28 +2040,572 @@ class BaseSoilFile(BaseDataFile):
 
     @BaseDataFile.parameter_calculation("thickness", "top_depth",
                                         "bottom_depth")
-    def thickness_from_split(self, top_depth, bottom_depth):
-        if isinstance(top_depth, float):
-            top_depth = [top_depth]
-        if isinstance(bottom_depth, float):
-            bottom_depth = [bottom_depth]
-        assert len(top_depth) == len(bottom_depth)
+    @classmethod
+    def thickness_from_split(cls, top_depth, bottom_depth):
+        return top_depth - bottom_depth
+
+    @BaseDataFile.parameter_calculation("thickness", "depths")
+    @classmethod
+    def thickness_from_depths(cls, depths):
+        prev_units = cls.get_units(depths)
+        if prev_units is not None:
+            return cls.add_units(
+                cls.thickness_from_depths(cls.remove_units(depths)),
+                prev_units)
+        if len(depths) == 0:
+            return np.array([], dtype=np.float64)
         return np.array([
-            stop - start for start, stop in zip(top_depth, bottom_depth)
+            stop - start for start, stop in depths
         ])
 
+    @BaseDataFile.parameter_calculation("top_depth", "depths")
+    @classmethod
+    def top_depth_from_depths(cls, depths):
+        if len(depths) == 0:
+            return np.array([], dtype=np.float64)
+        prev_units = cls.get_units(depths)
+        out = [x[0] for x in depths]
+        if prev_units is not None:
+            out = cls.add_units(out, prev_units)
+        return out
+
+    @BaseDataFile.parameter_calculation("bottom_depth", "depths")
+    @classmethod
+    def bottom_depth_from_depths(cls, depths):
+        if len(depths) == 0:
+            return np.array([], dtype=np.float64)
+        prev_units = cls.get_units(depths)
+        out = [x[1] for x in depths]
+        if prev_units is not None:
+            out = cls.add_units(out, prev_units)
+        return out
+
     @BaseDataFile.parameter_calculation("top_depth", "thickness")
-    def top_depth_from_thickness(self, thickness):
+    @classmethod
+    def top_depth_from_thickness(cls, thickness):
+        prev_units = cls.get_units(thickness)
+        if prev_units is not None:
+            return rj_units.QuantityArray(
+                cls.top_depth_from_thickness(cls.remove_units(thickness)),
+                prev_units)
+        if len(thickness) == 0:
+            return np.array([], dtype=np.float64)
         return np.array([0.0] + np.cumsum(thickness[:-1]).tolist())
 
     @BaseDataFile.parameter_calculation("bottom_depth", "thickness")
-    def bottom_depth_from_thickness(self, thickness):
+    @classmethod
+    def bottom_depth_from_thickness(cls, thickness):
         return np.cumsum(thickness)
 
     @readonly_cached_property
     def thickness(self) -> list:
         r"""list: Thickness of each soil layer covered by this file."""
         return self.get("thickness")
+
+    @BaseDataFile.parameter_calculation("silt", "clay", "sand")
+    @classmethod
+    def silt_from_clay_and_sand(cls, clay: float, sand: float) -> float:
+        # TODO: Clay & sand derived?
+        total = rj_units.Quantity(100, "%")
+        return total - (clay + sand)
+
+    @BaseDataFile.parameter_calculation("dul", "clay", "sand",
+                                        "organic_carbon")
+    @classmethod
+    def dul_from_texture(cls, clay: float, sand: float,
+                         om: float) -> float:
+        r"""Estimate drained upper limit (field capacity) from soil
+        texture and organic matter using the Saxton and Rawls (2006)
+        pedotransfer function Eq. 2 (Theta_33).
+
+        Args:
+            clay: Clay content.
+            sand: Sand content.
+            om: Organic matter content.
+
+        Returns:
+            float: Drained upper limit (m3/m3).
+
+        """
+        ans0 = (-0.251 * sand + 0.195 * clay + 0.011 * om
+                + 0.006 * sand * om - 0.027 * clay * om
+                + 0.452 * sand * clay + 0.299)
+        return ans0 + (1.283 * ans0**2 - 0.374 * ans0 - 0.015)
+
+    @BaseDataFile.parameter_calculation("wilting_point",
+                                        "clay", "sand",
+                                        "organic_carbon")
+    @classmethod
+    def wilting_point_from_texture(cls, clay: float, sand: float,
+                                   om: float) -> float:
+        r"""Estimate lower limit (wilting point) from soil texture and
+        organic matter using the Saxton and Rawls (2006) pedotransfer
+        function Eq. 1 (Theta_1500).
+
+        Args:
+            clay: Clay content.
+            sand: Sand content.
+            om: Organic matter content.
+
+        Returns:
+            float: Lower limit (m3/m3).
+
+        """
+        ans0 = (-0.024 * sand + 0.487 * clay + 0.006 * om
+                + 0.005 * sand * om - 0.013 * clay * om
+                + 0.068 * sand * clay + 0.031)
+        return ans0 + (0.14 * ans0 - 0.02)
+
+    @classmethod
+    def dul_s_from_texture(cls, clay: float, sand: float,
+                           om: float) -> float:
+        r"""Estimate saturated water content from soil texture and
+        organic matter using the Saxton and Rawls (2006) pedotransfer
+        function Eq. 3 (Theta_{S-33}).
+
+        Args:
+            clay: Clay content.
+            sand: Sand content.
+            om: Organic matter content.
+
+        Returns:
+            float: Saturated water content (m3/m3).
+
+        """
+        ans0 = (0.278 * sand + 0.034 * clay + 0.022 * om
+                - 0.018 * sand * om - 0.027 * clay * om
+                - 0.584 * sand * clay + 0.078)
+        return ans0 + (0.636 * ans0 - 0.107)
+
+    @BaseDataFile.parameter_calculation("sat", "clay", "sand",
+                                        "organic_carbon")
+    @classmethod
+    def sat_from_texture(cls, clay: float, sand: float,
+                         om: float) -> float:
+        r"""Estimate saturated water content from the drained upper
+        limit using the Saxton and Rawls (2006) pedotransfer function
+        Eq. 5 (Theta_S).
+
+        Args:
+            clay: Clay content.
+            sand: Sand content.
+            om: Organic matter content.
+
+        Returns:
+            float: Saturated water content (m3/m3).
+
+        """
+        dul = cls.dul_from_texture(clay, sand, om)
+        dul_s = cls.dul_s_from_texture(clay, sand, om)
+        return dul + dul_s - 0.097 * sand + 0.043
+
+    @BaseDataFile.parameter_calculation("ksat", "clay", "sand",
+                                        "organic_carbon")
+    @classmethod
+    def ksat_from_texture(cls, clay: float, sand: float,
+                          om: float) -> float:
+        r"""Estimate saturated hydraulic conductivity from soil texture
+        and organic matter using the Saxton and Rawls (2006)
+        pedotransfer function (Eq. 16 K_s).
+
+        Args:
+            clay: Clay content.
+            sand: Sand content.
+            om: Organic matter content.
+
+        Returns:
+            float: Saturated hydraulic conductivity (mm/day).
+
+        """
+        dul = cls.dul_from_texture(clay, sand, om)
+        ll15 = cls.wilting_point_from_texture(clay, sand, om)
+        sat = cls.sat_from_texture(clay, sand, om)
+        a = rj_units.Quantity(1930.0, "mm/hr")
+        b = ((utils.log(1500) - utils.log(33))
+             / (utils.log(dul) - utils.log(ll15)))
+        return a * utils.pow(sat - dul, 3 - (1.0 / b))
+
+    @classmethod
+    def texture_class(cls, clay_pct: float, sand_pct: float) -> str:
+        r"""Get the soil texture class from the USDA clay and sand
+        fractions converted to the international system (Minasny et
+        al., 2001).
+
+        Args:
+            clay_pct: Clay content (%).
+            sand_pct: Sand content (%).
+
+        Returns:
+            str: Texture class name.
+
+        """
+        clay = clay_pct / 100
+        silt = (100 - clay_pct - sand_pct) / 100
+        intl_clay = clay
+        intl_silt = max(
+            0.0,
+            -0.0041 - 0.127 * clay + 0.553 * silt
+            + 0.17 * clay**2 - 0.19 * silt**2 + 0.59 * clay * silt)
+        intl_sand = 1 - intl_clay - intl_silt
+        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.40:
+            return "silty clay"
+        if intl_sand < 0.75 - intl_clay and intl_clay >= 0.26:
+            return "silty clay loam"
+        if intl_sand < 0.75 - intl_clay:
+            return "silty loam"
+        if (intl_clay >= 0.40 + (0.305 - 0.40) / (0.635 - 0.35)
+                * (intl_sand - 0.35)
+                and intl_clay < 0.50 + (0.305 - 0.50) / (0.635 - 0.50)
+                * (intl_sand - 0.50)):
+            return "clay"
+        if (intl_clay >= 0.26 + (0.305 - 0.26) / (0.635 - 0.74)
+                * (intl_sand - 0.74)):
+            return "sandy clay"
+        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
+                * (intl_sand - 0.49)
+                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
+                * (intl_sand - 0.775)):
+            return "clay loam"
+        if (intl_clay >= 0.26 + (0.17 - 0.26) / (0.83 - 0.49)
+                * (intl_sand - 0.49)):
+            return "sandy clay loam"
+        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
+                * (intl_sand - 0.775)
+                and intl_clay < 0.10 + (0.305 - 0.10) / (0.635 - 0.775)
+                * (intl_sand - 0.775)):
+            return "loam"
+        if (intl_clay >= 0.10 + (0.12 - 0.10) / (0.63 - 0.775)
+                * (intl_sand - 0.775)):
+            return "sandy loam"
+        if (intl_clay < 0.0 + (0.08 - 0.0) / (0.88 - 0.93)
+                * (intl_sand - 0.93)):
+            return "loamy sand"
+        return "sand"
+
+    @classmethod
+    def interp_location(cls, y: Any, latitude_old, longitude_old,
+                        latitude_new, longitude_new,
+                        kind: Optional[str] = "linear"):
+        r"""Interpolate a map to a specific location.
+
+        Args:
+            y: Initial dependent map values.
+            latitude_old: Initial latitude values or range.
+            longitude_old: Initial longitude values or range.
+            latitude_new: New latitude value.
+            longitude_new: New longitude value.
+
+        Returns:
+            np.ndarray, float: Interpolated values.
+
+        """
+        if isinstance(latitude_old, tuple):
+            assert isinstance(longitude_old, tuple)
+            assert y.ndim == 2
+            # TODO: Verify order of dimensions
+            latitude_old = np.linspace(
+                latitude_old[0], latitude_old[1], y.shape[0])
+            longitude_old = np.linspace(
+                longitude_old[0], longitude_old[1], y.shape[1])
+        if y.ndim == 2:
+            if latitude_old.ndim == 2:
+                assert y.shape == latitude_old.shape
+                assert y.shape == longitude_old.shape
+            else:
+                assert y.shape[0] == len(latitude_old)
+                assert y.shape[1] == len(longitude_old)
+        if isinstance(latitude_new, (list, np.ndarray)):
+            assert len(latitude_new) == len(longitude_new)
+            raise NotImplementedError
+        dist = (
+            (latitude_old - latitude_new) ** 2
+            + (longitude_old - longitude_new) ** 2
+        )
+        if dist.ndim == 2:
+            idx = np.unravel_index(np.argmin(dist), dist.shape)
+        else:
+            idx = np.argmin(dist)
+        return y[*idx]
+
+    @classmethod
+    def interp_profile(cls, y: Any, xold, xnew,
+                       kind: Optional[str] = "linear") -> np.ndarray:
+        r"""Interpolate a profile to a new set of independent values.
+
+        Args:
+            y: Initial dependent values.
+            xold: Initial independent values.
+            xnew: New independent values.
+            kind: Type of interpolation to use.
+
+        Returns:
+            np.ndarray: Interpolated profile.
+
+        """
+        from scipy import interpolate
+        # xranges = xold.max() - xold.min()
+        yinterp = interpolate.interp1d(
+            xold, y, kind=kind, assume_sorted=False,
+            fill_value='extrapolate')
+        return yinterp(xnew)
+
+    @classmethod
+    def create_profile(cls, layers: int | np.ndarray,
+                       a: Optional[float] = 0.5,
+                       b: Optional[float] = 0.5) -> np.ndarray:
+        r"""Create a variable profile that following an exponential
+        dependency on layer depth via a * x * e^(-b * x) if a > 0 and
+        .
+
+        This was adapted from apsimNGpy.
+
+        Args:
+            layers: Array of layer depths or number of even layers.
+            a: Scale factor for the profile.
+            b: Exponential scale factor for the profile.
+
+        Returns:
+            np.ndarray: Array of profile values at each layer.
+
+        """
+        if isinstance(layers, list):
+            layers = np.array(layers)
+        if isinstance(layers, int):
+            depthn = np.arange(1, layers + 1, 1)
+        elif isinstance(layers, np.ndarray):
+            depthn = 1 + (
+                len(layers)
+                * (layers - layers.min())
+                / (layers.max() - layers.min())
+            )
+        if a < 0:
+            raise RuntimeError(f"a cannot be negative (a = {a})")
+        elif (a > 0 and b != 0):
+            ep = -b * depthn
+            result = (a * depthn) * np.exp(ep)
+            return result / result.max()
+        elif (a == 0 and b != 0):
+            ep = -b * depthn
+            result = np.exp(ep) / np.exp(-b)
+            return result
+        elif (a == 0 or b == 0):
+            out = depthn.copy()
+            out[1:] -= out[:-1]
+            return out
+        raise RuntimeError(f"Invalid parameters a = {a}, b = {b}")
+
+    def calculate_missing(self, depths: Optional[list] = None,
+                          thickness: Optional[list] = None,
+                          **kwargs: Any):
+        r"""Calculate missing parameters that are required.
+
+        Args:
+            depths: List of top & bottom depths defining each layer in
+                the soil profile (in cm).
+            thickness: The thickness of each layer (in cm). Only used if
+                depths is not provided.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                parent class's method.
+
+        """
+        super().calculate_missing(**kwargs)
+        if depths is not None or thickness is not None:
+            self.resample_depths(depths=depths, thickness=thickness)
+
+    def resize_layer_parameters(self, nlayers: int) -> None:
+        r"""Resize the layer parameters to match a new number of layers.
+
+        Args:
+            nlayers: Updated number of layers.
+
+        """
+        pass
+
+    def get_universal_parameter_map(self, dst: type, **kwargs) -> dict:
+        r"""Get the universal parameter map with the names & units
+        expected for another file type of the same category.
+
+        Args:
+            dst: File type that the universal parameters should be
+                returned for.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                parent class.
+
+        Returns:
+            dict: Map of parameters using parameter names and units for
+                dst file type.
+
+        """
+        depth_param = {
+            k: dst.STATIC_PARAMETERS[k]
+            for k in dst.UNIVERSAL_LAYER_DEPTH_PARAMETERS
+            if k in dst.STATIC_PARAMETERS
+        }
+        out_unsorted = super().get_universal_parameter_map(dst, **kwargs)
+        out = {
+            k: out_unsorted.pop(k) for k in
+            dst.LAYER_DEPTH_PARAMETERS
+            if k in out_unsorted
+        }
+        out.update(**out_unsorted)
+        if not depth_param:
+            return out
+        return dst.resample_parameter_map_layers(out, **depth_param)
+
+    @classmethod
+    def resample_parameter_map_layers(
+            cls, parameters: dict,
+            top_depth: Optional[list] = None,
+            bottom_depth: Optional[list] = None,
+            depths: Optional[list] = None,
+            thickness: Optional[list] = None,
+    ) -> dict:
+        r"""Resample layer parameters in a parameter map for a new set
+        of depths.
+
+        Args:
+            parameters: Parameter map that should be resampled. Only
+                layer parameters will be resampled.
+            top_depth: Top depths of each layer.
+            bottom_depth: Bottom depths of each layer.
+            depths: List of top & bottom depths defining each layer in
+                the soil profile.
+            thickness: The thickness of each layer. Only used if
+                depths is not provided.
+
+        Returns:
+            dict: Resampled parameter map.
+
+        """
+        # TODO: Check if there is only a single layer present and then
+        #   use create_profile?
+        # TODO: Units
+        # TODO: Raise error if STATIC & params don't match
+        depth_param = {
+            cls.external_param_name(k): parameters[k]
+            for k in cls.LAYER_DEPTH_PARAMETERS
+        }
+        if depths is None and thickness is None and bottom_depth is None:
+            raise ValueError("Either bottom_depth, depths, or thickness "
+                             "must be provided")
+        if bottom_depth is not None:
+            assert top_depth is not None
+        else:
+            if depths is None:
+                bottom_depth = cls.bottom_depth_from_thickness(thickness)
+                top_depth = cls.top_depth_from_thickness(thickness)
+            else:
+                bottom_depth = cls.bottom_depth_from_depths(depths)
+                top_depth = cls.top_depth_from_depths(depths)
+        out = {}
+        if "bottom_depth" in depth_param:
+            old_depths = depth_param["bottom_depth"]
+            out.update(
+                bottom_depth=bottom_depth,
+                top_depth=top_depth,
+            )
+        elif "thickness" in depth_param:
+            old_depths = [
+                x[1] for x in
+                cls.depth_from_thickness(depth_param["thickness"])
+            ]
+            out.update(
+                thickness=cls.thickness_from_split(top_depth, bottom_depth),
+            )
+        elif "depths" in depth_param:
+            old_depths = [x[1] for x in depth_param["depths"]]
+            out.update(
+                depths=cls.depth_from_split(top_depth, bottom_depth),
+            )
+        else:
+            raise ValueError(
+                f"No depth information available: {depth_param}")
+        out = {k: cls.add_param_units(k, v) for k, v in out.items()}
+        for k, v in parameters.items():
+            if k in cls.LAYER_DEPTH_PARAMETERS:
+                assert k in out
+                continue
+            if k in cls.HEADER_PARAMETERS:
+                out[k] = v
+            else:
+                out[k] = cls.interp_profile(
+                    parameters[k], old_depths, bottom_depth
+                )
+        return out
+
+    def resample_depths(self, **kwargs):
+        r"""Resample the soil profile for the specified depths/thicknesses.
+
+        Args:
+            \*\*kwargs: Keyword arguments are passed to
+                resample_parameter_map_layers.
+
+        """
+        old_parameters = self.internal_parameter_map(include_header=True)
+        new_parameters = self.resample_parameter_map_layers(
+            old_parameters, **kwargs)
+        # Set depths/thicknesses first
+        for k in self.LAYER_DEPTH_PARAMETERS:
+            assert k in new_parameters
+            self.set(k, new_parameters[k], allow_resize=True)
+        # Set remainder parameters, interpolating for new bottom depths
+        for k, v in new_parameters.items():
+            if k in self.HEADER_PARAMETERS + self.LAYER_DEPTH_PARAMETERS:
+                continue
+            self.set(k, v)
+
+
+class BaseSoilMapFile(BaseSoilFile):
+    r"""Generic wrapper for soil files that are based on maps."""
+
+    NAME: ClassVar[str] = "generic_soil_map"
+    DESC: ClassVar[str] = "Generic Soil Map"
+    DONT_TEST: ClassVar[bool] = True
+    STATIC_PARAMETERS: ClassVar[dict] = {
+        "latitude": (-90.0, 90.0),
+        "longitude": (-180.0, 180.0),
+    }
+    HEADER_PARAMETERS: ClassVar[List[str]] = [
+        "latitude", "longitude",
+    ]
+    IS_BASE_CLASS: ClassVar[bool] = True
+
+    # TODO: Method for sampling a location genericly
+    @classmethod
+    def get_param_nlayers(cls, value: Any) -> int:
+        r"""Calculate the number of layers described by layer parameter
+        data.
+
+        Args:
+            value: Layer parameter data.
+
+        Returns:
+            int: Number of layers that value describes.
+
+        """
+        assert isinstance(value, np.ndarray)
+        assert value.ndim >= 2
+        if value.ndim == 2:
+            return 1
+        return value.shape[-1]
+
+    def get_universal_parameter_map(self, dst: type, **kwargs) -> dict:
+        r"""Get the universal parameter map with the names & units
+        expected for another file type of the same category.
+
+        Args:
+            dst: File type that the universal parameters should be
+                returned for.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                parent class.
+
+        Returns:
+            dict: Map of parameters using parameter names and units for
+                dst file type.
+
+        """
+        out = super().get_universal_parameter_map(dst, **kwargs)
+        return out
 
 
 class ISRICSoilGridsFile(BaseSoilFile):
@@ -1618,6 +2658,37 @@ class ISRICSoilGridsFile(BaseSoilFile):
         "longitude", "latitude",
     ]
 
+    @classmethod
+    def empty_contents(cls):
+        r"""Create empty contents for a file wrapper instance."""
+        return {
+            "geometry": {
+                "coordinates": [0.0, 0.0, 0.0],
+            },
+            "properties": {
+                "layers": [
+                    {
+                        "name": "clay",  # standin, could be anythingxo
+                        "depths": [],
+                        #     {
+                        #         "range": {
+                        #             "top_depth": 0.0,
+                        #             "bottom_depth": 0.0,
+                        #         },
+                        #         "values": {
+                        #             "mean": 0.0,
+                        #         },
+                        #     }
+                        #     for x in []  #TODO
+                        # ]
+                    }
+                ],
+            },
+        }
+
+    # TODO: Need to prime layers for use in calculate_missing or
+    #   _from_compatible
+
     def _get(self, name: str):
         r"""Get a parameter from the file.
 
@@ -1635,6 +2706,8 @@ class ISRICSoilGridsFile(BaseSoilFile):
             return float(self.contents["geometry"]["coordinates"][
                 self._coord_params.index(name)])
         elif name in ["top_depth", "bottom_depth"]:
+            if len(self.contents["properties"]["layers"]) == 0:
+                return np.array([], dtype=np.float64)
             return np.array([
                 depth["range"][name] for depth in
                 self.contents["properties"]["layers"][0]["depths"]
@@ -1643,26 +2716,82 @@ class ISRICSoilGridsFile(BaseSoilFile):
             if layer["name"] == name:
                 return np.array([
                     depth["values"]["mean"] for depth in layer["depths"]
-                ])
+                ], dtype=np.float64)
         raise KeyError(name)
 
-    def _set(self, name: str, value: Any) -> Any:
+    def resize_layer_parameters(self, nlayers: int) -> None:
+        r"""Resize the layer parameters to match a new number of layers.
+
+        Args:
+            nlayers: Updated number of layers.
+
+        """
+        for layer in self.contents["properties"]["layers"]:
+            if len(layer["depths"]) == nlayers:
+                continue
+            elif len(layer["depths"]) > nlayers:
+                layer["depths"] = layer["depths"][:nlayers]
+                continue
+            for i in range(nlayers - len(layer["depths"])):
+                layer["depths"].append(
+                    {
+                        "range": {
+                            "top_depth": 0.0,
+                            "bottom_depth": 0.0,
+                        },
+                        "values": {
+                            "mean": 0.0,
+                        },
+                    }
+                )
+
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
 
         """
+        if name in self._coord_params:
+            assert isinstance(value, float)
+            self.contents["geometry"]["coordinates"][
+                self._coord_params.index(name)] = str(value)
+            return
         if isinstance(value, np.ndarray):
             value = value.tolist()
         assert isinstance(value, list)
+        if name in ["top_depth", "bottom_depth"]:
+            nlayers = self.get_param_nlayers(value)
+            # if nlayers and not self.contents["properties"]["layers"]:
+            #     self.contents["properties"]["layers"].append({
+            #         "name": "clay",  # standin
+            #         "depths": [],
+            #     })
+            if nlayers != self.nlayers:
+                self.resize_layer_parameters(nlayers)
+            for layer in self.contents["properties"]["layers"]:
+                for v, depth in zip(value, layer["depths"]):
+                    depth["range"][name] = v
+            return
+        assert len(value) == len(self.depths)
         for layer in self.contents["properties"]["layers"]:
             if layer["name"] == name:
-                layer["depths"] = [
+                assert len(value) == len(layer["depths"])
+                for v, depth in zip(value, layer["depths"]):
+                    depth["values"]["mean"] = v
+                return
+        if not allow_add:
+            raise KeyError(name)
+        self.contents["properties"]["layers"].append(
+            {
+                "name": name,
+                "depths": [
                     {
                         "range": {
                             "top_depth": start,
@@ -1672,10 +2801,10 @@ class ISRICSoilGridsFile(BaseSoilFile):
                             "mean": v,
                         },
                     }
-                    for (start, end), v in zip(self.depths, value)
+                    for v, (start, end) in zip(value, self.depths)
                 ]
-                return
-        raise KeyError(name)
+            }
+        )
 
     @classmethod
     def _round_location(cls, loc: float | Tuple[float, float]):
@@ -1823,7 +2952,7 @@ class SSURGOSoilFile(BaseSoilFile):
         "hzdept_r": "cm",
         "hzdepb_r": "cm",
         "elev_r": "m",
-        "ph1to1h2o_r": "pH",
+        "ph1to1h2o_r": "",
         "claytotal_r": "%",
         "silttotal_r": "%",
         "sandtotal_r": "%",
@@ -1835,7 +2964,8 @@ class SSURGOSoilFile(BaseSoilFile):
         "wthirdbar_h": "%",
         "wfifteenbar_r": "%",
         "wsatiated_r": "%",
-        "cec7_r": "meq/100g",
+        # really "meq/(100*g(", but assumed equivalent
+        "cec7_r": "mmol/(100*g)",
     }
 
     @classmethod
@@ -1897,12 +3027,14 @@ class SSURGOSoilFile(BaseSoilFile):
         # return np.array(out)
         return np.array(self.df[name])
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -1917,7 +3049,12 @@ class SSURGOSoilFile(BaseSoilFile):
             if x.tag == name:
                 break
         else:
-            raise KeyError(name)
+            if not allow_add:
+                raise KeyError(name)
+            import xml.etree.ElementTree as ET
+            for row in root[0][0][0][1][0]:
+                ET.SubElement(row, name)
+        assert len(value) == len(root[0][0][0][1][0])
         for row, v in zip(root[0][0][0][1][0], value):
             if v is None or np.isnan(v):
                 row[idx].text = None
@@ -2007,6 +3144,8 @@ class SSURGOSoilFile(BaseSoilFile):
         out = pd.DataFrame.from_dict(data)
         out = out.drop_duplicates(subset=["hzdept_r"]).sort_values(
             'hzdept_r', ascending=True)
+        ix = out["hzdept_r"].isnull()
+        out = out[~ix]
         return out
 
     @property
@@ -2021,7 +3160,46 @@ class SSURGOSoilFile(BaseSoilFile):
         return out
 
 
-class HUMERISSoilData(BaseSoilFile):
+class GeoTIFFWrapper:
+
+    def __init__(self, fname: str, index: int,
+                 scale: Optional[float] = 1.0,
+                 units: Optional[str] = ""):
+        self.fname = fname
+        self.index = index
+        self.scale = scale
+        self._units = [units]
+
+    @property
+    def units(self) -> Union[str, None]:
+        return self._units[-1]
+
+    @units.setter
+    def units(self, value: str | None) -> None:
+        self._units.append(value)
+
+    @property
+    def data(self) -> Union[np.ndarray, rj_units.QuantityArray]:
+        import rasterio
+        fd = rasterio.open(self.fname)
+        out = rj_units.QuantityArray(
+            self.scale * self.fd.read(self.index).astype(np.float64),
+            self._units[0]
+        )
+        fd.close()
+        return_scalar = False
+        for x in self._units[::-1]:
+            if x is None:
+                return_scalar = True
+                continue
+            out = out.to(x)
+            break
+        if return_scalar:
+            return out.value
+        return out
+
+
+class HUMERISSoilData(BaseSoilMapFile):
     r"""Wrapper for loading soil data from the HUMERIS data set.
 
     Dalle Vaglie, Matteo; Francini, Saverio; Chirici, Gherardo;
@@ -2041,6 +3219,7 @@ class HUMERISSoilData(BaseSoilFile):
     URL: ClassVar[str] = (
         "https://data.mendeley.com/public-api/zip/z8v8m579z4/download/2"
     )
+    REQUIRED_OPTIONAL_PACKAGES: ClassVar[List[str]] = ["rasterio"]
     _default_ext: ClassVar[str] = ""
     _EXPECTS_DIRECTORY: ClassVar[bool] = True
     STATIC_PARAMETERS: ClassVar[dict] = {
@@ -2066,9 +3245,9 @@ class HUMERISSoilData(BaseSoilFile):
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
         "top_depth": "cm",
         "bottom_depth": "cm",
-        "N": "",
-        "ECe": "",
-        "OC": "",
+        "N": "g/kg",
+        "ECe": "dS/m",
+        "OC": "g/kg",
         "pH": "",
     }
 
@@ -2114,13 +3293,15 @@ class HUMERISSoilData(BaseSoilFile):
             object: File contents.
 
         """
-        import rasterio
         files = sorted(glob.glob(os.path.join(fname, "Mean", "*.tif")))
         assert files
-        return {
-            os.path.splitext(os.path.basename(x))[0]: rasterio.open(x)
-            for x in files
-        }
+        out = {}
+        for x in files:
+            k = os.path.splitext(os.path.basename(x))[0]
+            out[k] = GeoTIFFWrapper(
+                x, 1, scale=0.01, units=cls.PARAMETER_UNITS[k],
+            )
+        return out
 
     @readonly_cached_property
     def _internal_parameters(self) -> list:
@@ -2140,6 +3321,7 @@ class HUMERISSoilData(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
+        # TODO: Return latitude grid?
         if name == "latitude":
             first = self.internal_parameters()[0]
             return (self.contents[first].bounds.bottom,
@@ -2154,12 +3336,14 @@ class HUMERISSoilData(BaseSoilFile):
         # import pdb; pdb.set_trace()
         return out
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -2421,12 +3605,14 @@ class NASAAppEEARSData(BaseSoilFile):
         prefix = f"{self.NAME}_{self.VERSION}_{self.PARAMETER_PREFIX}"
         return np.array(self.results[prefix + name])
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -2435,6 +3621,9 @@ class NASAAppEEARSData(BaseSoilFile):
         if name in self.HEADER_PARAMETERS:
             self.contents[name] = value
             return
+        if (((not allow_add)
+             and self.PARAMETER_PREFIX + name not in self.results)):
+            raise KeyError(name)
         self.results[self.PARAMETER_PREFIX + name] = value
 
     @property
@@ -2825,12 +4014,14 @@ class EarthaccessData(BaseSoilFile):
             return self.contents[name]
         return np.array(self.contents["parameters"][name])
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
@@ -2842,6 +4033,8 @@ class EarthaccessData(BaseSoilFile):
         if isinstance(value, np.ndarray):
             value = value.tolist()
         assert isinstance(value, list)
+        if (not allow_add) and name not in self.contents["parameters"]:
+            raise KeyError(name)
         self.contents["parameters"][name] = value
 
     @classmethod

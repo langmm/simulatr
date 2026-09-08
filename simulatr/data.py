@@ -504,7 +504,8 @@ class BaseDataFile(BaseFile):
             Value with units.
 
         """
-        # TODO: Add yggdrasil_rapidjson units
+        # TODO: Enable
+        # from yggdrasil_rapidjson import units
         # name_int, name_ext = cls.param_name_aliases(name)
         # if name_int not in cls.PARAMETER_UNITS:
         #     assert not isinstance(value, units.QuantityArray)

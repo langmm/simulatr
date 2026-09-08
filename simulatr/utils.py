@@ -155,7 +155,7 @@ def partialclone(repourl: str, dst: Optional[str] = None,
         ]
         if commit:
             cmds += [
-                f"git fetch --depth 1 origin {commit}"
+                f"git fetch --depth 1 origin {commit}",
                 "git read-tree -mu FETCH_HEAD",
             ]
         else:

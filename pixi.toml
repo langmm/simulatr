@@ -24,6 +24,7 @@ rasterio = "*"
 requests = "*"
 scipy = "*"
 timezonefinder = "*"
+yggdrasil-python-rapidjson = "*"
 
 [pypi-dependencies]
 simulatr = { path = ".", editable = true }
@@ -72,9 +73,6 @@ dotnet = ">=8.0.0,<9.0.0"
 gtk3 = "*"
 git = "*"
 
-[feature.py310.dependencies]
-python = "3.10.*"
-
 [feature.py311.dependencies]
 python = "3.11.*"
 
@@ -88,7 +86,6 @@ python = "3.13.*"
 python = "3.14.*"
 
 [environments]
-py310 = ["dev", "py310", "apsimx"]
 py311 = ["dev", "py311", "apsimx"]
 py312 = ["dev", "py312", "apsimx"]
 py313 = ["dev", "py313", "apsimx"]

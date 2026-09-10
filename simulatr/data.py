@@ -558,7 +558,8 @@ class BaseDataFile(BaseFile):
         """
         if isinstance(value, (rj_units.Quantity, rj_units.QuantityArray)):
             return str(value.units)
-        elif value is None or isinstance(value, (float, np.ndarray,
+        elif value is None or isinstance(value, (float, int, np.int_,
+                                                 np.ndarray,
                                                  datetime.date, str)):
             return None
         elif isinstance(value, (list, tuple)):
@@ -586,7 +587,8 @@ class BaseDataFile(BaseFile):
         """
         if isinstance(value, (rj_units.Quantity, rj_units.QuantityArray)):
             return value.value
-        elif value is None or isinstance(value, (float, np.ndarray,
+        elif value is None or isinstance(value, (float, int, np.int_,
+                                                 np.ndarray,
                                                  datetime.date, str)):
             return value
         elif isinstance(value, list):
@@ -628,10 +630,10 @@ class BaseDataFile(BaseFile):
             return out
         if value is None or isinstance(value, (datetime.date, str)):
             return value
-        elif isinstance(value, float):
+        elif isinstance(value, (float, int, np.int_)):
             if return_scalar:
                 return value
-            return rj_units.Quantity(value, value_units)
+            return rj_units.Quantity(float(value), value_units)
         elif isinstance(value, list):
             out = [
                 cls.add_units(v, value_units,
@@ -1907,8 +1909,6 @@ class BaseSoilFile(BaseDataFile):
         "start_date": datetime.date(1, 1, 1),
         "end_date": datetime.date.today(),
     }
-    DEFAULT_MAX_DEPTH: ClassVar[float | None] = None
-    DEFAULT_NLAYERS: ClassVar[float | None] = None
     UNIVERSAL_PARAMETERS: ClassVar[List[str]] = [
         "latitude",
         "longitude",
@@ -1923,6 +1923,9 @@ class BaseSoilFile(BaseDataFile):
         "bulk_density",     # Bulk density
         "organic_carbon",   # Organic carbon content
         "nitrogen",         # Nitrogen content
+        "no3",
+        "nh4",
+        "urea",
         "ksat",             # Saturated hydraulic conductivity
         "dul",              # Drained upper limit
         # Wilting point or LL15 -> volumetric water content of soil
@@ -2014,6 +2017,20 @@ class BaseSoilFile(BaseDataFile):
         file."""
         return self.get("depths")
 
+    # TODO: Scale factors
+
+    # @BaseDataFile.parameter_calculation("no3", "nitrogen")
+    # def no3_from_total_nitrogen(cls, nitrogen):
+    #     return nitrogen
+
+    # @BaseDataFile.parameter_calculation("nh4", "nitrogen")
+    # def nh4_from_total_nitrogen(cls, nitrogen):
+    #     return 0.1 * nitrogen
+
+    # @BaseDataFile.parameter_calculation("urea", "nitrogen")
+    # def urea_from_total_nitrogen(cls, nitrogen):
+    #     return 0.0 * nitrogen
+
     @BaseDataFile.parameter_calculation("depths", "top_depth",
                                         "bottom_depth")
     @classmethod
@@ -2032,7 +2049,11 @@ class BaseSoilFile(BaseDataFile):
     def depth_from_thickness(cls, thickness):
         prev_units = cls.get_units(thickness)
         out, top = [], cls.add_units(0.0, prev_units)
-        for x in thickness:
+        # TODO: Can be reverted to basic iteration once iteration
+        #   fixed in yggdrasil_python_rapidjson
+        # for x in thickness:
+        for i in range(len(thickness)):
+            x = thickness[i]
             bottom = top + x
             out.append((top, bottom))
             top = bottom
@@ -2042,7 +2063,7 @@ class BaseSoilFile(BaseDataFile):
                                         "bottom_depth")
     @classmethod
     def thickness_from_split(cls, top_depth, bottom_depth):
-        return top_depth - bottom_depth
+        return bottom_depth - top_depth
 
     @BaseDataFile.parameter_calculation("thickness", "depths")
     @classmethod
@@ -2086,7 +2107,8 @@ class BaseSoilFile(BaseDataFile):
         prev_units = cls.get_units(thickness)
         if prev_units is not None:
             return rj_units.QuantityArray(
-                cls.top_depth_from_thickness(cls.remove_units(thickness)),
+                cls.top_depth_from_thickness(
+                    cls.remove_units(thickness)),
                 prev_units)
         if len(thickness) == 0:
             return np.array([], dtype=np.float64)
@@ -2095,6 +2117,12 @@ class BaseSoilFile(BaseDataFile):
     @BaseDataFile.parameter_calculation("bottom_depth", "thickness")
     @classmethod
     def bottom_depth_from_thickness(cls, thickness):
+        prev_units = cls.get_units(thickness)
+        if prev_units is not None:
+            return rj_units.QuantityArray(
+                cls.bottom_depth_from_thickness(
+                    cls.remove_units(thickness)),
+                prev_units)
         return np.cumsum(thickness)
 
     @readonly_cached_property
@@ -3142,9 +3170,9 @@ class SSURGOSoilFile(BaseSoilFile):
                     data[x.tag].append(float(x.text))
         import pandas as pd
         out = pd.DataFrame.from_dict(data)
-        out = out.drop_duplicates(subset=["hzdept_r"]).sort_values(
-            'hzdept_r', ascending=True)
-        ix = out["hzdept_r"].isnull()
+        out = out.drop_duplicates(subset=["hzdepb_r"]).sort_values(
+            'hzdepb_r', ascending=True)
+        ix = out["hzdepb_r"].isnull()
         out = out[~ix]
         return out
 

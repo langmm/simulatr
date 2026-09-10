@@ -29,8 +29,6 @@ from .base import (
 from .data import (
     BaseWeatherFile, BaseSoilFile,
     NASAPOWERWeatherFile,
-    ISRICSoilGridsFile,
-    SSURGOSoilFile,
 )
 from .crop import (
     CropModelFile,
@@ -891,8 +889,13 @@ class ApsimXSoilFile(BaseSoilFile):
         # "FOM": "",
         "PH": "pH",
         "CEC": "cec",
+        # "Water": "",  # Current water level
+        "NO3": "no3",
+        "NH4": "nh4",
+        "Urea": "urea",
     }
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
+        "Thickness": "mm",
         "ParticleSizeSand": "%",
         "ParticleSizeSilt": "%",
         "ParticleSizeClay": "%",
@@ -918,8 +921,6 @@ class ApsimXSoilFile(BaseSoilFile):
         "NH4": "ppm",
         "Urea": "kg/ha",
     }
-    DEFAULT_MAX_DEPTH: ClassVar[float | None] = 200.0
-    DEFAULT_NLAYERS: ClassVar[float | None] = 10
     _layer_nodes: ClassVar[OrderedDict] = OrderedDict([
         # ("SoilPhysical", [
         ("Models.Soils.Physical, Models", [
@@ -948,6 +949,10 @@ class ApsimXSoilFile(BaseSoilFile):
         # ("SoilChemical", [
         ("Models.Soils.Chemical, Models", [
             "PH", "CEC",
+            "Thickness",
+        ]),
+        ("Models.Soils.Water, Models", [
+            "InitialValues",
             "Thickness",
         ]),
         # ("SoilSolute", [
@@ -1099,13 +1104,19 @@ class ApsimXSoilFile(BaseSoilFile):
             self.contents[name] = value
             return
         match = False
+        if isinstance(value, np.ndarray):
+            value = value.tolist()
         for node, param in self._layer_nodes.items():
-            if name in param:
-                self._child(node)[name] = (
-                    value.tolist() if isinstance(value, np.ndarray)
-                    else value
-                )
-                match = True
+            if name not in param and "InitialValues" not in param:
+                continue
+            for x in self.root.findall(requirements={"$type": node}):
+                if name not in param:
+                    if x["Name"] != name:
+                        continue
+                    x["InitialValues"] = value
+                else:
+                    x[name] = value
+            match = True
         if not match:
             raise KeyError(name)
 
@@ -1320,240 +1331,6 @@ class ApsimXSoilFile(BaseSoilFile):
             InitialValues=initial,
             InitialValuesUnits=units)
         return out.contents
-
-    @classmethod
-    def _from_ssurgo_soilgrids_data(cls, src: SSURGOSoilFile) -> dict:
-        r"""Convert SSURGO data into the correct format for this file.
-
-        Args:
-            src: SSURGO data.
-
-        Returns:
-            dict: Converted data.
-
-        """
-        latitude = src.latitude
-        longitude = src.longitude
-        # TODO: Set thickness based on bottomdepth?
-        thickness = 10 * [200.0]
-        df = src.df
-
-        def column(name: str, factor: Optional[float] = 1.0,
-                   dtype: Optional[type] = np.float16):
-            r"""Get the converted value for each depth of the requested
-            parameter."""
-            return factor * np.array(df[name]).astype(dtype)
-
-        bottomdepth = column("hzdepb_r")
-        bottomdepth_new = np.array(thickness).cumsum()
-
-        def interp(y):
-            return [
-                float(x) for x in
-                cls.interp_profile(y, bottomdepth, bottomdepth_new)
-            ]
-
-        sand = column("sandtotal_r")
-        clay = column("claytotal_r")
-        silt = column("silttotal_r")
-        OM = column("om_r")
-        # topdepth = column("hzdept_r")
-        BD = column("dbthirdbar_h")
-        DUL = column("wthirdbar_h")
-        L15 = column("wfifteenbar_r")
-        PH = column("ph1to1h2o_r")
-        # PAW = column("awc_r")
-        KSAT = column("ksat_l")
-        # K_SAT_r = column("ksat_r")
-        # particledensity = column("partdensity")
-        # muname = df["muname"]
-        # musymbol = df["musym"]
-        # cokey = df["co.cokey"]
-        # slope = df["slope_r"]  # float?
-        # componentname = df["compname"]
-        wat_r = column("wsatiated_r")
-        # chkey = df["ch.chkey"]
-        # componentpercent = df["comppct_r"]
-        # TODO
-        # - adjust_SAT_BD_DUL
-        children = [
-            ApsimXFileNode.from_data(
-                "SoilPhysical",
-                Thickness=thickness,
-                ParticleSizeSand=interp(sand),
-                ParticleSizeClay=interp(clay),
-                ParticleSizeSilt=interp(silt),
-                # Rocks=cfvo,
-                BD=interp(BD),
-                LL15=([] if any(np.isnan(L15)) else interp(0.01 * L15)),
-                # apsimNGpy uses a calculation based on PAW
-                DUL=([] if any(np.isnan(DUL)) else interp(DUL)),
-                SAT=([] if any(np.isnan(wat_r)) else interp(0.01 * wat_r)),
-                PH=interp(PH),
-                KS=[float(1.0e6 * (60 * 60 * 24) * 1000 * x)
-                    for x in interp(KSAT)],
-                Carbon=interp(OM / 1.72),
-                Children=[
-                    ApsimXFileNode.from_data(
-                        "SoilCrop",
-                    ).contents,
-                ],
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilWaterBalance",
-                Thickness=thickness,
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilOrganic",
-                Thickness=thickness,
-                Carbon=interp(OM / 1.72),
-                CarbonUnits=0,  # 0: "Total %", 1: "Walkley Black %"
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilChemical",
-                Thickness=thickness,
-                PH=interp(PH),
-                PHUnits=0,  # 0: "1:5 water", 1: "CaCl2"
-                # CEC=cec,
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilWater",
-                Thickness=thickness,
-            ).contents,
-            ApsimXFileNode.from_param(
-                "Models.Soils.Nutrients.Nutrient, Models",
-                ResourceName="Nutrient",
-            ).contents,
-            cls.create_solute("NO3", thickness, [], "ppm"),
-            cls.create_solute("NH4", thickness, [], "ppm"),
-            cls.create_solute("Urea", thickness, [], "kg/ha"),
-            ApsimXFileNode.from_data("SoilTemperature").contents,
-        ]
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        source = (
-            f"Original source is {src.DESC} ({src.URL}) "
-            f"retrieved on {now}"
-        )
-        out = ApsimXFileNode.from_data(
-            "Soil",
-            Latitude=latitude,
-            Longitude=longitude,
-            DataSource=source,
-            Children=children,
-        ).contents
-        if out["Comments"] is None:
-            out["Comments"] = (
-                f"Generated by simulatr from {src.DESC} data"
-            )
-        return out
-
-    @classmethod
-    def _from_isric_soil_data(cls, src: ISRICSoilGridsFile) -> dict:
-        r"""Convert ISRIC SoilGrids data into the correct format for
-        this file.
-
-        Args:
-            src: ISRIC SoilGrids data.
-
-        Returns:
-            dict: Converted data.
-
-        """
-        latitude = src.latitude.value
-        longitude = src.longitude.value
-        depths = cls.remove_units(src.depths)
-        data = {}
-        for layer in src.contents["properties"]["layers"]:
-            data[layer["name"]] = {}
-            for depth in layer["depths"]:
-                start = depth["range"]["top_depth"]
-                end = depth["range"]["bottom_depth"]
-                # TODO: Check quantiles
-                data[layer["name"]][(int(start), int(end))] = depth[
-                    "values"]["mean"]
-            if any(value is None for value in data[layer["name"]].values()):
-                raise ValueError("Some ISRIC SoilGrids data are missing")
-
-        def column(param: str, factor: Optional[float] = 1.0) -> list:
-            r"""Get the converted value for each depth of the requested
-            parameter."""
-            return [float(data[param][r] * factor) for r in depths]
-
-        bdod = column("bdod", 1e-2)  # -> g/cm3
-        soc = column("soc", 1e-2)  # -> %
-        phh2o = column("phh2o", 1e-1)  # -> pH
-        sand = column("sand", 1e-1)  # -> %
-        clay = column("clay", 1e-1)  # -> %
-        cec = column("cec", 1e-1)  # -> cmol/kg
-        cfvo = column("cfvo", 1e-3)  # -> fraction
-        sat = column("wv0010", 1e-3)  # -> mm/mm
-        dul = column("wv0033", 1e-3)  # -> mm/mm
-        ll15 = column("wv1500", 1e-3)  # -> mm/mm
-        thickness = [(end - start) * 10 for start, end in depths]
-        children = [
-            ApsimXFileNode.from_data(
-                "SoilPhysical",
-                Thickness=thickness,
-                ParticleSizeSand=sand,
-                ParticleSizeClay=clay,
-                Rocks=cfvo,
-                BD=bdod,
-                LL15=ll15,
-                DUL=dul,
-                SAT=sat,
-                Children=[
-                    ApsimXFileNode.from_data(
-                        "SoilCrop",
-                    ).contents,
-                ],
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilWaterBalance",
-                Thickness=thickness,
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilOrganic",
-                Thickness=thickness,
-                Carbon=[1.72 * x for x in soc],
-                CarbonUnits=0,  # 0: "Total %", 1: "Walkley Black %"
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilChemical",
-                Thickness=thickness,
-                PH=phh2o,
-                PHUnits=0,  # 0: "1:5 water", 1: "CaCl2"
-                CEC=cec,
-            ).contents,
-            ApsimXFileNode.from_data(
-                "SoilWater",
-                Thickness=thickness,
-            ).contents,
-            ApsimXFileNode.from_param(
-                "Models.Soils.Nutrients.Nutrient, Models",
-                ResourceName="Nutrient",
-            ).contents,
-            cls.create_solute("NO3", thickness, [], "ppm"),
-            cls.create_solute("NH4", thickness, [], "ppm"),
-            cls.create_solute("Urea", thickness, [], "kg/ha"),
-            ApsimXFileNode.from_data("SoilTemperature").contents,
-        ]
-        now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        source = (
-            f"Original source is {src.DESC} ({src.URL}) "
-            f"retrieved on {now}"
-        )
-        out = ApsimXFileNode.from_data(
-            "Soil",
-            Latitude=latitude,
-            Longitude=longitude,
-            DataSource=source,
-            Children=children,
-        ).contents
-        if out["Comments"] is None:
-            out["Comments"] = (
-                f"Generated by simulatr from {src.DESC} data"
-            )
-        return out
 
     @classmethod
     def _from_compatible(cls, src: BaseSoilFile):
@@ -3110,10 +2887,10 @@ class ApsimXEngine(CropModelEngine):
     @classmethod
     def apsim_direct(cls) -> str:
         r"""Path to the apsimx models executable."""
-        if platform.system() == "Windows":
-            return os.path.join(
-                cls.model_dir(), "bin", "x64", "Debug", "net8.0",
-                "Models.dll")
+        # if platform.system() == "Windows":
+        #     return os.path.join(
+        #         cls.model_dir(), "bin", "x64", "Debug", "net8.0",
+        #         "Models.dll")
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "Models.dll")
@@ -3121,10 +2898,10 @@ class ApsimXEngine(CropModelEngine):
     @classmethod
     def apsim_srv(cls) -> str:
         r"""Path to the apsimx server executable."""
-        if platform.system() == "Windows":
-            return os.path.join(
-                cls.model_dir(), "bin", "x64", "Debug", "net8.0",
-                "ApsimZMQServer.dll")
+        # if platform.system() == "Windows":
+        #     return os.path.join(
+        #         cls.model_dir(), "bin", "x64", "Debug", "net8.0",
+        #         "ApsimZMQServer.dll")
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "ApsimZMQServer.dll")
@@ -3182,7 +2959,8 @@ class ApsimXEngine(CropModelEngine):
                                f"exist: \"{sln_file}\"")
         logger.info(f"Building APSIMX from \"{sln_file}\"")
         subprocess.run(
-            ["dotnet", "build", sln_file], check=True)
+            ["dotnet", "build", "-p:Platform=\"Any CPU\"", sln_file],
+            check=True)
 
     @classmethod
     def default_server_fields(cls) -> dict:

@@ -3110,6 +3110,10 @@ class ApsimXEngine(CropModelEngine):
     @classmethod
     def apsim_direct(cls) -> str:
         r"""Path to the apsimx models executable."""
+        if platform.system() == "Windows":
+            return os.path.join(
+                cls.model_dir(), "bin", "x64", "Debug", "net8.0",
+                "Models.dll")
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "Models.dll")
@@ -3117,6 +3121,10 @@ class ApsimXEngine(CropModelEngine):
     @classmethod
     def apsim_srv(cls) -> str:
         r"""Path to the apsimx server executable."""
+        if platform.system() == "Windows":
+            return os.path.join(
+                cls.model_dir(), "bin", "x64", "Debug", "net8.0",
+                "ApsimZMQServer.dll")
         return os.path.join(
             cls.model_dir(), "bin", "Debug", "net8.0",
             "ApsimZMQServer.dll")

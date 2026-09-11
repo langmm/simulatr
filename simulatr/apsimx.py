@@ -2959,7 +2959,7 @@ class ApsimXEngine(CropModelEngine):
                                f"exist: \"{sln_file}\"")
         logger.info(f"Building APSIMX from \"{sln_file}\"")
         subprocess.run(
-            ["dotnet", "build", "-p:Platform=\"Any CPU\"", sln_file],
+            ["dotnet", "build", "-p:Platform=\"\"", sln_file],
             check=True)
 
     @classmethod

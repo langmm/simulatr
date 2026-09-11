@@ -2958,8 +2958,12 @@ class ApsimXEngine(CropModelEngine):
             raise RuntimeError(f"APSIMX solution does not "
                                f"exist: \"{sln_file}\"")
         logger.info(f"Building APSIMX from \"{sln_file}\"")
+        if platform.system() == "Windows":
+            noplatform = "/p:AppendPlatformToOutputPath=false"
+        else:
+            noplatform = "-p:AppendPlatformToOutputPath=false"
         subprocess.run(
-            ["dotnet", "build", "-p:Platform=\"\"", sln_file],
+            ["dotnet", "build", noplatform, sln_file],
             check=True)
 
     @classmethod

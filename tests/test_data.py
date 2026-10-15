@@ -9,7 +9,6 @@ from simulatr.utils import promptuser_boolean
 
 
 _select_classes = {}
-_create_data = False
 
 
 def _get_pytest_param(category: str,
@@ -42,9 +41,16 @@ def parametrize_data(category: str,
         pytest.mark.parametrize decoration function.
 
     """
-    return pytest.mark.parametrize(
+    out = pytest.mark.parametrize(
         "name", _get_pytest_param(category, for_download=for_download),
         indirect=True)
+    if for_download:
+
+        def _decorator(cls):
+            return pytest.mark.download(out(cls))
+
+        return _decorator
+    return out
 
 
 class TestDataBase:
@@ -82,37 +88,47 @@ class TestDataBase:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def get_example_data(cls, get_data_cls, args):
+    def download_enabled(cls, request):
+        for mark in request.node.own_markers:
+            if mark.name == "download":
+                return True
+        return False
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def get_example_data(cls, get_data_cls, args, download_enabled,
+                         create_missing_data):
 
         def _get_example_data(name, return_fname=False,
                               compatible_type=None,
-                              optional=False):
+                              optional=False,
+                              using_args=args,
+                              allow_download=download_enabled):
             data_cls = get_data_cls(name)
             # TODO: Arguments for compatible class when this class
             #   has STATIC_PARAMETERS, but the compatible class
             #   does not. Raise error in from_compatible
             if (("latitude" not in data_cls.STATIC_PARAMETERS
-                 and args[0] is None)):
+                 and using_args[0] is None)):
                 pytest.skip("Cannot create location specific file "
                             "without a specific location")
             if (("start_date" not in data_cls.STATIC_PARAMETERS
-                 and args[2] is None)):
+                 and using_args[2] is None)):
                 pytest.skip("Cannot create time specific file "
                             "without a specific location")
-            suffix = ""
-            if compatible_type is None:
-                compatible_type = data_cls.DEFAULT_EXTERNAL_TYPE
-            if isinstance(compatible_type, type):
-                compatible_type = compatible_type.NAME
-            if compatible_type:
-                suffix = f"_from_{compatible_type}"
-            fname = data_cls.format_filename(*args, suffix=suffix)
-            if _create_data and not data_cls.path_exists(fname):
-                if promptuser_boolean(
-                        f"Create data for {data_cls.DESC} "
-                        f"{data_cls.CATEGORY} file at {fname}?",
-                        _gha_default=False):
-                    data_cls.from_location(*args)
+            fname = data_cls.format_filename(
+                *using_args, src=compatible_type)
+            fname_exists = data_cls.path_exists(fname)
+            if fname_exists:
+                allow_download = False
+            elif create_missing_data and (not allow_download):
+                allow_download = promptuser_boolean(
+                    f"Create data for {data_cls.DESC} "
+                    f"{data_cls.CATEGORY} file at {fname}?",
+                    _gha_default=False,
+                )
+            if allow_download and not fname_exists:
+                data_cls.from_location(*using_args, src=compatible_type)
             if (not optional) and (not data_cls.path_exists(fname)):
                 pytest.skip(f"No example data for {name}: {fname}")
             if return_fname:
@@ -133,7 +149,7 @@ class TestDataBase:
         r"""float: Test latitude."""
         if "latitude" in data_cls.STATIC_PARAMETERS:
             return None  # data_cls.STATIC_PARAMETERS["latitude"]
-        return 40.116  # Precision limit of NASA POWER
+        return 40.1164
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -141,7 +157,7 @@ class TestDataBase:
         r"""float: Test longitude."""
         if "longitude" in data_cls.STATIC_PARAMETERS:
             return None  # data_cls.STATIC_PARAMETERS["longitude"]
-        return -88.243  # Precision limit of NASA POWER
+        return -88.2434
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -179,21 +195,63 @@ class TestDataBase:
         r"""Test instance of the targeted class."""
         return get_example_data(name)
 
+    @pytest.fixture(scope="class")
+    @classmethod
+    def assert_data_allclose(cls, assert_nested_allclose):
+
+        def _assert_data_allclose(a, b, **kwargs):
+
+            a_param = a.universal_parameter_map(include_calculated=True)
+            b_param = b.universal_parameter_map(include_calculated=True)
+            assert_nested_allclose(a_param, b_param, **kwargs)
+
+        return _assert_data_allclose
+
+    @pytest.fixture
+    @classmethod
+    def name_compare(cls, name):
+        if name == 'soilmat_data':
+            return 'isric_soilgrids_data'
+        pytest.skip(f"No data type to compare against {name}")
+
+    @pytest.fixture
+    @classmethod
+    def args_compare(cls, args):
+        return args
+
+    def test_compare(self, name, name_compare, args_compare,
+                     get_example_data, assert_data_allclose):
+        r"""Test equivalence of values against another data source."""
+        local_example = get_example_data(name,
+                                         using_args=args_compare)
+        other_example = get_example_data(name_compare,
+                                         using_args=args_compare)
+        assert_data_allclose(
+            local_example, other_example,
+            # TODO: Update this once SoilMat is finalized
+            ignore_keys=[
+                'cec', 'rocks',
+            ],
+            rtol=0.4,
+            convert_units=True,
+        )
+        # assert_data_allclose(
+        #     local_example, other_example, convert_units=True)
+
 
 class TestDataDownload(TestDataBase):
     r"""Test base class for download."""
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def using_temp_dir(cls, category, name, data_dir):
+    def using_temp_dir(cls, category, name, data_dir,
+                       alternate_data_dir):
         name_dir = name.replace(" ", "_")
         temp_dir = os.path.join(os.getcwd(), f"test_cache_{name_dir}")
         assert not os.path.exists(temp_dir)
         try:
             os.mkdir(temp_dir)
-            with pytest.MonkeyPatch.context() as mp:
-                for k, v in FileMeta.get_registry(category).items():
-                    mp.setattr(v, "DEFAULT_CACHE_DIR", temp_dir)
+            with alternate_data_dir(temp_dir, category):
                 yield
         finally:
             shutil.rmtree(temp_dir)
@@ -217,6 +275,11 @@ class TestDataDownload(TestDataBase):
             if os.path.isfile(fname):
                 os.remove(fname)
 
+    @pytest.fixture
+    @classmethod
+    def args_compare(cls, args, sampled_location):
+        return (*sampled_location, *args[2:])
+
 
 class TestDataBaseNoDownload(TestDataBase):
     r"""Test base class with downloads disabled."""
@@ -228,26 +291,19 @@ class TestDataBaseNoDownload(TestDataBase):
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def using_test_data(cls, category, data_dir):
-        with pytest.MonkeyPatch.context() as mp:
-            for k, v in FileMeta.get_registry(category).items():
-                if k != "HUMERIS":  # For local testing
-                    mp.setattr(v, "DEFAULT_CACHE_DIR", data_dir)
+    def using_test_data(cls, category, data_dir, alternate_data_dir):
+        with alternate_data_dir(data_dir, category, skip_keys=["HUMERIS"]):
             yield
 
     @pytest.fixture(scope="class", autouse=True)
     @classmethod
-    def download_disabled(cls, category):
-
-        def fake_download_data(*args, **kwargs):
-            raise RuntimeError("Download called")
-
-        with pytest.MonkeyPatch.context() as mp:
-            if not _create_data:
-                for k, v in FileMeta.get_registry(category).items():
-                    mp.setattr(v, "download_and_save_data",
-                               fake_download_data)
+    def download_disabled(cls, category, download_disabled,
+                          create_missing_data):
+        if create_missing_data:
             yield
+        else:
+            with download_disabled(category):
+                yield
 
     def test_attributes(self, instance, latitude, longitude,
                         start_date, end_date, assert_allclose):
@@ -369,6 +425,32 @@ class TestDataBaseNoDownload(TestDataBase):
         for args in invalid_args:
             assert not instance.covers_location(*args)
 
+    def test_calculations(self, instance,
+                          assert_nested_allclose):
+        r"""Compare calculations against provided values."""
+        external = instance.external_parameters(include_header=True)
+        param_int = {}
+        param_cal = {}
+        param_err = {}
+        for k, v in instance.PARAMETER_CALCULATORS.items():
+            if not (k in external
+                    and instance.can_calculate_parameter(
+                        k, previous=external)):
+                continue
+            result_int = instance.get(k)
+            for x in v:
+                try:
+                    result_cal = x(instance)
+                    param_cal.setdefault(k, {})
+                    param_int.setdefault(k, {})
+                    param_cal[k][x.method] = result_cal
+                    param_int[k][x.method] = result_int
+                except KeyError as e:
+                    param_err.setdefault(k, {})
+                    param_err[k][x.method] = e
+        assert_nested_allclose(param_cal, param_int, rtol=0.3,
+                               convert_units=True)
+
 
 ##########################################################
 # Weather
@@ -382,7 +464,9 @@ class TestWeatherDate(TestDataBaseNoDownload):
 
     @pytest.fixture(params=_get_pytest_param("weather"))
     @classmethod
-    def name_compatible(cls, request):
+    def name_compatible(cls, name, request):
+        if request.param == name:
+            pytest.skip("Don't test conversion from the same class")
         return request.param
 
 
@@ -405,7 +489,9 @@ class TestSoilBase(TestDataBaseNoDownload):
 
     @pytest.fixture(params=_get_pytest_param("soil"))
     @classmethod
-    def name_compatible(cls, request):
+    def name_compatible(cls, name, request):
+        if request.param == name:
+            pytest.skip("Don't test conversion from the same class")
         return request.param
 
     def test_soil_attributes(self, instance):

@@ -345,6 +345,14 @@ class TestApsimXFile(TestModelFile):
 @add_simulator_test("apsimx")
 class TestApsimXEngine(TestModelEngine):
 
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def using_test_data(cls, data_dir, alternate_data_dir):
+        with alternate_data_dir(data_dir,
+                                skip_keys=["HUMERIS"],
+                                download_disabled=True):
+            yield
+
     @pytest.fixture(scope="class")
     @classmethod
     def default_instance_kwargs(cls):

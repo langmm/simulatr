@@ -48,29 +48,48 @@ class NoDefault:
 
 # TODO: These can be removed once ufuncs fixed in yggdrasil_rapidjson
 
+def has_units(x):
+    return isinstance(x, (units.Quantity, units.QuantityArray))
+
+
+def matching_unit_type(*match_to):
+    if any(isinstance(x, units.QuantityArray) for x in match_to):
+        return units.QuantityArray
+    return units.Quantity
+
+
+def match_unit_type(value, value_units, *match_to):
+    unit_type = matching_unit_type(*match_to)
+    return unit_type(value, value_units)
+
+
+def round(x, **kwargs):
+    if has_units(x):
+        unit_type = matching_unit_type(x)
+        return unit_type(np.round(x.value, **kwargs), x.units)
+    return np.round(x, **kwargs)
+
+
 def mean(x):
-    if isinstance(x, (units.Quantity, units.QuantityArray)):
+    if has_units(x):
         return units.Quantity(np.mean(x.value), x.units)
     return np.mean(x)
 
 
 def log(x):
-    if ((isinstance(x, (units.Quantity, units.QuantityArray))
-         and x.is_dimensionless())):
+    if has_units(x) and x.is_dimensionless():
         return np.log(x.value)
     return np.log(x)
 
 
 def exp(x):
-    if ((isinstance(x, (units.Quantity, units.QuantityArray))
-         and x.is_dimensionless())):
+    if has_units(x) and x.is_dimensionless():
         return np.exp(x.value)
     return np.exp(x)
 
 
 def pow(x, y):
-    if ((isinstance(x, (units.Quantity, units.QuantityArray))
-         and x.is_dimensionless())):
+    if has_units(x) and x.is_dimensionless():
         return np.pow(x.value, y)
     return np.pow(x, y)
 

@@ -27,8 +27,11 @@ from .base import (
     SimulatorNotInstalled,
 )
 from .data import (
+    ParameterNormalizer,
     BaseWeatherFile, BaseSoilFile,
     NASAPOWERWeatherFile,
+    # SoilMatFile,
+    ISRICSoilGridsFile,
 )
 from .crop import (
     CropModelFile,
@@ -575,16 +578,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
     DESC: ClassVar[str] = "ApsimX Weather"
     DEFAULT_EXTERNAL_TYPE: ClassVar[type] = NASAPOWERWeatherFile
     _default_ext: ClassVar[str] = ".met"
-    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
-        "nasa_power_weather_data": [
-            "TOA_SW_DWN",
-            "ALLSKY_SFC_SW_DWN",  # MJ
-            "T2M", "T2M_MIN", "T2M_MAX",  # C
-            "T2MDEW",  # C
-            "WS2M",  # wind
-            "PRECTOTCORR",  # mm
-        ],
-    }
     REQUIRED_PARAMETERS: ClassVar[List[str]] = [
         "longitude", "latitude", "elevation", "tav",
         "radn",
@@ -826,9 +819,10 @@ class ApsimXWeatherFile(BaseWeatherFile):
             contents: New data to incorporate.
 
         """
+        # TODO: Currently untested and dataframe in columns is just
+        #   replaced rather than updated
         for k in ["units", "contents", "columns"]:
-            # TODO: Handle dataframe in "columns"
-            self.contents[k].udpate(contents[k])
+            self.contents[k].update(contents[k])
 
 
 class ApsimXSoilFile(BaseSoilFile):
@@ -838,29 +832,8 @@ class ApsimXSoilFile(BaseSoilFile):
 
     NAME: ClassVar[str] = "apsimx_soil"
     DESC: ClassVar[str] = "ApsimX Soil"
-    # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = ISRICSoilGridsFile
-    # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = SSURGOSoilFile
+    DEFAULT_EXTERNAL_TYPE: ClassVar[type] = ISRICSoilGridsFile
     _default_ext: ClassVar[str] = ".json"
-    REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {
-        "isric_soil_data": [
-            "bdod",  # Bulk density of the fine earth fraction
-            "cec",  # Cation exchange capacity
-            "cfvo",  # Coarse fragment content
-            "clay",
-            # "landmask",
-            "nitrogen",
-            # "ocd",
-            # "ocs",
-            "phh2o",  # Soil pH
-            "sand",
-            "silt",
-            "soc",  # Soil organic carbon
-            # "wrb",
-            "wv0010",  # Volumetric water content at 10 kPa (mm/mm)
-            "wv0033",  # Volumetric water content at 33 kPa (mm/mm)
-            "wv1500",  # Volumetric water content at 1500 kPa (mm/mm)
-        ]
-    }
     HEADER_PARAMETERS: ClassVar[List[str]] = [
         "Latitude", "Longitude",
     ]
@@ -883,7 +856,7 @@ class ApsimXSoilFile(BaseSoilFile):
         # "XF": "",
         # "SWCON": "",
         "Carbon": "organic_carbon",
-        "SoilCNRatio": "",
+        "SoilCNRatio": "cn_ratio",
         # "FBiom": "",
         # "FInert": "",
         # "FOM": "",
@@ -962,10 +935,46 @@ class ApsimXSoilFile(BaseSoilFile):
         ]),
     ])
 
+    def __init__(self, fname: str, generated: Optional[bool] = False,
+                 contents: Optional[dict] = None,
+                 fname_orig: Optional[str] = None,
+                 depths: Optional[list] = None,
+                 thickness: Optional[list] = None) -> None:
+        r"""Initialize a file wrapper.
+
+        Args:
+            fname: Path to a file.
+            generated: If True, this file was generated.
+            contents: Contents to initialize the file with.
+            fname_orig: Original file that this one was generated from.
+            depths: List of top & bottom depths defining each layer in
+                the soil profile (in cm).
+            thickness: The thickness of each layer (in cm). Only used if
+                depths is not provided.
+
+        """
+        super().__init__(fname, generated=generated, contents=contents,
+                         fname_orig=fname_orig, depths=depths,
+                         thickness=thickness)
+        if self.exists or contents:
+            self.calculate_missing()
+
+    @classmethod
+    def from_file_and_prev(cls, fname, prev):
+        out = cls.from_file(fname)
+        crop_name = prev.crop_name
+        out.root.specialize_crop(crop_name)
+        return out.contents
+
     @cached_property
     def root(self) -> ApsimXFileNode:
         r"""Root soil node."""
         return ApsimXFileNode(self.contents)
+
+    @property
+    def crop_name(self) -> str:
+        r"""Crop name."""
+        return self.crop_soil["Name"].rsplit("Soil", 1)[0]
 
     @cached_property
     def physical(self) -> ApsimXFileNode:
@@ -1100,6 +1109,7 @@ class ApsimXSoilFile(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
+        # TODO: Sett LL when LL15 is set and vis-versa
         if name in self.HEADER_PARAMETERS:
             self.contents[name] = value
             return
@@ -1132,26 +1142,42 @@ class ApsimXSoilFile(BaseSoilFile):
                 if k in param:
                     self._child(node)[k] = v
 
-    def calculate_missing(self, depths: Optional[list] = None,
-                          thickness: Optional[list] = None,
-                          **kwargs: Any):
-        r"""Calculate missing parameters that are required.
+    @ParameterNormalizer.register_method("sat", "bulk_density")
+    @classmethod
+    def sat_from_bulk_density_norm(cls, sat: float, bd: float,
+                                   particle_density: Optional[float] = 2.65):
+        # TODO: Adjust for DUL at the same time?
+        sat_units = cls.get_units(sat)
+        sat_units_type = utils.matching_unit_type(sat)
+        sat = cls.add_units(sat, "", return_scalar=True)
+        bd = cls.add_units(bd, "g/cm3", return_scalar=True)
+        particle_density = cls.add_units(particle_density, "g/cm3",
+                                         return_scalar=True)
+        max_sw = 1.0 - (bd / particle_density)
+        max_bd = (1.0 - sat) * particle_density
+        gap = 0.01
+        idx = np.logical_or(sat > (max_sw - gap), bd >= (max_bd - gap))
+        sat[idx] = max_sw[idx] - gap
+        if sat_units is not None:
+            sat = sat_units_type(sat, sat_units)
+        return sat
 
-        Args:
-            depths: List of top & bottom depths defining each layer in
-                the soil profile (in cm).
-            thickness: The thickness of each layer (in cm). Only used if
-                depths is not provided.
-            \*\*kwargs: Additional keyword arguments are passed to the
-                parent class's method.
+    @ParameterNormalizer.register_method("dul", "sat")
+    @classmethod
+    def dul_normalization(cls, dul: float, sat: float):
+        dul_units = cls.get_units(dul)
+        dul_units_type = utils.matching_unit_type(dul)
+        dul = cls.add_units(dul, "", return_scalar=True)
+        sat = cls.add_units(sat, "", return_scalar=True)
+        gap = 0.05  # 0.002
+        idx = ((sat - dul) < gap)
+        dul[idx] = sat[idx] - gap
+        if dul_units is not None:
+            dul = dul_units_type(dul, dul_units)
+        return dul
 
-        """
-        # TODO: Generic minimum number of layers
-        if len(self.depths) == 1 and (depths is None
-                                      and thickness is None):
-            thickness = 200.0 * np.ones((10, ))
-        super().calculate_missing(depths=depths, thickness=thickness,
-                                  **kwargs)
+    def calculate_missing(self):
+        r"""Calculate missing parameters that are required."""
         curveparam_a = 0.0
         curveparam_b = 0.2
         # TODO: Check for scalars and interpolate?
@@ -1165,59 +1191,95 @@ class ApsimXSoilFile(BaseSoilFile):
                 )
             ]
         if (((not self.physical.contents.get("LL15", None))
+             and self.crop_soil.contents.get("LL", None))):
+            self.physical.contents["LL15"] = (
+                self.crop_soil.contents["LL"]
+            )
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+        if (((not self.crop_soil.contents.get("LL", None))
+             and self.physical.contents.get("LL15", None))):
+            self.crop_soil.contents["LL"] = (
+                self.physical.contents["LL15"]
+            )
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+        if (((not self.physical.contents.get("LL15", None))
              and self.physical.contents.get("ParticleSizeClay", None)
              and self.physical.contents.get("ParticleSizeSand", None)
              and self.organic.contents.get("Carbon", None))):
             self.physical.contents["LL15"] = [
-                self.wilting_point_from_texture(c / 100, s / 100, o)
+                float(self.wilting_point_from_texture(
+                    c / 100, s / 100, 1.724 * o / 100).value)
                 for c, s, o in zip(
                         self.physical.contents["ParticleSizeClay"],
                         self.physical.contents["ParticleSizeSand"],
                         self.organic.contents["Carbon"]
                 )
             ]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if (((not self.physical.contents.get("DUL", None))
              and self.physical.contents.get("ParticleSizeClay", None)
              and self.physical.contents.get("ParticleSizeSand", None)
              and self.organic.contents.get("Carbon", None))):
             self.physical.contents["DUL"] = [
-                self.dul_s_from_texture(c / 100, s / 100, o)
+                # TODO: Double check if this should be dul_from_texture
+                float(self.dul_from_texture(
+                    c / 100, s / 100, 1.724 * o / 100).value)
                 for c, s, o in zip(
                         self.physical.contents["ParticleSizeClay"],
                         self.physical.contents["ParticleSizeSand"],
                         self.organic.contents["Carbon"]
                 )
             ]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if ((self.physical.contents.get("DUL", None)
              and self.physical.contents.get("SAT", None))):
             # ApsimX expects DUL to be less than SAT
+            # TODO: This should be moved into generic normalization
             for idx in range(len(self.physical.contents["DUL"])):
                 if ((self.physical.contents["DUL"][idx]
-                     > self.physical.contents["SAT"][idx])):
+                     >= self.physical.contents["SAT"][idx])):
                     self.physical.contents["DUL"][idx] = (
                         self.physical.contents["SAT"][idx] - 0.002)
+                    raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if (((not self.physical.contents.get("AirDry", None))
              and self.physical.contents.get("LL15", None))):
             self.physical.contents["AirDry"] = [
-                0.5 * x   # if i < 3 else x
+                max(0.005, 0.5 * x)   # if i < 3 else x
                 for i, x in enumerate(self.physical.contents["LL15"])
             ]
         if (((not self.physical.contents.get("KS", None))
-             and self.physical.contents.get("ParticleSizeClay", None)
-             and self.physical.contents.get("ParticleSizeSand", None)
-             and self.organic.contents.get("Carbon", None))):
+             and self.physical.contents.get("LL15", None)
+             and self.physical.contents.get("DUL", None)
+             and self.physical.contents.get("SAT", None))):
             self.physical.contents["KS"] = [
-                self.ksat_from_texture(c / 100, s / 100, o)
-                for c, s, o in zip(
-                        self.physical.contents["ParticleSizeClay"],
-                        self.physical.contents["ParticleSizeSand"],
-                        self.organic.contents["Carbon"]
+                float(self.ksat_from_moisture(
+                    sat, dul, ll15).to("mm/day").value)
+                for sat, dul, ll15 in zip(
+                        self.physical.contents["SAT"],
+                        self.physical.contents["DUL"],
+                        self.physical.contents["LL15"]
                 )
             ]
-            if not np.isfinite(self.physical.contents["KS"]).all():
-                raise ValueError(
-                    "Failed to compute saturated hydraulic "
-                    "conductivity from clay, sand, and carbon data")
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+        # if (((not self.physical.contents.get("KS", None))
+        #      and self.physical.contents.get("ParticleSizeClay", None)
+        #      and self.physical.contents.get("ParticleSizeSand", None)
+        #      and self.organic.contents.get("Carbon", None))):
+        #     self.physical.contents["KS"] = [
+        #         float(self.ksat_from_texture(
+        #             c / 100, s / 100, 1.724 * o / 100).value)
+        #         for c, s, o in zip(
+        #                 self.physical.contents["ParticleSizeClay"],
+        #                 self.physical.contents["ParticleSizeSand"],
+        #                 self.organic.contents["Carbon"]
+        #         )
+        #     ]
+        #     raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+        if ((self.physical.contents.get("KS", None)
+             and not np.isfinite(self.physical.contents["KS"]).all())):
+            raise ValueError(
+                "Failed to compute saturated hydraulic "
+                "conductivity from clay, sand, and carbon data")
         if (((not self.water.contents.get("InitialValues", None))
              and self.physical.contents.get("LL15", None)
              and self.physical.contents.get("DUL", None))):
@@ -1233,11 +1295,6 @@ class ApsimXSoilFile(BaseSoilFile):
             self.root.contents["SoilType"] = self.texture_class(
                 self.physical.contents["ParticleSizeClay"][0],
                 self.physical.contents["ParticleSizeSand"][0]
-            )
-        if (((not self.crop_soil.contents.get("LL", None))
-             and self.physical.contents.get("LL15", None))):
-            self.crop_soil.contents["LL"] = (
-                self.physical.contents["LL15"]
             )
         layers = np.array(self.physical.contents["Thickness"]).cumsum()
         nlayers = len(layers)
@@ -1295,7 +1352,10 @@ class ApsimXSoilFile(BaseSoilFile):
             self.solutes["Urea"].contents["InitialValues"] = nlayers * [0.0]
         if not self.water_balance.contents.get("SWCON", None):
             self.water_balance.contents["SWCON"] = nlayers * [0.3]
-        return super().calculate_missing()
+        # TODO: Generic minimum number of layers
+        if nlayers == 1:
+            thickness = 200.0 * np.ones((10, ))
+            self.resample_depths(thickness=thickness)
 
     @classmethod
     def create_solute(cls, name: str,
@@ -1597,6 +1657,8 @@ class ApsimXFile(CropModelFile):
                        directory: Optional[str | None] = None,
                        interactive: Optional[bool] = False,
                        actions: Optional[List[str] | None] = None,
+                       dont_fetch_weather: Optional[bool] = False,
+                       dont_fetch_soil: Optional[bool] = False,
                        **kwargs: Any) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
@@ -1609,6 +1671,8 @@ class ApsimXFile(CropModelFile):
                 saved (only used if dst is not provided).
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
+            dont_fetch_weather: If True, don't download weather data.
+            dont_fetch_soil: If True, don't download soil data.
             \*\*kwargs: Additional keyword arguments are treated as
                 parameter key/value pairs.
 
@@ -1709,6 +1773,10 @@ class ApsimXFile(CropModelFile):
                 Name=crop_name,
                 ResourceName=crop_name,
             ),
+            # TODO: Set defaults for AutoSow & AutoHarvest based on
+            #   included examples rather than always using the values
+            #   in the data file which were taken from the example for
+            #   wheat
             ApsimXFileNode.from_data(
                 "AutoSow",  # TODO: Handle cultivar
                 Enabled=("sow" not in actions),
@@ -1757,7 +1825,7 @@ class ApsimXFile(CropModelFile):
             out.set(k, v)
         if ((("latitude" in kwargs and "longitude" in kwargs)
              or ("start_time" in kwargs and "end_time" in kwargs))):
-            if "weather_file" not in kwargs:
+            if "weather_file" not in kwargs and not dont_fetch_weather:
                 out.set(
                     "weather_file",
                     ApsimXWeatherFile.fetch_data(
@@ -1765,14 +1833,14 @@ class ApsimXFile(CropModelFile):
                         out.get("start_time"), out.get("end_time"),
                     )
                 )
-            # if "soil_file" not in kwargs:
-            #     out.set(
-            #         "soil_file",
-            #         ApsimXSoilFile.fetch_data(
-            #             out.get("latitude"), out.get("longitude"),
-            #             out.get("start_time"), out.get("end_time"),
-            #         )
-            #     )
+            if "soil_file" not in kwargs and not dont_fetch_soil:
+                out.set(
+                    "soil_file",
+                    ApsimXSoilFile.fetch_data(
+                        out.get("latitude"), out.get("longitude"),
+                        out.get("start_time"), out.get("end_time"),
+                    )
+                )
         return out
 
     @property
@@ -2789,8 +2857,12 @@ class ApsimXEngine(CropModelEngine):
         },
         "soil_file": {
             "$type": "Models.Soils.Soil, Models",
-            "fset": lambda x: ApsimXSoilFile.from_file(x).contents,
-            "fget": lambda x: ApsimXSoilFile.from_file(x),
+            "fset_prev": ApsimXSoilFile.from_file_and_prev,
+            "fget": lambda x: (
+                ApsimXSoilFile.from_file(x)
+                if isinstance(x, str)
+                else ApsimXSoilFile(None, contents=x)
+            ),
             "full_node": True,
         },
         "latitude": {

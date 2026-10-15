@@ -20,16 +20,34 @@ class TestApsimX:
             "end_time": datetime.datetime(year=1991, month=11, day=5),
             "latitude": 40.1164,
             "longitude": -88.2434,
+            "dont_fetch_soil": True,
           },
          "SimpleWheatUnmanagedChampaign.Report.csv.expected"),
+        ({
+            "crop_name": "Wheat",
+            "start_time": datetime.datetime(year=1991, month=1, day=1),
+            "end_time": datetime.datetime(year=1991, month=11, day=5),
+            "latitude": 40.1164,
+            "longitude": -88.2434,
+          },
+         "SimpleWheatUnmanagedChampaignSoil.Report.csv.expected"),
     ], ids=[
         "wheat", "wheat-unmanaged", "wheat-generated",
         "wheat-unmanaged-champaign",
         "wheat-generated-champaign",
+        "wheat-generated-champaign-soil",
     ])
     @classmethod
     def parameters(cls, request):
         return request.param
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def using_test_data(cls, data_dir, alternate_data_dir):
+        with alternate_data_dir(data_dir,
+                                skip_keys=["HUMERIS"],
+                                download_disabled=True):
+            yield
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -46,7 +64,10 @@ class TestApsimX:
         assert isinstance(parameters[0], dict)
         crop_name = parameters[0]['crop_name']
         kws = {k: v for k, v in parameters[0].items() if k != "crop_name"}
-        out = os.path.join(data_dir, f"{crop_name}Generated.apsimx")
+        if "latitude" not in kws or kws.get("dont_fetch_soil", False):
+            out = os.path.join(data_dir, f"{crop_name}Generated.apsimx")
+        else:
+            out = os.path.join(data_dir, f"{crop_name}GeneratedSoil.apsimx")
         assert not os.path.isfile(out)
         fout = ApsimXEngine.INPUT_FILE_TYPE.from_crop_name(
             crop_name, dst=out, **kws)
@@ -62,12 +83,14 @@ class TestApsimX:
 
     @pytest.fixture(scope="class")
     @classmethod
-    def expected_file(cls, data_dir, parameters, output_file):
+    def expected_file(cls, data_dir, parameters, output_file,
+                      create_missing_data):
         if parameters[1]:
             out = os.path.join(data_dir, parameters[1])
         else:
             out = output_file + ".expected"
-        assert os.path.isfile(out)
+        if not create_missing_data:
+            assert os.path.isfile(out)
         return out
 
     @pytest.fixture(scope="class")
@@ -112,7 +135,7 @@ class TestApsimX:
         return _compare_reports
 
     def test_run(self, input_file, expected_file, output_file,
-                 compare_reports, products):
+                 compare_reports, products, create_missing_data):
         try:
             process = ApsimXEngine.start_direct_subprocess(
                 input_file,
@@ -120,6 +143,8 @@ class TestApsimX:
             )
             process.wait(10)
             assert os.path.isfile(output_file)
+            if create_missing_data:
+                create_missing_data(output_file, expected_file)
             compare_reports(output_file, expected_file)
         finally:
             for x in products:

@@ -134,6 +134,7 @@ class CropModelEngine(BaseModelEngine):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
     WEATHER_FILE_TYPE: ClassVar[Any] = None
+    SOIL_FILE_TYPE: ClassVar[Any] = None
     DATE_PARAM: ClassVar[list] = BaseModelEngine.DATE_PARAM + [
         ("sow_date", "harvest_date", "season_length"),
     ]
@@ -267,8 +268,7 @@ class CropModelEngine(BaseModelEngine):
         sync_called = False
         for category, data_cls in [
                 ("weather", self.WEATHER_FILE_TYPE),
-                # TODO
-                # ("soil", self.SOIL_FILE_TYPE),
+                ("soil", self.SOIL_FILE_TYPE),
         ]:
             param = f"{category}_file"
             fname = getattr(self, param)

@@ -4,8 +4,9 @@ import shutil
 import datetime
 from typing import Optional
 import pytest
-from simulatr.data import FileMeta
+from simulatr.data import FileMeta, BaseSoilFile
 from simulatr.utils import promptuser_boolean
+from yggdrasil_rapidjson import units as rj_units
 
 
 _select_classes = {}
@@ -53,6 +54,145 @@ def parametrize_data(category: str,
     return out
 
 
+class TestSaxonRawlsSoilCalculations:
+    r"""Verify that soil calculations return the expected values."""
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def texture_class_map(cls):
+        return {
+            "Sa": "sand",
+            "L": "loam",
+            "Si": "silt",
+            "C": "clay",
+        }
+
+    @pytest.fixture(params=[
+        ("Sa", 88, 5, 5, 10, 46, 5, 108.1, 1.43),
+        ("LSa", 80, 5, 5, 12, 46, 7, 96.7, 1.43),
+        ("SaL", 65, 10, 8, 18, 45, 10, 50.3, 1.46),
+        ("L", 40, 20, 14, 28, 46, 14, 15.5, 1.43),
+        ("SiL", 20, 15, 11, 31, 48, 20, 16.1, 1.38),
+        ("Si", 10, 5, 6, 30, 48, 25, 22.0, 1.38),
+        ("SaCL", 60, 25, 17, 27, 43, 10, 11.3, 1.50),
+        ("CL", 30, 35, 22, 36, 48, 14, 4.3, 1.39),
+        ("SiCL", 10, 35, 22, 38, 51, 17, 5.7, 1.30),
+        ("SiC", 10, 45, 27, 41, 52, 14, 3.7, 1.26),
+        ("SaC", 50, 40, 25, 36, 44, 11, 1.4, 1.47),
+        ("C", 25, 50, 30, 42, 50, 12, 1.1, 1.3),
+    ])
+    @classmethod
+    def table_3_params(cls, request):
+        return request.param
+
+    @pytest.fixture
+    @classmethod
+    def om(cls):
+        return rj_units.Quantity(2.5, "%")
+
+    @pytest.fixture
+    @classmethod
+    def texture_class(cls, table_3_params, texture_class_map):
+        orig = table_3_params[0]
+        out = []
+        while orig:
+            for k, v in texture_class_map.items():
+                if orig.startswith(k):
+                    out.append(v)
+                    orig = orig.split(k, 1)[-1]
+                    break
+        for i in range(len(out) - 1):
+            if not out[i].endswith('y'):
+                out[i] += 'y'
+        return ' '.join(out)
+
+    @pytest.fixture
+    @classmethod
+    def sand(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[1]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def clay(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[2]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def wilting_point(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[3]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def dul(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[4]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def sat(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[5]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def available(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[6]), "%")
+
+    @pytest.fixture
+    @classmethod
+    def ksat(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[7]), "mm/hr")
+
+    @pytest.fixture
+    @classmethod
+    def matric_density(cls, table_3_params):
+        return rj_units.Quantity(float(table_3_params[8]), "g/cm**3")
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def assert_values_close(cls, assert_nested_allclose):
+
+        def _assert_values_close(a, b, **kwargs):
+            kwargs.setdefault('convert_units', True)
+            kwargs.setdefault('rtol', 0.05)
+            assert_nested_allclose(a, b, **kwargs)
+
+        return _assert_values_close
+
+    def test_dul_from_texture(self, clay, sand, om, dul,
+                              assert_values_close):
+        assert_values_close(
+            BaseSoilFile.dul_from_texture(clay, sand, om),
+            dul)
+
+    def test_wilting_point_from_texture(self, clay, sand, om,
+                                        wilting_point,
+                                        assert_values_close):
+        assert_values_close(
+            BaseSoilFile.wilting_point_from_texture(clay, sand, om),
+            wilting_point)
+
+    def test_sat_from_texture(self, clay, sand, om, sat,
+                              assert_values_close):
+        assert_values_close(
+            BaseSoilFile.sat_from_texture(clay, sand, om),
+            sat)
+
+    # To compare we would need to calculate the intermediate values
+    # def test_ksat_from_moisture(self, sat, dul, wilting_point, ksat,
+    #                             assert_values_close):
+    #     assert_values_close(
+    #         BaseSoilFile.ksat_from_moisture(sat, dul, wilting_point),
+    #         ksat)
+
+    def test_ksat_from_texture(self, clay, sand, om, ksat,
+                               assert_values_close):
+        assert_values_close(
+            BaseSoilFile.ksat_from_texture(clay, sand, om),
+            ksat)
+
+    def test_texture_class(self, clay, sand, texture_class):
+        assert BaseSoilFile.texture_class_usda(clay, sand) == texture_class
+
+
 class TestDataBase:
 
     __test__ = False
@@ -97,7 +237,8 @@ class TestDataBase:
     @pytest.fixture(scope="class")
     @classmethod
     def get_example_data(cls, get_data_cls, args, download_enabled,
-                         create_missing_data):
+                         create_missing_data,
+                         simulator_data_classes):
 
         def _get_example_data(name, return_fname=False,
                               compatible_type=None,
@@ -120,6 +261,10 @@ class TestDataBase:
                 *using_args, src=compatible_type)
             fname_exists = data_cls.path_exists(fname)
             if fname_exists:
+                allow_download = False
+            elif (compatible_type
+                  and name not in simulator_data_classes):
+                # Disable conversion to non-simulator formats
                 allow_download = False
             elif create_missing_data and (not allow_download):
                 allow_download = promptuser_boolean(
@@ -220,23 +365,26 @@ class TestDataBase:
         return args
 
     def test_compare(self, name, name_compare, args_compare,
-                     get_example_data, assert_data_allclose):
+                     get_example_data, assert_data_allclose,
+                     assert_nested_allclose):
         r"""Test equivalence of values against another data source."""
         local_example = get_example_data(name,
                                          using_args=args_compare)
         other_example = get_example_data(name_compare,
                                          using_args=args_compare)
+        if name == "soilmat_data" and name_compare == "isric_soilgrids_data":
+            # a_mean = other_example.universal_parameter_map(
+            #     include_calculated=True)
+            other_example.set("quantile", "Q0.5")
+            # a_median = other_example.universal_parameter_map(
+            #     include_calculated=True)
+            # assert_nested_allclose(a_mean, a_median)
+            # print("SUCCESS")
+            # import pdb; pdb.set_trace()
         assert_data_allclose(
-            local_example, other_example,
-            # TODO: Update this once SoilMat is finalized
-            ignore_keys=[
-                'cec', 'rocks',
-            ],
-            rtol=0.4,
-            convert_units=True,
+            local_example, other_example, convert_units=True,
+            # rtol=0.4,
         )
-        # assert_data_allclose(
-        #     local_example, other_example, convert_units=True)
 
 
 class TestDataDownload(TestDataBase):

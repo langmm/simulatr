@@ -7,6 +7,7 @@ import typing
 import argparse
 import datetime
 import numpy as np
+import warnings
 from yggdrasil_rapidjson import units
 from functools import cached_property
 from typing import (
@@ -46,6 +47,40 @@ class NoDefault:
     pass
 
 
+def string_to_datetime(out, only_date: Optional[bool] = False):
+    if isinstance(out, str):
+        if only_date:
+            return datetime.date.fromisoformat(out)
+        return datetime.datetime.fromisoformat(out)
+    if isinstance(out, np.ndarray) and isinstance(out[0], str):
+        out = out.astype(str)
+        try:
+            datetime.datetime.fromisoformat(out[0])
+        except ValueError:
+            out = np.array([
+                datetime.datetime.strptime(
+                    x, "%Y-%m-%d %H:%M:%S %Z").isoformat()
+                for x in out
+            ], dtype=str)
+    elif not (isinstance(out, np.ndarray)
+              and np.issubdtype(out.dtype, str)):
+        return out
+    with warnings.catch_warnings(record=True) as caught_warnings:
+        warnings.simplefilter("always", UserWarning)
+        out2 = out.astype('datetime64')
+    if not caught_warnings:
+        return out2
+    import pandas as pd
+    return pd.to_datetime(out, utc=True).tz_convert(None).to_numpy(
+        dtype="datetime64")
+
+
+def is_scalar(x):
+    if np.isscalar(x):
+        return True
+    return False
+
+
 # TODO: These can be removed once ufuncs fixed in yggdrasil_rapidjson
 
 def has_units(x):
@@ -53,8 +88,11 @@ def has_units(x):
 
 
 def matching_unit_type(*match_to):
-    if any(isinstance(x, units.QuantityArray) for x in match_to):
-        return units.QuantityArray
+    for x in match_to:
+        if ((isinstance(x, list)
+             or (isinstance(x, np.ndarray)
+                 and not isinstance(x, units.Quantity)))):
+            return units.QuantityArray
     return units.Quantity
 
 

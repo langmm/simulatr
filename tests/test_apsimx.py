@@ -1,14 +1,41 @@
 import os
 import datetime
 import pytest
-from simulatr.apsimx import ApsimXEngine
+from simulatr.apsimx import ApsimXFile, ApsimXEngine
+
+
+_available_crops = ApsimXFile.available_crops([
+    "cereal",
+    # Errors may be due to missing "Models.Soils.SoilCrop, Models"
+    # Some of the remaining models have multiple SoilCrop entries for
+    # other crops or "Models.Soils.InitialWater, Models" and
+    # "Models.Soils.Sample, Models" instead
+    # "legume",  # Error about LL below air dry value
+    # "oilseed",  # Error about water initial value exceeding saturation
+    # "cover",  # Error about the graph
+    # "root",  # Error about water initial value exceeding saturation
+])
+# Sorghum gives an error about conversion to PMF
+_remove = ["Wheat", "Sorghum"]
+for k in _remove:
+    if k in _available_crops:
+        _available_crops.remove(k)
 
 
 class TestApsimX:
     r"""Test class for ensuring that apsimx is producing consistent
     results."""
 
-    @pytest.fixture(scope="class", params=[
+    @pytest.fixture(scope="class", params=([
+        ({
+            "crop_name": k.title(),
+            # "start_time": datetime.datetime(year=1991, month=1, day=1),
+            # "end_time": datetime.datetime(year=1991, month=11, day=5),
+            # "latitude": 40.1164,
+            # "longitude": -88.2434,
+        }, False)
+        for k in _available_crops
+    ] + [
         ("SimpleWheat.apsimx", None),
         ("SimpleWheatUnmanaged.apsimx", None),
         ({"crop_name": "Wheat"},
@@ -31,12 +58,14 @@ class TestApsimX:
             "longitude": -88.2434,
           },
          "SimpleWheatUnmanagedChampaignSoil.Report.csv.expected"),
-    ], ids=[
+    ]), ids=([
+        f"{k.lower()}-generated-nocheck" for k in _available_crops
+    ] + [
         "wheat", "wheat-unmanaged", "wheat-generated",
         "wheat-unmanaged-champaign",
         "wheat-generated-champaign",
         "wheat-generated-champaign-soil",
-    ])
+    ]))
     @classmethod
     def parameters(cls, request):
         return request.param
@@ -87,6 +116,8 @@ class TestApsimX:
                       create_missing_data):
         if parameters[1]:
             out = os.path.join(data_dir, parameters[1])
+        elif parameters[1] is False:
+            return False
         else:
             out = output_file + ".expected"
         if not create_missing_data:
@@ -143,9 +174,10 @@ class TestApsimX:
             )
             process.wait(10)
             assert os.path.isfile(output_file)
-            if create_missing_data:
-                create_missing_data(output_file, expected_file)
-            compare_reports(output_file, expected_file)
+            if expected_file:
+                if create_missing_data:
+                    create_missing_data(output_file, expected_file)
+                compare_reports(output_file, expected_file)
         finally:
             for x in products:
                 if os.path.isfile(x):

@@ -10,6 +10,7 @@ import subprocess
 import contextlib
 import datetime
 import json
+import pprint
 from functools import cached_property
 from collections import OrderedDict
 import numpy as np
@@ -27,6 +28,7 @@ from .base import (
     SimulatorNotInstalled,
 )
 from .data import (
+    ParameterCalculator,
     ParameterNormalizer,
     BaseWeatherFile, BaseSoilFile,
     NASAPOWERWeatherFile,
@@ -150,11 +152,19 @@ class ApsimXFileNode:
         return cls(contents, **kwargs)
 
     @classmethod
-    def from_data(cls, name: str, **kwargs: Any) -> "ApsimXFileNode":
+    def from_data(cls, name: str, crop_name: Optional[str] = None,
+                  crop_root: Optional["ApsimXFileNode"] = None,
+                  **kwargs: Any) -> "ApsimXFileNode":
         r"""Create a new node by loading code from a data file.
 
         Args:
             name: Name of the data file resource.
+            crop_root: Example crop root node that should be used to
+                populate default values for the created node if there
+                is an equivalent node for the crop.
+            crop_name: Crop name. If provided, the examples directory
+                will be checked and if an example exists, the
+                corresponding module will be used from that file.
             **kwargs: Additional keyword arguments are passed to the
                 class constructor.
 
@@ -163,7 +173,57 @@ class ApsimXFileNode:
 
         """
         fname = os.path.join(ApsimXEngine.data_dir(), f"{name}.json")
-        return cls.from_file(fname, **kwargs)
+        out = cls.from_file(fname, **kwargs)
+        if crop_name is not None:
+            try:
+                crop_root = cls.from_example(crop_name.title())
+            except BaseException:
+                crop_root = None
+        if crop_root is None:
+            return out
+        out.copy_contents(crop_root)
+        return out
+
+    def copy_contents(self, other, excluded=None):
+        if excluded is None:
+            excluded = []
+        node = other.find(self["Name"])
+        parameters = list(self.parameter_keys())
+        if node is None:
+            requirements = {"$type": self["$type"]}
+            checked = {}
+            nodes = [x for x in other.findall(
+                requirements=requirements)]
+            if len(nodes) == 1:
+                node = nodes[0]
+            elif parameters:
+                node = max(
+                    nodes, key=lambda x: len([k for k in parameters
+                                              if x.has_parameter(k)]))
+            else:
+                checked = {x["Name"]: x["$type"] for x in nodes}
+            if node is None:
+                # TODO: Special case of operations
+                logger.warning(f"Could not find node that matches "
+                               f"{requirements}. "
+                               f"Checked:\n"
+                               f"{pprint.pformat(checked)}")
+        if node is None:
+            return
+        excluded_base = ["Parameters", "Name", "$type", "CodeArray",
+                         "Children"]
+        for k, v in node.contents.items():
+            if k in excluded + excluded_base:
+                continue
+            self.contents[k] = copy.deepcopy(v)
+        if "Parameters" not in excluded and parameters:
+            for k in parameters:
+                if not node.has_parameter(k):
+                    continue
+                self.set_parameter(k, copy.deepcopy(node.get_parameter(k)))
+        if "Children" not in excluded:
+            for child in self.children:
+                child.copy_contents(other, excluded=excluded)
 
     @classmethod
     def from_resource(cls, name: str, **kwargs: Any) -> "ApsimXFileNode":
@@ -288,6 +348,21 @@ class ApsimXFileNode:
         r"""Get the items in the node."""
         for x in self.contents.items():
             yield x
+
+    def parameters(self) -> Iterator[Any]:
+        r"""Get the parameters in the node."""
+        for x in self.contents.get("Parameters", []):
+            yield (x["Key"], x["Value"])
+
+    def parameter_keys(self) -> Iterator[Any]:
+        r"""Get the parameter names in the node."""
+        for k, v in self.parameters():
+            yield k
+
+    def parameter_values(self) -> Iterator[Any]:
+        r"""Get the parameter values in the node."""
+        for k, v in self.parameters():
+            yield v
 
     def specialize_crop(self, crop_name: str,
                         parameter_name: str = "Crop") -> None:
@@ -580,15 +655,19 @@ class ApsimXWeatherFile(BaseWeatherFile):
     _default_ext: ClassVar[str] = ".met"
     REQUIRED_PARAMETERS: ClassVar[List[str]] = [
         "longitude", "latitude", "elevation", "tav",
+        "year",
+        "day",
         "radn",
         "maxt",
         "mint",
         "rain",
         "vp",
     ]
+    INDEPENDENT_PARAMETERS: ClassVar[List[str]] = [
+        "year", "day",
+    ]
     HEADER_PARAMETERS: ClassVar[List[str]] = [
-        "latitude", "longitude", "elevation",
-        "start_date", "end_date", "tav",
+        "latitude", "longitude", "elevation", "tav",
     ]
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
         "radn": "MJ/m^2/day",
@@ -625,6 +704,33 @@ class ApsimXWeatherFile(BaseWeatherFile):
             "columns": pd.DataFrame(),
         }
 
+    @ParameterCalculator.register_method("time", "year", "day")
+    @classmethod
+    def time_from_year_and_day(cls, year: float, day: float) -> float:
+        return ((year - 1970).astype("datetime64[Y]")
+                + (day - 1).astype("timedelta64[D]"))
+
+    @ParameterCalculator.register_method("year", "time")
+    @classmethod
+    def year_from_time(cls, time: float) -> float:
+        # return time.astype("datetime64[Y]").astype(int) + 1970
+        import pandas as pd
+        return pd.DatetimeIndex(time).year.to_numpy()
+
+    @ParameterCalculator.register_method("day", "time")
+    @classmethod
+    def day_from_time(cls, time: float) -> float:
+        import pandas as pd
+        return pd.DatetimeIndex(time).dayofyear.to_numpy()
+
+    @classmethod
+    def independent_parameters(cls):
+        r"""list: Independent parameters."""
+        # TODO: Verify that time interpolation is handled correctly
+        param = cls.INDEPENDENT_PARAMETERS.copy()
+        param.remove("day")
+        return param
+
     @readonly_cached_property
     def _internal_parameters(self) -> list:
         r"""list: Set of power parameters contained by this file."""
@@ -646,11 +752,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name == "start_date":
-            return min(self.dates).astype(datetime.date)
-        elif name == "end_date":
-            return max(self.dates).astype(datetime.date)
-        elif name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS:
             return self.contents["constants"][name]
         return np.array(self.contents["columns"][name])
 
@@ -665,9 +767,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in ["start_date", "end_date"]:
-            raise RuntimeError(f"Cannot set {name} directly")
-        elif name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS:
             self.contents["constants"][name] = value
             return
         self.contents["columns"][name] = value
@@ -759,28 +859,27 @@ class ApsimXWeatherFile(BaseWeatherFile):
             fd.write("\n".join(out))
 
     @classmethod
-    def _from_compatible(cls, src: BaseWeatherFile):
+    def _from_compatible(cls, src: BaseWeatherFile, **kwargs):
         r"""Convert weather data from another file format into the
         correct format for this file.
 
         Args:
             src: Universal weather parameters.
+            \*\*kwargs: Additional keyword arguments are passed to
+                get_universal_parameter_map.
 
         Returns:
             Converted data.
 
         """
         import pandas as pd
-        parameters = src.get_universal_parameter_map(cls)
+        parameters = src.get_universal_parameter_map(cls, **kwargs)
         out = {}
         out["constants"] = {
             k: float(parameters[k]) for k in
-            ["longitude", "latitude", "elevation", "tav"]
+            cls.HEADER_PARAMETERS
         }
-        columns = {
-            "year": src.dates.year,
-            "day": src.dates.dayofyear,
-        }
+        columns = {}
         for k in cls.REQUIRED_PARAMETERS:
             if k in cls.HEADER_PARAMETERS:
                 continue
@@ -799,17 +898,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
         ix = columns.isnull().any(axis=1)
         columns = columns[~ix]
         out["columns"] = columns
-        return out
-
-    @readonly_cached_property
-    def dates(self) -> np.ndarray:
-        r"""np.ndarray: Dates covered by this file."""
-        out = (
-            (self.contents["columns"]["year"].to_numpy() - 1970).astype(
-                "datetime64[Y]")
-            + (self.contents["columns"]["day"].to_numpy() - 1).astype(
-                "timedelta64[D]")
-        )
         return out
 
     def update_param(self, contents: Any) -> None:
@@ -832,14 +920,20 @@ class ApsimXSoilFile(BaseSoilFile):
 
     NAME: ClassVar[str] = "apsimx_soil"
     DESC: ClassVar[str] = "ApsimX Soil"
+    # TODO: Fix calculated Ks when using SoilMat is invalid (not >0)
+    # DEFAULT_EXTERNAL_TYPE: ClassVar[type] = SoilMatFile
     DEFAULT_EXTERNAL_TYPE: ClassVar[type] = ISRICSoilGridsFile
     _default_ext: ClassVar[str] = ".json"
+    INDEPENDENT_PARAMETERS: ClassVar[List[str]] = [
+        "Thickness",
+    ]
     HEADER_PARAMETERS: ClassVar[List[str]] = [
-        "Latitude", "Longitude",
+        "Latitude", "Longitude", "SoilType",
     ]
     PARAMETER_ALIASES: ClassVar[Mapping[str, str]] = {
         "Latitude": "latitude",
         "Longitude": "longitude",
+        "SoilType": "texture_class",
         "Thickness": "thickness",
         "ParticleSizeSand": "sand",
         "ParticleSizeSilt": "silt",
@@ -862,10 +956,11 @@ class ApsimXSoilFile(BaseSoilFile):
         # "FOM": "",
         "PH": "pH",
         "CEC": "cec",
-        # "Water": "",  # Current water level
         "NO3": "no3",
         "NH4": "nh4",
         "Urea": "urea",
+        "Water": "moisture",  # Current water level
+        "Temperature": "temperature",
     }
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {
         "Thickness": "mm",
@@ -875,25 +970,31 @@ class ApsimXSoilFile(BaseSoilFile):
         "Rocks": "fraction",
         "BD": "g/cm3",
         "AirDry": "",
-        "LL15": "mm/mm",
-        "DUL": "mm/mm",
-        "SAT": "mm/mm",
+        "LL15": "mm**3/mm**3",
+        "DUL": "mm**3/mm**3",
+        "SAT": "mm**3/mm**3",
         "KS": "mm/day",
-        "LL": "mm/mm",
+        "LL": "mm**3/mm**3",
         "KL": "",
         "XF": "",
         "SWCON": "",
         "Carbon": "%",
+        "FOMCNRatio": "",
         "SoilCNRatio": "",
         "FBiom": "",
         "FInert": "",
         "FOM": "",
         "PH": "",  # 1:5 water
         "CEC": "cmol/kg",
-        "NO3": "ppm",
-        "NH4": "ppm",
+        "NO3": "0.000001",  # "ppm",
+        "NH4": "0.000001",  # "ppm",
         "Urea": "kg/ha",
+        "Water": "mm**3/mm**3",
+        "Temperature": "decC",
     }
+    SCALAR_PARAMETERS: ClassVar[List[str]] = [
+        "FOMCNRatio",
+    ]
     _layer_nodes: ClassVar[OrderedDict] = OrderedDict([
         # ("SoilPhysical", [
         ("Models.Soils.Physical, Models", [
@@ -913,6 +1014,7 @@ class ApsimXSoilFile(BaseSoilFile):
         # ("SoilOrganic", [
         ("Models.Soils.Organic, Models", [
             "Carbon",
+            "FOMCNRatio",
             "SoilCNRatio",
             "FBiom",
             "FInert",
@@ -925,15 +1027,41 @@ class ApsimXSoilFile(BaseSoilFile):
             "Thickness",
         ]),
         ("Models.Soils.Water, Models", [
-            "InitialValues",
+            "Water",
+            # "InitialValues",
             "Thickness",
         ]),
+        ("Models.Soils.Nutrients.Nutrient, Models", []),
         # ("SoilSolute", [
         ("Models.Soils.Solute, Models", [
-            "InitialValues",
+            "NO3", "NH4", "Urea",
+            # "InitialValues",
             "Thickness",
         ]),
+        ("Models.Soils.SoilTemp.SoilTemperature, Models", [
+            "Temperature",
+            "Thickness",
+        ]),
+        ("Models.Soils.CERESSoilTemperature, Models", []),
+        ("Models.Soils.InitialWater, Models", [
+            "Water",  # TODO: Determine how to set FractionFull from this
+        ]),
+        ("Models.Soils.Sample, Models", [
+            # TODO: There are others "SW",
+            "Thickness", "NO3", "NH4",
+        ]),
     ])
+    _alternate_nodes: ClassVar[Mapping[str, str]] = {
+        "Models.Soils.InitialWater, Models": "Models.Soils.Water, Models",
+        "Models.Soils.Sample, Models": "Models.Soils.Solute, Models",
+    }
+    _initial_values_nodes: ClassVar[List[str]] = [
+        "Models.Soils.Solute, Models",
+        "Models.Soils.Water, Models",
+        "Models.Soils.SoilTemp.SoilTemperature, Models",
+    ]
+    _curveparam_a: ClassVar[float] = 0.0
+    _curveparam_b: ClassVar[float] = 0.2
 
     def __init__(self, fname: str, generated: Optional[bool] = False,
                  contents: Optional[dict] = None,
@@ -963,8 +1091,23 @@ class ApsimXSoilFile(BaseSoilFile):
     def from_file_and_prev(cls, fname, prev):
         out = cls.from_file(fname)
         crop_name = prev.crop_name
-        out.root.specialize_crop(crop_name)
-        return out.contents
+        try:
+            crop_root = ApsimXFileNode.from_example(crop_name)
+            crop_soil = crop_root.find(
+                requirements={"$type": "Models.Soils.Soil, Models"})
+        except BaseException:
+            crop_soil = None
+        if crop_soil is None:
+            out.root.specialize_crop(crop_name)
+            return out.contents
+        crop_soil = cls(None, contents=crop_soil.contents)
+        params = out.get_universal_parameter_map(
+            type(out), keep_units=True)
+        crop_soil.resample(thickness=params["Thickness"])
+        for k, v in params.items():
+            crop_soil.set(k, v, allow_add=True)
+        crop_soil.normalize_parameters()
+        return crop_soil.contents
 
     @cached_property
     def root(self) -> ApsimXFileNode:
@@ -999,6 +1142,8 @@ class ApsimXSoilFile(BaseSoilFile):
 
     @cached_property
     def water(self) -> ApsimXFileNode:
+        if self.uses_initial_water:
+            return self._child("Models.Soils.InitialWater, Models")
         return self._child("Models.Soils.Water, Models")
 
     @cached_property
@@ -1007,31 +1152,59 @@ class ApsimXSoilFile(BaseSoilFile):
 
     @cached_property
     def solutes(self) -> ApsimXFileNode:
+        if self.uses_soil_samples:
+            return self.root._child("Models.Soils.Sample, Models")
         # This one will match multiple
         return {x.contents["Name"]: x for x in self.root.findall(
             requirements={"$type": "Models.Soils.Solute, Models"},
         )}
 
     @cached_property
+    def uses_soil_samples(self) -> bool:
+        r"""bool: True if the file uses soil samples instead of solutes."""
+        return self.has_child("Models.Soils.Sample, Models")
+
+    @cached_property
+    def uses_initial_water(self) -> bool:
+        r"""bool: True if the file uses InitialWater instead of Water."""
+        return self.has_child("Models.Soils.InitialWater, Models")
+
+    @cached_property
     def temperature(self) -> ApsimXFileNode:
-        self._child("Models.Soils.SoilTemp.SoilTemperature, Models")
+        if self.has_child("Models.Soils.CERESSoilTemperature, Models"):
+            return self._child(
+                "Models.Soils.CERESSoilTemperature, Models")
+        return self._child("Models.Soils.SoilTemp.SoilTemperature, Models")
+
+    def has_child(self, node_type: str,
+                  root: Optional[ApsimXFileNode] = None, **kwargs) -> bool:
+        try:
+            self._child(node_type, root=root, **kwargs)
+            return True
+        except KeyError:
+            return False
 
     def _child(self, node_type: str,
-               root: Optional[ApsimXFileNode] = None) -> dict:
+               root: Optional[ApsimXFileNode] = None, **kwargs) -> dict:
         r"""Get the child node of the specified type.
 
         Args:
             node_type: Node type name.
             root: Node to start looking from.
+            \*\*kwargs: Additional keyword arguments are treated as
+                additional node requirements.
 
         Returns:
             dict: Child node contents.
 
         """
         root = (root or self.root)
+        kwargs["$type"] = node_type
+        name = kwargs.pop("Name", None)
         return root.find(
-            requirements={"$type": node_type},
+            name=name,
             required=True,
+            requirements=kwargs,
         )
 
     @classmethod
@@ -1041,39 +1214,89 @@ class ApsimXSoilFile(BaseSoilFile):
             "Soil",
             DataSource=None,
             Comments=None,
-            Children=[
-                ApsimXFileNode.from_data(
-                    "SoilPhysical",
-                    Children=[
-                        ApsimXFileNode.from_data(
-                            "SoilCrop",
-                        ).contents,
-                    ],
-                ).contents,
-                ApsimXFileNode.from_data("SoilWaterBalance").contents,
-                ApsimXFileNode.from_data("SoilOrganic").contents,
-                ApsimXFileNode.from_data("SoilChemical").contents,
-                ApsimXFileNode.from_data("SoilWater").contents,
-                ApsimXFileNode.from_param(
-                    "Models.Soils.Nutrients.Nutrient, Models",
-                    ResourceName="Nutrient",
-                ).contents,
-                cls.create_solute("NO3", [], [], "ppm"),
-                cls.create_solute("NH4", [], [], "ppm"),
-                cls.create_solute("Urea", [], [], "kg/ha"),
-                ApsimXFileNode.from_data("SoilTemperature").contents,
-            ],
+            Children=[],
+            # Children=[
+            #     ApsimXFileNode.from_data(
+            #         "SoilPhysical",
+            #         Children=[
+            #             ApsimXFileNode.from_data(
+            #                 "SoilCrop",
+            #             ).contents,
+            #         ],
+            #     ).contents,
+            #     ApsimXFileNode.from_data("SoilWaterBalance").contents,
+            #     ApsimXFileNode.from_data("SoilOrganic").contents,
+            #     ApsimXFileNode.from_data("SoilChemical").contents,
+            #     ApsimXFileNode.from_data("SoilWater").contents,
+            #     ApsimXFileNode.from_param(
+            #         "Models.Soils.Nutrients.Nutrient, Models",
+            #         ResourceName="Nutrient",
+            #     ).contents,
+            #     cls.create_solute("NO3", [], [], "ppm"),
+            #     cls.create_solute("NH4", [], [], "ppm"),
+            #     cls.create_solute("Urea", [], [], "kg/ha"),
+            #     ApsimXFileNode.from_data("SoilTemperature").contents,
+            # ],
         ).contents
+
+    def add_empty_node(self, node: str, **kwargs):
+        parent = self.root
+        if node == "Models.Soils.SoilCrop, Models":
+            try:
+                parent = self._child("Models.Soils.Physical, Models")
+            except KeyError:
+                self.add_empty_node("Models.Soils.Physical, Models")
+                parent = self._child("Models.Soils.Physical, Models")
+        elif node == "Models.Soils.Solute, Models":
+            if not self.has_child("Models.Soils.Nutrients.Nutrient, Models"):
+                self.add_empty_node("Models.Soils.Nutrients.Nutrient, Models",
+                                    ResourceName="Nutrient")
+        data_name = node.split(",", 1)[0].rsplit(".", 1)[-1].strip()
+        if not data_name.startswith("Soil"):
+            data_name = f"Soil{data_name}"
+        parent.contents.setdefault("Children", [])
+        try:
+            child = ApsimXFileNode.from_data(data_name, **kwargs).contents
+            param = self._layer_nodes.get(node, [])
+            if node in self._initial_values_nodes:
+                param = param + ["InitialValues"]
+            for k in param:
+                if k not in kwargs:
+                    child.pop(k, None)
+        except FileNotFoundError:
+            child = ApsimXFileNode.from_param(node, **kwargs).contents
+        parent.contents["Children"].append(child)
+
+    def nodes_with_param(self, name: str) -> Iterator[dict]:
+        for node, param in self._layer_nodes.items():
+            if name not in param:
+                continue
+            for x in self.root.findall(requirements={"$type": node}):
+                if ((node in self._initial_values_nodes
+                     and name != "Thickness"
+                     and x["Name"] != name)):
+                    continue
+                yield x
 
     @readonly_cached_property
     def _internal_parameters(self) -> list:
         r"""list: Set of soil parameters contained by this file."""
         out = []
         for node, param in self._layer_nodes.items():
+            try:
+                child = self._child(node)
+            except KeyError:
+                continue
             out += [
                 k for k in param
-                if self._child(node).get(k, None) is not None
+                if child.get(k, None) is not None
             ]
+            if node == "Models.Soils.InitialWater, Models":
+                if child.get("FractionFull", None) is not None:
+                    out.append("Water")
+            elif node in self._initial_values_nodes:
+                if child.get("InitialValues", None) is not None:
+                    out.append(child["Name"])
         return out
 
     def _get(self, name: str):
@@ -1091,9 +1314,15 @@ class ApsimXSoilFile(BaseSoilFile):
         """
         if name in self.HEADER_PARAMETERS:
             return self.contents[name]
-        for node, param in self._layer_nodes.items():
-            if name in param:
-                return np.array(self._child(node)[name])
+        for x in self.nodes_with_param(name):
+            if ((x["$type"] in self._initial_values_nodes
+                 and name != "Thickness")):
+                out = x["InitialValues"]
+            elif x["$type"] == "Models.Soils.InitialWater, Models":
+                out = x["FractionFull"]
+            else:
+                out = x[name]
+            return np.array(out)
         raise KeyError(name)
 
     def _set(self, name: str, value: Any,
@@ -1109,23 +1338,55 @@ class ApsimXSoilFile(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        # TODO: Sett LL when LL15 is set and vis-versa
         if name in self.HEADER_PARAMETERS:
             self.contents[name] = value
             return
+        if allow_add and not self.has_parameters(name, ignore_calculated=True):
+            added_nodes = []
+            for node, param in self._layer_nodes.items():
+                if name not in param:
+                    continue
+                kws = {}
+                if ((node in self._initial_values_nodes
+                     and name != "Thickness")):
+                    kws["Name"] = name
+                if not self.has_child(node, **kws):
+                    if ((name == "Thickness"
+                         and (node in self._initial_values_nodes
+                              or node in self._alternate_nodes))):
+                        continue
+                    elif (node in self._alternate_nodes
+                          and self.has_child(
+                              self._alternate_nodes[node],
+                              Name=name)):
+                        continue
+                    self.add_empty_node(node, **kws)
+                    added_nodes.append(node)
         match = False
         if isinstance(value, np.ndarray):
             value = value.tolist()
-        for node, param in self._layer_nodes.items():
-            if name not in param and "InitialValues" not in param:
-                continue
-            for x in self.root.findall(requirements={"$type": node}):
-                if name not in param:
-                    if x["Name"] != name:
-                        continue
-                    x["InitialValues"] = value
-                else:
-                    x[name] = value
+        for x in self.nodes_with_param(name):
+            if ((x["$type"] in self._initial_values_nodes
+                 and name != "Thickness")):
+                x["InitialValues"] = value
+                if "Thickness" not in x:
+                    thickness = self.get("thickness", default=None)
+                    if thickness is not None:
+                        x["Thickness"] = thickness.value.tolist()
+                if x["$type"] == "Models.Soils.Solute, Models":
+                    solute_units = self.PARAMETER_UNITS[name]
+                    if solute_units in ["ppm", "0.000001"]:
+                        solute_units = 0
+                    elif solute_units == "kg/ha":
+                        solute_units = 1
+                    else:
+                        raise RuntimeError(f"Unsupported units: "
+                                           f"\"{solute_units}\"")
+                    x["InitialValuesUnits"] = solute_units
+            elif x["$type"] == "Models.Soils.InitialWater, Models":
+                x["FractionFull"] = value[0]
+            else:
+                x[name] = value
             match = True
         if not match:
             raise KeyError(name)
@@ -1138,9 +1399,30 @@ class ApsimXSoilFile(BaseSoilFile):
 
         """
         for k, v in contents.items():
-            for node, param in self._layer_nodes.items():
-                if k in param:
-                    self._child(node)[k] = v
+            # TODO: Original behavior ignored unused parameters
+            # try:
+            self._set(k, v, allow_add=True)
+            # except KeyError:
+            #     pass
+
+    @ParameterNormalizer.register_method("texture_class")
+    @classmethod
+    def normalize_texture_class(cls, texture_class: str):
+        return texture_class.title()
+
+    @ParameterCalculator.register_method("AirDry", "wilting_point")
+    @classmethod
+    def airdry_from_wilting_point(cls, ll15: float):
+        ll15_units = cls.get_units(ll15)
+        ll15_units_type = utils.matching_unit_type(ll15)
+        ll15 = cls.add_units(ll15, "", return_scalar=True)
+        out = ll15
+        out[0] = 0.5 * ll15[0]
+        out[out < 0.005] = 0.005
+        # out[3:] = ll15[3:]
+        if ll15_units:
+            out = ll15_units_type(out, "")
+        return out
 
     @ParameterNormalizer.register_method("sat", "bulk_density")
     @classmethod
@@ -1159,7 +1441,7 @@ class ApsimXSoilFile(BaseSoilFile):
         idx = np.logical_or(sat > (max_sw - gap), bd >= (max_bd - gap))
         sat[idx] = max_sw[idx] - gap
         if sat_units is not None:
-            sat = sat_units_type(sat, sat_units)
+            sat = sat_units_type(sat, "")
         return sat
 
     @ParameterNormalizer.register_method("dul", "sat")
@@ -1172,10 +1454,128 @@ class ApsimXSoilFile(BaseSoilFile):
         gap = 0.05  # 0.002
         idx = ((sat - dul) < gap)
         dul[idx] = sat[idx] - gap
+        dul[dul < 0] = 0.0
         if dul_units is not None:
-            dul = dul_units_type(dul, dul_units)
+            dul = dul_units_type(dul, "")
         return dul
 
+    @ParameterCalculator.register_method("moisture", "dul",
+                                         "wilting_point")
+    @classmethod
+    def default_initial_moisture(cls, dul: float, ll15: float):
+        return 0.5 * (dul + ll15)
+
+    @ParameterCalculator.register_method("KL", "bottom_depth")
+    @classmethod
+    def default_KL(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        return 0.06 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=cls._curveparam_b)
+
+    @ParameterCalculator.register_method("XF", "bottom_depth")
+    @classmethod
+    def default_XF(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        return cls.create_profile(layers, a=cls._curveparam_a, b=0)
+
+    @ParameterCalculator.register_method("FOMCNRatio", "bottom_depth")
+    @classmethod
+    def default_FOMCNRatio(cls, layers: float):
+        return 40.0
+
+    @ParameterCalculator.register_method("cn_ratio", "bottom_depth")
+    @classmethod
+    def default_SoilCNRatio(cls, layers: float):
+        return 12.0 * np.ones(len(layers), dtype=np.float64)
+
+    @ParameterCalculator.register_method("FBiom", "bottom_depth")
+    @classmethod
+    def default_FBiom(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        out = 0.045 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=cls._curveparam_b)
+        # TODO: Scale?
+        out[0] = 0.0395
+        out[1] = 0.035
+        return out
+
+    @ParameterCalculator.register_method("FInert", "bottom_depth")
+    @classmethod
+    def default_FInert(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        out = 0.83 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=-0.01)
+        out[0] = 0.65
+        out[1] = 0.668
+        return out
+
+    @ParameterCalculator.register_method("FOM", "bottom_depth")
+    @classmethod
+    def default_FOM(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        return 160 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=cls._curveparam_b)
+
+    @ParameterCalculator.register_method("no3", "bottom_depth")
+    @classmethod
+    def default_NO3(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        return 0.5 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=0.01)
+
+    @ParameterCalculator.register_method("nh4", "bottom_depth")
+    @classmethod
+    def default_NH4(cls, layers: float):
+        layers = cls.add_units(layers, "mm", return_scalar=True)
+        return 0.05 * cls.create_profile(
+            layers, a=cls._curveparam_a, b=0.01)
+
+    @ParameterCalculator.register_method("urea", "bottom_depth")
+    @classmethod
+    def default_Urea(cls, layers: float):
+        return np.zeros(len(layers), dtype=np.float64)
+
+    @ParameterCalculator.register_method("SWCON", "bottom_depth")
+    @classmethod
+    def default_SWCON(cls, layers: float):
+        return 0.3 * np.ones(len(layers), dtype=np.float64)
+
+    def normalize_parameters(self):
+        r"""Normalize the parameters in the file."""
+        super().normalize_parameters()
+        # TODO: Delay this so it is filled in by crop defaults? or using
+        #   current soil properties
+        if not (self.has_child("Models.Soils.SoilTemp.SoilTemperature, Models")
+                or self.has_child(
+                    "Models.Soils.CERESSoilTemperature, Models")):
+            self.add_empty_node(
+                "Models.Soils.SoilTemp.SoilTemperature, Models",
+                Thickness=None,
+                InitialValues=None,
+            )
+        ordered_children = []
+        for node, param in self._layer_nodes.items():
+            if node == "Models.Soils.SoilCrop, Models":
+                continue
+            for x in self.root.findall(requirements={"$type": node}):
+                if node in self._initial_values_nodes:
+                    for k in ["Thickness", "InitialValues"]:
+                        x.contents.setdefault(k, None)
+                else:
+                    for k in param:
+                        x.contents.setdefault(k, None)
+                ordered_children.append(x.contents)
+        assert len(ordered_children) == len(self.contents["Children"])
+        self.contents["Children"] = ordered_children
+        # Refresh thickness to fill in places where it is missing
+        # self.set("thickness", self.get("thickness"))
+        # TODO: Generic minimum number of layers for other file types?
+        if self.nlayers == 1:
+            thickness = 200.0 * np.ones((10, ))
+            self.resample_depths(thickness=thickness)
+
+    # TODO: Remove this after it is verified to pass (i.e. parameters
+    # all set or normalized by calculators/normalizers)
     def calculate_missing(self):
         r"""Calculate missing parameters that are required."""
         curveparam_a = 0.0
@@ -1190,6 +1590,7 @@ class ApsimXSoilFile(BaseSoilFile):
                     self.physical.contents["ParticleSizeClay"]
                 )
             ]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if (((not self.physical.contents.get("LL15", None))
              and self.crop_soil.contents.get("LL", None))):
             self.physical.contents["LL15"] = (
@@ -1247,6 +1648,7 @@ class ApsimXSoilFile(BaseSoilFile):
                 max(0.005, 0.5 * x)   # if i < 3 else x
                 for i, x in enumerate(self.physical.contents["LL15"])
             ]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if (((not self.physical.contents.get("KS", None))
              and self.physical.contents.get("LL15", None)
              and self.physical.contents.get("DUL", None)
@@ -1280,22 +1682,26 @@ class ApsimXSoilFile(BaseSoilFile):
             raise ValueError(
                 "Failed to compute saturated hydraulic "
                 "conductivity from clay, sand, and carbon data")
-        if (((not self.water.contents.get("InitialValues", None))
+        if (((not self.uses_initial_water)
+             and (not self.water.contents.get("InitialValues", None))
              and self.physical.contents.get("LL15", None)
              and self.physical.contents.get("DUL", None))):
-            self.water.contents["InitialValues"] = [
-                0.5 * (d + l) for d, l in zip(
-                    self.physical.contents["DUL"],
-                    self.physical.contents["LL15"]
-                )
-            ]
+            # TODO: Set this from NASA Powers or SMAP L4?
+            # self.water.contents["InitialValues"] = [
+            #     0.5 * (d + l) for d, l in zip(
+            #         self.physical.contents["DUL"],
+            #         self.physical.contents["LL15"]
+            #     )
+            # ]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if (((not self.root.contents.get("SoilType", None))
              and self.physical.contents.get("ParticleSizeClay", None)
              and self.physical.contents.get("ParticleSizeSand", None))):
-            self.root.contents["SoilType"] = self.texture_class(
+            self.root.contents["SoilType"] = self.texture_class_minasny(
                 self.physical.contents["ParticleSizeClay"][0],
                 self.physical.contents["ParticleSizeSand"][0]
             )
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         layers = np.array(self.physical.contents["Thickness"]).cumsum()
         nlayers = len(layers)
         if not self.crop_soil.contents.get("KL", None):
@@ -1303,14 +1709,18 @@ class ApsimXSoilFile(BaseSoilFile):
                 0.06 * self.create_profile(
                     layers, a=curveparam_a, b=curveparam_b)
             ).tolist()
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.crop_soil.contents.get("XF", None):
             self.crop_soil.contents["XF"] = (
                 self.create_profile(layers, a=curveparam_a, b=0)
             ).tolist()
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.organic.contents.get("FOMCNRatio", None):
             self.organic.contents["FOMCNRatio"] = 40.0
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.organic.contents.get("SoilCNRatio", None):
             self.organic.contents["SoilCNRatio"] = nlayers * [12.0]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.organic.contents.get("FBiom", None):
             self.organic.contents["FBiom"] = (
                 0.045 * self.create_profile(
@@ -1319,6 +1729,7 @@ class ApsimXSoilFile(BaseSoilFile):
             # TODO: Scale?
             self.organic.contents["FBiom"][0] = 0.0395
             self.organic.contents["FBiom"][1] = 0.035
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.organic.contents.get("FInert", None):
             self.organic.contents["FInert"] = (
                 0.83 * self.create_profile(
@@ -1327,35 +1738,45 @@ class ApsimXSoilFile(BaseSoilFile):
             # TODO: Scale?
             self.organic.contents["FInert"][0] = 0.65
             self.organic.contents["FInert"][1] = 0.668
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.organic.contents.get("FOM", None):
             self.organic.contents["FOM"] = (
                 160 * self.create_profile(
                     layers, a=curveparam_a, b=curveparam_b)
             ).tolist()
-        if (("NO3" in self.solutes
-             and not self.solutes["NO3"].contents.get(
-                 "InitialValues", None))):
-            self.solutes["NO3"].contents["InitialValues"] = (
-                0.5 * self.create_profile(
-                    layers, a=curveparam_a, b=0.01)
-            ).tolist()
-        if (("NH4" in self.solutes
-             and not self.solutes["NH4"].contents.get(
-                 "InitialValues", None))):
-            self.solutes["NH4"].contents["InitialValues"] = (
-                0.05 * self.create_profile(
-                    layers, a=curveparam_a, b=0.01)
-            ).tolist()
-        if (("Urea" in self.solutes
-             and not self.solutes["Urea"].contents.get(
-                 "InitialValues", None))):
-            self.solutes["Urea"].contents["InitialValues"] = nlayers * [0.0]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+        if not self.uses_soil_samples:
+            if (("NO3" in self.solutes
+                 and not self.solutes["NO3"].contents.get(
+                     "InitialValues", None))):
+                self.solutes["NO3"].contents["InitialValues"] = (
+                    0.5 * self.create_profile(
+                        layers, a=curveparam_a, b=0.01)
+                ).tolist()
+                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+            if (("NH4" in self.solutes
+                 and not self.solutes["NH4"].contents.get(
+                     "InitialValues", None))):
+                self.solutes["NH4"].contents["InitialValues"] = (
+                    0.05 * self.create_profile(
+                        layers, a=curveparam_a, b=0.01)
+                ).tolist()
+                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
+            if (("Urea" in self.solutes
+                 and not self.solutes["Urea"].contents.get(
+                     "InitialValues", None))):
+                self.solutes["Urea"].contents["InitialValues"] = (
+                    nlayers * [0.0])
+                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if not self.water_balance.contents.get("SWCON", None):
             self.water_balance.contents["SWCON"] = nlayers * [0.3]
+            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         # TODO: Generic minimum number of layers
         if nlayers == 1:
-            thickness = 200.0 * np.ones((10, ))
-            self.resample_depths(thickness=thickness)
+            raise Exception("CALCUALTE_MISSING WOULD HAVE RESAMPLED")
+        # if nlayers == 1:
+        #     thickness = 200.0 * np.ones((10, ))
+        #     self.resample_depths(thickness=thickness)
 
     @classmethod
     def create_solute(cls, name: str,
@@ -1393,18 +1814,20 @@ class ApsimXSoilFile(BaseSoilFile):
         return out.contents
 
     @classmethod
-    def _from_compatible(cls, src: BaseSoilFile):
+    def _from_compatible(cls, src: BaseSoilFile, **kwargs):
         r"""Convert data from another file format into the correct
         format for this file.
 
         Args:
             src: Base class data.
+            \*\*kwargs: Additional keyword arguments are passed to
+                get_universal_parameter_map.
 
         Returns:
             Converted data.
 
         """
-        out = super()._from_compatible(src)
+        out = super()._from_compatible(src, **kwargs)
         # if out.contents["DataSource"] is None:
         #     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         #     out.contents["DataSource"] = (
@@ -1495,6 +1918,12 @@ class ApsimXFile(CropModelFile):
             list: Available crop names.
 
         """
+        if isinstance(category, list):
+            out = []
+            for x in category:
+                iout = cls.available_crops(x)
+                out += [k for k in iout if k not in out]
+            return out
         if category == "tree":
             return ["Gliricidia", "Pinus", "Eucalyptus"]
         elif category == "legume":
@@ -1701,6 +2130,10 @@ class ApsimXFile(CropModelFile):
                 actions = list(ApsimXEngine.AVAILABLE_ACTION_MAP.keys())
             else:
                 actions = []
+        try:
+            crop_root = ApsimXFileNode.from_example(crop_name)
+        except BaseException:
+            crop_root = None
         output_vars = [
             f"[{crop_name}].LAI",
         ]
@@ -1716,7 +2149,13 @@ class ApsimXFile(CropModelFile):
         if crop_resource.find("Grain"):
             output_vars += [
                 f"[{crop_name}].Grain.Total.Wt*10 as Yield",
-                f"[{crop_name}].Grain.Protein",  # Missing from a crop
+            ]
+            if crop_resource.find("Protein"):
+                output_vars += [
+                    # Missing from Maize
+                    f"[{crop_name}].Grain.Protein",
+                ]
+            output_vars += [
                 f"[{crop_name}].Grain.Size",
                 f"[{crop_name}].Grain.Number",
                 f"[{crop_name}].Grain.Total.Wt",
@@ -1732,10 +2171,12 @@ class ApsimXFile(CropModelFile):
         sim_children = [
             ApsimXFileNode.from_data("Clock"),
             ApsimXFileNode.from_data("Summary"),
-            ApsimXFileNode.from_data("Weather"),
+            ApsimXFileNode.from_data("Weather",
+                                     crop_root=crop_root),
             ApsimXFileNode.from_param(
                 "Models.Soils.Arbitrator.SoilArbitrator, Models"),
-            ApsimXFileNode.from_data("MicroClimate"),
+            ApsimXFileNode.from_data("MicroClimate",
+                                     crop_root=crop_root),
         ]
         zone_children = [
             ApsimXFileNode.from_param(
@@ -1754,8 +2195,12 @@ class ApsimXFile(CropModelFile):
                 "Models.Irrigation, Models",
                 # ResourceName="Irrigation",
             ),
-            ApsimXFileNode.from_data("Soil"),
-            ApsimXFileNode.from_data("SurfaceOrganicMatter"),
+            # TODO: Use a different soil module if the crop uses
+            # "Models.Soils.Sample, Models" and
+            # "Models.Soils.InitialWater, Models"
+            ApsimXFileNode.from_data("Soil", crop_root=crop_root),
+            ApsimXFileNode.from_data("SurfaceOrganicMatter",
+                                     crop_root=crop_root),
             # SOIL:
             # "Models.Soils.Soil, Models"
             #    "Models.Soils.Physical, Models"
@@ -1773,13 +2218,10 @@ class ApsimXFile(CropModelFile):
                 Name=crop_name,
                 ResourceName=crop_name,
             ),
-            # TODO: Set defaults for AutoSow & AutoHarvest based on
-            #   included examples rather than always using the values
-            #   in the data file which were taken from the example for
-            #   wheat
             ApsimXFileNode.from_data(
                 "AutoSow",  # TODO: Handle cultivar
                 Enabled=("sow" not in actions),
+                crop_root=crop_root,
             ),
             # Fertilise @ sow?
             # Scheduled fertilizer/irrigation
@@ -1787,7 +2229,14 @@ class ApsimXFile(CropModelFile):
             ApsimXFileNode.from_data(
                 "AutoHarvest",
                 Enabled=("harvest" not in actions),
+                crop_root=crop_root,
             ),
+            # Should this be turned on by default?
+            # ApsimXFileNode.from_data(
+            #     "AutoIrrigate",
+            #     Enabled=("irrigate" not in actions),
+            #     crop_root=crop_root,
+            # ),
         ]
         sim_children.append(
             ApsimXFileNode.from_param(

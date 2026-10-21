@@ -3,7 +3,7 @@
     "RecordNumber": 0,
     "ASCOrder": null,
     "ASCSubOrder": null,
-    "SoilType": "Clay",
+    "SoilType": "Loam",
     "LocalName": null,
     "Site": null,
     "NearestTown": null,
@@ -23,58 +23,7 @@
     "Children": [
         {
             "$type": "Models.Soils.Physical, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "ParticleSizeSand": [
-                35.0,
-                35.0,
-                38.0
-            ],
-            "ParticleSizeSilt": [
-                40.0,
-                40.0,
-                34.5
-            ],
-            "ParticleSizeClay": [
-                25.0,
-                25.0,
-                27.5
-            ],
-            "Rocks": null,
             "Texture": null,
-            "BD": [
-                1.73,
-                1.73,
-                1.75
-            ],
-            "AirDry": [
-                0.08900000000000001,
-                0.0385,
-                0.096
-            ],
-            "LL15": [
-                0.17800000000000002,
-                0.077,
-                0.192
-            ],
-            "DUL": [
-                0.25,
-                0.08,
-                0.24
-            ],
-            "SAT": [
-                0.3,
-                0.13,
-                0.29
-            ],
-            "KS": [
-                121.824,
-                121.824,
-                121.824
-            ],
             "BDMetadata": null,
             "AirDryMetadata": null,
             "LL15Metadata": null,
@@ -92,18 +41,15 @@
                 {
                     "$type": "Models.Soils.SoilCrop, Models",
                     "LL": [
-                        0.17800000000000002,
                         0.077,
-                        0.192
+                        0.07200000000000001
                     ],
                     "KL": [
                         0.06,
-                        0.054888963774173904,
-                        0.03292869816564158
+                        0.040219202762138355
                     ],
                     "XF": [
-                        0.39141414141414144,
-                        0.1742424242424243,
+                        0.5,
                         1.0
                     ],
                     "LLMetadata": null,
@@ -117,7 +63,48 @@
                 }
             ],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "Thickness": [
+                230.0,
+                1290.0
+            ],
+            "ParticleSizeClay": [
+                25.0,
+                27.5
+            ],
+            "ParticleSizeSilt": [
+                40.0,
+                34.5
+            ],
+            "ParticleSizeSand": [
+                35.0,
+                38.0
+            ],
+            "BD": [
+                1.75,
+                1.8
+            ],
+            "KS": [
+                121.824,
+                121.824
+            ],
+            "DUL": [
+                0.08,
+                0.06
+            ],
+            "LL15": [
+                0.077,
+                0.07200000000000001
+            ],
+            "SAT": [
+                0.13,
+                0.11
+            ],
+            "AirDry": [
+                0.0385,
+                0.07200000000000001
+            ],
+            "Rocks": null
         },
         {
             "$type": "Models.WaterModel.WaterBalance, Models",
@@ -136,85 +123,62 @@
             "DischargeWidth": "NaN",
             "CatchmentArea": "NaN",
             "PSIDul": -100.0,
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "SWCON": [
-                0.3,
-                0.3,
-                0.3
-            ],
             "KLAT": null,
             "Name": "SoilWater",
             "ResourceName": "WaterBalance",
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "Thickness": [
+                230.0,
+                1290.0
+            ],
+            "SWCON": [
+                0.3,
+                0.3
+            ]
         },
         {
             "$type": "Models.Soils.Organic, Models",
-            "FOMCNRatio": 40.0,
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "Carbon": [
-                0.7250580046403713,
-                0.7250580046403713,
-                0.3480278422273782
-            ],
             "CarbonUnits": 0,
-            "SoilCNRatio": [
-                12.0,
-                12.0,
-                12.0
-            ],
-            "FBiom": [
-                0.0395,
-                0.035,
-                0.024696523624231186
-            ],
-            "FInert": [
-                0.65,
-                0.668,
-                0.8552772631814191
-            ],
-            "FOM": [
-                160.0,
-                146.37057006446375,
-                87.80986177504423
-            ],
             "CarbonMetadata": null,
             "FOMMetadata": null,
             "Name": "Organic",
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "Thickness": [
+                230.0,
+                1290.0
+            ],
+            "Carbon": [
+                0.7250580046403713,
+                0.3480278422273782
+            ],
+            "SoilCNRatio": [
+                12.0,
+                12.0
+            ],
+            "FOMCNRatio": 40.0,
+            "FBiom": [
+                0.0395,
+                0.035
+            ],
+            "FInert": [
+                0.65,
+                0.668
+            ],
+            "FOM": [
+                160.0,
+                107.2512073657023
+            ]
         },
         {
             "$type": "Models.Soils.Chemical, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "PH": [
-                6.7,
-                7.6,
-                7.0
-            ],
             "PHUnits": 0,
             "EC": null,
             "ESP": null,
-            "CEC": [
-                13.4,
-                13.4,
-                14.6
-            ],
             "ECMetadata": null,
             "CLMetadata": null,
             "CECMetadata": null,
@@ -224,26 +188,36 @@
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "Thickness": [
+                230.0,
+                1290.0
+            ],
+            "PH": [
+                7.6,
+                7.8
+            ],
+            "CEC": [
+                13.4,
+                14.6
+            ]
         },
         {
             "$type": "Models.Soils.Water, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "InitialValues": [
-                0.21400000000000002,
-                0.0785,
-                0.216
-            ],
             "FilledFromTop": false,
             "Name": "Water",
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "InitialValues": [
+                0.0785,
+                0.066
+            ],
+            "Thickness": [
+                230.0,
+                1290.0
+            ]
         },
         {
             "$type": "Models.Soils.Nutrients.Nutrient, Models",
@@ -255,16 +229,6 @@
         },
         {
             "$type": "Models.Soils.Solute, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "InitialValues": [
-                0.5,
-                0.4977791404195064,
-                0.485222766774254
-            ],
             "InitialValuesUnits": 0,
             "WaterTableConcentration": 0.0,
             "D0": 0.0,
@@ -279,20 +243,18 @@
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "InitialValues": [
+                0.5,
+                0.4900993366533776
+            ],
+            "Thickness": [
+                230.0,
+                1290.0
+            ]
         },
         {
             "$type": "Models.Soils.Solute, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "InitialValues": [
-                0.05,
-                0.049777914041950644,
-                0.048522276677425404
-            ],
             "InitialValuesUnits": 0,
             "WaterTableConcentration": 0.0,
             "D0": 0.0,
@@ -307,20 +269,18 @@
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "InitialValues": [
+                0.05,
+                0.04900993366533776
+            ],
+            "Thickness": [
+                230.0,
+                1290.0
+            ]
         },
         {
             "$type": "Models.Soils.Solute, Models",
-            "Thickness": [
-                200.0,
-                230.0,
-                1320.0
-            ],
-            "InitialValues": [
-                0.0,
-                0.0,
-                0.0
-            ],
             "InitialValuesUnits": 1,
             "WaterTableConcentration": 0.0,
             "D0": 0.0,
@@ -335,7 +295,15 @@
             "ResourceName": null,
             "Children": [],
             "Enabled": true,
-            "ReadOnly": false
+            "ReadOnly": false,
+            "InitialValues": [
+                0.0,
+                0.0
+            ],
+            "Thickness": [
+                230.0,
+                1290.0
+            ]
         },
         {
             "$type": "Models.Soils.SoilTemp.SoilTemperature, Models",

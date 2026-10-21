@@ -62,6 +62,13 @@ def data_dir() -> str:
 
 
 @pytest.fixture(scope="session")
+def simulator_data_classes() -> list:
+    r"""list: Names of data classes associated with simulators."""
+    # TODO: Do this dynamically
+    return ["apsimx_met", "apsimx_soil"]
+
+
+@pytest.fixture(scope="session")
 def alternate_data_dir() -> str:
 
     def fake_download_data(*args, **kwargs):

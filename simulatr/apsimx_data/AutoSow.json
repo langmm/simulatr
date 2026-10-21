@@ -19,6 +19,7 @@
         "        [Link] private Clock Clock;",
         "        [Link] private Summary Summary;",
         "        [Link] private Soil Soil;",
+        "        [Link] private Zone zone;",
         "        private Accumulator accumulatedRain;",
         "        [Link]",
         "        private ISoilWater waterBalance;",
@@ -54,6 +55,36 @@
         "        [Description(\"Plant population (/m2)\")]",
         "        public double Population { get; set; }",
         "        ",
+        "        [Description(\"The maximum cover\")]",
+        "        public double MaxCover { get; set; } = 1;",
+        "        ",
+        "        [Description(\"The bud number\")]",
+        "        public double BudNumber { get; set; } = 1;",
+        "        ",
+        "        [Description(\"The number of seeds sown (/m2)\")]",
+        "        public double Seeds { get; set; } = 0;",
+        "        ",
+        "        [Description(\"The planting density (/m2)\")]",
+        "        public double Density { get; set; } = 0;",
+        "        ",
+        "        [Description(\"Skip row configuration\")]",
+        "        public RowConfigurationType RowConfiguration { get; set; } = 0;",
+        "        ",
+        "        [Description(\"Tillering Method\")]",
+        "        public TilleringMethodType TilleringMethod { get; set; } = 0;",
+        "        ",
+        "        [Description(\"Fertile Tiller No.\")]",
+        "        public double Ftn { get; set; } = 0.0;",
+        "        ",
+        "        public enum TilleringMethodType {",
+        "            RuleOfThumb = -1,",
+        "            FixedTillering = 0,",
+        "            DynamicTillering = 1",
+        "        }",
+        "        public enum RowConfigurationType {",
+        "            Solid, SingleSkip, DoubleSkip",
+        "        }",
+        "        ",
         "        ",
         "        [EventSubscribe(\"StartOfSimulation\")]",
         "        private void OnSimulationCommencing(object sender, EventArgs e)",
@@ -71,7 +102,10 @@
         "                MathUtilities.Sum(waterBalance.ESW) > MinESW &&",
         "                accumulatedRain.Sum > MinRain)",
         "            {",
-        "                Crop.Sow(population: Population, cultivar: CultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
+        "                if (Density > 0) {",
+        "                    Population = Density * zone.Area;",
+        "                }",
+        "                Crop.Sow(population: Population, cultivar: CultivarName, depth: SowingDepth, rowSpacing: RowSpacing, maxCover: MaxCover, budNumber: BudNumber, rowConfig: (double)RowConfiguration, seeds: Seeds, tillering: (int)TilleringMethod, ftn: Ftn);    ",
         "            }",
         "        }",
         "    }",
@@ -117,6 +151,34 @@
         {
             "Key": "Population",
             "Value": "120.0"
+        },
+        {
+            "Key": "RowConfiguration",
+            "Value": "Solid"
+        },
+        {
+            "Key": "TilleringMethod",
+            "Value": "FixedTillering"
+        },
+        {
+            "Key": "Ftn",
+            "Value": "0"
+        },
+        {
+            "Key": "MaxCover",
+            "Value": "1"
+        },
+        {
+            "Key": "BudNumber",
+            "Value": "1"
+        },
+        {
+            "Key": "Seeds",
+            "Value": "0"
+        },
+        {
+            "Key": "Density",
+            "Value": "0"
         }
     ],
     "Name": "AutoSow CROP using a variable rule",

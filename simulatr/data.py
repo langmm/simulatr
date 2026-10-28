@@ -600,7 +600,9 @@ class BaseDataFile(BaseFile):
     REQUIRED_DOWNLOAD_PARAMETERS: ClassVar[List[str]] = []
     REQUIRED_EXTERNAL_PARAMETERS: ClassVar[dict] = {}
     REQUIRED_PARAMETERS: ClassVar[List[str]] = []
+    SORTED_PARAMETERS: ClassVar[List[str]] = []
     SCALAR_PARAMETERS: ClassVar[List[str]] = []
+    STRING_PARAMETERS: ClassVar[List[str]] = []
     HEADER_PARAMETERS: ClassVar[List[str]] = []
     STATIC_PARAMETERS: ClassVar[dict] = {}
     DEFAULT_DATE_RANGE: ClassVar[Tuple[datetime.date, datetime.date]] = None
@@ -615,6 +617,7 @@ class BaseDataFile(BaseFile):
     PARAMETER_DEFAULTS: ClassVar[Mapping[str, Any]] = {}
     PARAMETER_CALCULATORS: ClassVar[dict] = {}
     PARAMETER_NORMALIZERS: ClassVar[dict] = {}
+    PARAMETER_PRECISION: ClassVar[Mapping[str, int]] = {}
     PARAMETER_FILL_VALUE: ClassVar[float | dict | None] = None
     UNIVERSAL_LOCATION_PARAMETERS: ClassVar[List[str]] = [
         "latitude", "longitude",
@@ -647,6 +650,10 @@ class BaseDataFile(BaseFile):
                     cls.PARAMETER_ALIASES_REV_ALT[v].append(k)
                 else:
                     cls.PARAMETER_ALIASES_REV[v] = k
+            cls.STATIC_PARAMETERS = {
+                cls.PARAMETER_ALIASES_REV.get(k, k): v
+                for k, v in cls.STATIC_PARAMETERS.items()
+            }
             cls.UNIT_ALIASES_REV = {
                 v: k for k, v in cls.UNIT_ALIASES.items()
             }
@@ -660,6 +667,7 @@ class BaseDataFile(BaseFile):
                 + list(cls.PARAMETER_LIMITS.keys())
                 + list(cls.PARAMETER_UNITS.keys())
                 + list(cls.PARAMETER_DEFAULTS.keys())
+                + list(cls.PARAMETER_PRECISION.keys())
             )))
             cls.DEPENDENT_PARAMETERS = [
                 k for k in cls.SUPPORTED_PARAMETERS
@@ -691,17 +699,20 @@ class BaseDataFile(BaseFile):
                                  + cls.REQUEST_PARAMETERS
                                  + list(cls.STATIC_PARAMETERS.keys()))
                 ]
-            if (("start_date" in cls.STATIC_PARAMETERS
-                 and "start_date" not in cls.PARAMETER_LIMITS)):
+            kstart_date = cls.PARAMETER_ALIASES.get("start_date",
+                                                    "start_date")
+            kend_date = cls.PARAMETER_ALIASES.get("end_date", "end_date")
+            if ((kstart_date in cls.STATIC_PARAMETERS
+                 and kstart_date not in cls.PARAMETER_LIMITS)):
                 date_limits = (
-                    cls.STATIC_PARAMETERS["start_date"],
-                    cls.STATIC_PARAMETERS["end_date"]
+                    cls.STATIC_PARAMETERS[kstart_date],
+                    cls.STATIC_PARAMETERS[kend_date]
                 )
-                cls.PARAMETER_LIMITS["start_date"] = date_limits
-                cls.PARAMETER_LIMITS["end_date"] = date_limits
-            if "start_date" in cls.PARAMETER_LIMITS:
-                cls.PARAMETER_LIMITS["end_date"] = cls.PARAMETER_LIMITS[
-                    "start_date"]
+                cls.PARAMETER_LIMITS[kstart_date] = date_limits
+                cls.PARAMETER_LIMITS[kend_date] = date_limits
+            if kstart_date in cls.PARAMETER_LIMITS:
+                cls.PARAMETER_LIMITS[kend_date] = cls.PARAMETER_LIMITS[
+                    kstart_date]
             for k, v in cls.STATIC_PARAMETERS.items():
                 if k not in cls.PARAMETER_LIMITS and isinstance(v, tuple):
                     cls.PARAMETER_LIMITS[k] = v
@@ -761,6 +772,11 @@ class BaseDataFile(BaseFile):
                 importlib.import_module(x)
             except ImportError:
                 return False
+            # except BaseException as e:
+            #     logger.warning(
+            #         f"Non-ImportError raised during attempt to import "
+            #         f"\"{x}\":\n{e}")
+            #     return False
         return True
 
     @classmethod
@@ -1031,7 +1047,7 @@ class BaseDataFile(BaseFile):
 
     @classmethod
     def _get_post_process(
-            cls, name_int, out,
+            cls, name_int: str, out: Any,
             default: Optional[Any] = NoDefault,
             return_scalar: Optional[bool] = False,
             valid_parameters: Optional[List[str]] = [],
@@ -1048,6 +1064,14 @@ class BaseDataFile(BaseFile):
         #     out = ParameterNormalizer.try_registered(
         #         self, name_ext, out)
         return out
+
+    @classmethod
+    def _set_pre_process(cls, name_int: str, value: Any) -> Any:
+        value = cls.add_param_units(name_int, value, return_scalar=True)
+        if name_int in cls.PARAMETER_PRECISION:
+            value = np.round(
+                value, decimals=cls.PARAMETER_PRECISION[name_int])
+        return value
 
     @classmethod
     def get_from_dict(cls, params: dict, name: str,
@@ -1081,12 +1105,12 @@ class BaseDataFile(BaseFile):
         try:
             if name_int in cls.STATIC_PARAMETERS:
                 out = cls.STATIC_PARAMETERS[name_int]
-            elif name_ext in cls.STATIC_PARAMETERS:
-                out = cls.STATIC_PARAMETERS[name_ext]
             elif name_int in params:
                 out = params[name_int]
             elif name_ext in params:
                 out = params[name_ext]
+            elif name_int in cls.PARAMETER_DEFAULTS:
+                out = cls.PARAMETER_DEFAULTS[name_int]
             else:
                 out = ParameterCalculator.try_registered(
                     cls, name_int, params=params, **kwargs)
@@ -1135,8 +1159,8 @@ class BaseDataFile(BaseFile):
         out = None
         name_int, name_ext = self.param_name_aliases(name)
         valid_parameters = []
-        if name_ext in self.STATIC_PARAMETERS:
-            out = self.STATIC_PARAMETERS[name_ext]
+        if name_int in self.STATIC_PARAMETERS:
+            out = self.STATIC_PARAMETERS[name_int]
         else:
             parameters = self.internal_parameters(
                 include_header=True)
@@ -1155,6 +1179,8 @@ class BaseDataFile(BaseFile):
                     out = self.calculate_parameter(name_int)
             except KeyError:
                 pass
+            if out is None and name_int in self.PARAMETER_DEFAULTS:
+                out = self.PARAMETER_DEFAULTS[name_int]
         return self._get_post_process(name_int, out, default=default,
                                       valid_parameters=valid_parameters)
 
@@ -1174,7 +1200,7 @@ class BaseDataFile(BaseFile):
 
         """
         name_int, name_ext = self.param_name_aliases(name)
-        value = self.add_param_units(name_int, value, return_scalar=True)
+        value = self._set_pre_process(name_int, value)
         # if name_ext in self.normalizable_parameters:
         #     value = ParameterNormalizer.try_registered(
         #         self, name_ext, value)
@@ -1182,8 +1208,8 @@ class BaseDataFile(BaseFile):
         assert value_units is None
         if name_int not in self.SUPPORTED_PARAMETERS:
             raise KeyError(f"Unsupported parameter \"{name}\"")
-        if name_ext in self.STATIC_PARAMETERS:
-            if value == self.STATIC_PARAMETERS[name_ext]:
+        if name_int in self.STATIC_PARAMETERS:
+            if value == self.STATIC_PARAMETERS[name_int]:
                 return
             raise RuntimeError(f"Cannot set static parameter \"{name}\"")
         old_size = 0
@@ -1548,6 +1574,10 @@ class BaseDataFile(BaseFile):
                 if kint in dst.SUPPORTED_PARAMETERS:
                     out[kint] = dst.add_param_units(
                         kint, v, return_scalar=(not keep_units))
+        for k, v in dst.PARAMETER_DEFAULTS.items():
+            if k in dst.REQUIRED_PARAMETERS and k not in out:
+                out[k] = dst.add_param_units(
+                    k, v, return_scalar=(not keep_units))
         # TODO: Assert that dst.INDEPENDENT_PARAMETERS satisfied?
         for k0 in self.INDEPENDENT_PARAMETERS:
             k = dst.internal_param_name(self.external_param_name(k0))
@@ -1565,7 +1595,7 @@ class BaseDataFile(BaseFile):
         out_unsorted = out
         out = {
             k: out_unsorted.pop(k) for k in
-            dst.INDEPENDENT_PARAMETERS
+            dst.INDEPENDENT_PARAMETERS + dst.SORTED_PARAMETERS
             if k in out_unsorted
         }
         out.update(**out_unsorted)
@@ -1695,12 +1725,18 @@ class BaseDataFile(BaseFile):
     @ParameterCalculator.register_method("start_date", "time")
     @classmethod
     def start_date_from_time(cls, time: float) -> datetime.date:
-        return min(time).astype(datetime.date)
+        out = min(time)
+        if not isinstance(out, datetime.date):
+            out = out.astype(datetime.date)
+        return out
 
     @ParameterCalculator.register_method("end_date", "time")
     @classmethod
     def end_date_from_time(cls, time: float) -> datetime.date:
-        return max(time).astype(datetime.date)
+        out = max(time)
+        if not isinstance(out, datetime.date):
+            out = out.astype(datetime.date)
+        return out
 
     @classmethod
     def _f2str(cls, x: Any) -> str:
@@ -2614,6 +2650,8 @@ class BaseSoilFile(BaseDataFile):
         "moisture",         # Current soil moisture
         "temperature",      # Current soil temperature
         "lai",              # Leaf area index
+        "albedo",
+        "caco3",
     ]
     INDEPENDENT_PARAMETERS: ClassVar[List[str]] = [
         "top_depth", "bottom_depth", "thickness", "depths"
@@ -2708,6 +2746,20 @@ class BaseSoilFile(BaseDataFile):
     # @ParameterCalculator.register_method("urea", "nitrogen")
     # def urea_from_total_nitrogen(cls, nitrogen):
     #     return 0.0 * nitrogen
+
+    @ParameterCalculator.register_method("top_depth", "bottom_depth")
+    @classmethod
+    def top_depth_from_bottom_depth(cls, bottom_depth):
+        depth_units = cls.get_units(bottom_depth)
+        if isinstance(bottom_depth, (float, rj_units.Quantity)):
+            bottom_depth = [bottom_depth]
+        out = copy.deepcopy(bottom_depth)
+        top = 0.0
+        if depth_units is not None:
+            top = cls.add_units(top, depth_units)
+        out[1:] = out[:-1]
+        out[0] = top
+        return out
 
     @ParameterCalculator.register_method("depths", "top_depth",
                                          "bottom_depth")
@@ -3590,7 +3642,8 @@ class BaseSoilFile(BaseDataFile):
             kint = cls.internal_param_name(k)
             if kint in kwargs:
                 kwargs[k] = kwargs.pop(kint)
-        top_depth = kwargs.pop("top_depth", None)
+        # top_depth =
+        kwargs.pop("top_depth", None)
         bottom_depth = kwargs.pop("bottom_depth", None)
         depths = kwargs.pop("depths", None)
         thickness = kwargs.pop("thickness", None)
@@ -3599,13 +3652,15 @@ class BaseSoilFile(BaseDataFile):
             raise ValueError("Either bottom_depth, depths, or thickness "
                              "must be provided")
         if bottom_depth is not None:
-            assert top_depth is not None
+            # if top_depth is None:
+            #     top_depth = cls.top_depth_from_bottom_depth(bottom_depth)
+            pass
         elif depths is not None:
             bottom_depth = cls.bottom_depth_from_depths(depths)
-            top_depth = cls.top_depth_from_depths(depths)
+            # top_depth = cls.top_depth_from_depths(depths)
         else:
             bottom_depth = cls.bottom_depth_from_thickness(thickness)
-            top_depth = cls.top_depth_from_thickness(thickness)
+            # top_depth = cls.top_depth_from_thickness(thickness)
         # TODO: Use midpoint instead?
         # return (bottom_depth + top_depth) / 2.0
         return bottom_depth
@@ -4062,7 +4117,7 @@ class SoilMatFile(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             if name in ["address", "match_type", "neighbors_used"]:
                 return self.contents[name]
             return float(self.contents[name])
@@ -4091,7 +4146,7 @@ class SoilMatFile(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             if name in ["address", "match_type"]:
                 assert isinstance(value, str)
                 self.contents[name] = value
@@ -4166,7 +4221,7 @@ class SoilMatFile(BaseSoilFile):
             contents: New data to incorporate.
 
         """
-        for k in self.HEADER_PARAMETERS:
+        for k in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             if k in contents:
                 self.contents[k] = contents[k]
         for new_layer in contents["layers"]:
@@ -5024,7 +5079,7 @@ class NASAAppEEARSData(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             return self.contents[name]
         if name in self.results.columns:
             return np.array(self.results[name])
@@ -5044,7 +5099,7 @@ class NASAAppEEARSData(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             self.contents[name] = value
             return
         if (((not allow_add)
@@ -5342,8 +5397,8 @@ class EarthaccessData(BaseSoilFile):
             appeears_cls = FileMeta.get_class(cls.CATEGORY, cls.PRODUCT)
             for k in ["REQUEST_PARAMETERS", "INDEPENDENT_PARAMETERS",
                       "PARAMETER_ALIASES", "PARAMETER_UNITS",
-                      "HEADER_PARAMETERS", "PARAMETER_LIMITS",
-                      "STATIC_PARAMETERS"]:
+                      "PARAMETER_LIMITS", "HEADER_PARAMETERS",
+                      "SCALAR_PARAMETERS", "STATIC_PARAMETERS"]:
                 if getattr(cls, k):
                     continue
                 setattr(cls, k, copy.deepcopy(getattr(appeears_cls, k)))
@@ -5432,7 +5487,7 @@ class EarthaccessData(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             return self.contents[name]
         return np.array(self.contents["parameters"][name])
 
@@ -5449,7 +5504,7 @@ class EarthaccessData(BaseSoilFile):
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
             self.contents[name] = value
             return
         if isinstance(value, np.ndarray):

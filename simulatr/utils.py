@@ -31,6 +31,7 @@ cfg = PackageConfig(
             'apsimx': os.path.join(os.getcwd(), 'models', 'apsimx'),
             'apsimx_data': os.path.join(_pkgdir, 'apsimx_data'),
             'scratch': os.path.join(os.getcwd(), 'scratch'),
+            'validation': os.path.join(os.getcwd(), 'validation'),
         },
         'urls': {
             'n8n_api': "https://tools.uiuc.chat/api/v1",
@@ -52,27 +53,39 @@ def string_to_datetime(out, only_date: Optional[bool] = False):
         if only_date:
             return datetime.date.fromisoformat(out)
         return datetime.datetime.fromisoformat(out)
-    if isinstance(out, np.ndarray) and isinstance(out[0], str):
-        out = out.astype(str)
-        try:
-            datetime.datetime.fromisoformat(out[0])
-        except ValueError:
-            out = np.array([
-                datetime.datetime.strptime(
-                    x, "%Y-%m-%d %H:%M:%S %Z").isoformat()
-                for x in out
-            ], dtype=str)
+    elif isinstance(out, datetime.datetime):
+        if only_date:
+            return out.date()
+    elif isinstance(out, datetime.date):
+        return out
+    elif isinstance(out, np.ndarray):
+        if isinstance(out[0], (datetime.date, datetime.datetime)):
+            return out
+        elif np.issubdtype(out.dtype, np.datetime64):
+            return out
+        elif isinstance(out[0], str):
+            out = out.astype(str)
+            try:
+                datetime.datetime.fromisoformat(out[0])
+            except ValueError:
+                out = np.array([
+                    datetime.datetime.strptime(
+                        x, "%Y-%m-%d %H:%M:%S %Z").isoformat()
+                    for x in out
+                ], dtype=str)
+        else:
+            return out
     elif not (isinstance(out, np.ndarray)
               and np.issubdtype(out.dtype, str)):
         return out
     with warnings.catch_warnings(record=True) as caught_warnings:
         warnings.simplefilter("always", UserWarning)
-        out2 = out.astype('datetime64')
+        out2 = out.astype('datetime64[ns]')
     if not caught_warnings:
         return out2
     import pandas as pd
     return pd.to_datetime(out, utc=True).tz_convert(None).to_numpy(
-        dtype="datetime64")
+        dtype="datetime64[ns]")
 
 
 def is_scalar(x):
@@ -225,7 +238,9 @@ def partialclone(repourl: str, dst: Optional[str] = None,
                 ["git", "clone", repourl, dst], check=True)
         if commit:
             subprocess.run(
-                ["git", "switch", "--detach", commit], check=True)
+                ["git", "switch", "--detach", commit], check=True,
+                cwd=dst,
+            )
         return
     with tempfile.TemporaryDirectory() as tmpdir:
         fpattern = os.path.join(tmpdir, "patterns.txt")

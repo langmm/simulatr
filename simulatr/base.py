@@ -1,5 +1,6 @@
 import os
 import re
+import json
 import time
 import copy
 import logging
@@ -8,9 +9,11 @@ import datetime
 import contextlib
 import itertools
 from collections import defaultdict
+from collections.abc import Mapping, MutableMapping
 from abc import ABC, abstractmethod
 from typing import (
     Optional, Union, Dict, List, Tuple, Any, Iterator, ClassVar,
+    Literal,
 )
 import numpy as np
 import gymnasium as gym
@@ -1557,6 +1560,408 @@ class _SimulatorEngineMeta(type(BaseModel)):
         return cls
 
 
+class BaseSchedule(BaseModel, MutableMapping):
+    r"""Class for storing a mapping between times/dates and one or more
+    records associated with each time/date.
+
+    Records can be read from/written to JSON files and individual
+    records can be added, retrieved, and iterated over in chronological
+    order.
+
+    """
+
+    records: Optional[MutableMapping[datetime.datetime, List[Any]]] = Field(
+        default_factory=lambda: defaultdict(lambda: []),
+        description=(
+            "Mapping between time/date and descriptions of one or more "
+            "records for that time/date"
+        ),
+    )
+
+    @field_validator('records', mode='before')
+    @classmethod
+    def transform_records(cls, v: Any) -> Any:
+        r"""Validate/normalize records input.
+
+        If a mapping, the keys are validated/normalized as times and
+        the values are validated/normalized as lists of records.
+
+        Args:
+            v: Records input to validate.
+
+        Returns:
+            Normalized mapping between times and lists of records.
+
+        """
+        if isinstance(v, Mapping):
+            out = defaultdict(lambda: [])
+            for k, records in v.items():
+                k = cls.validate_time(k)
+                for x in records:
+                    out[k].append(cls.validate_record(x))
+            return out
+        return v
+
+    @classmethod
+    def validate_time(cls, time: str | datetime.datetime) -> datetime.datetime:
+        r"""Validate/normalize a time.
+
+        Args:
+            time: Time to validate.
+
+        Returns:
+            Validated time.
+
+        """
+        if isinstance(time, str):
+            return datetime.datetime.fromisoformat(time)
+        assert isinstance(time, datetime.datetime)
+        return time
+
+    @classmethod
+    def validate_record(cls, record: Any) -> Any:
+        r"""Validate/normalize a record.
+
+        Args:
+            record: Record to validate.
+
+        Returns:
+            Validated record.
+
+        """
+        return record
+
+    @classmethod
+    def from_file(cls, fname: str):
+        r"""Create a schedule from a JSON file.
+
+        Args:
+            fname: Path to the JSON file containing the records.
+
+        Returns:
+            New schedule instance containing the records from the file.
+
+        """
+        with open(fname, "r") as fd:
+            records = json.load(fd)
+        return cls(records=records)
+
+    def json(self):
+        r"""Get a JSON-serializable representation of the records.
+
+        Returns:
+            Mapping between times and lists of records.
+
+        """
+        return self.records
+
+    def write_to_file(self, fname: str,
+                      overwrite: Optional[bool] = False) -> None:
+        r"""Write the records to a JSON file.
+
+        Args:
+            fname: Path to the file that the records should be written
+                to.
+            overwrite: If True, overwrite the file if it already
+                exists.
+
+        Raises:
+            ValueError: If the file already exists and overwrite is not
+                set.
+
+        """
+        if (not overwrite) and os.path.isfile(fname):
+            raise ValueError(f"File already exists and overwrite not "
+                             f"set: {fname}")
+        with open(fname, "w") as fd:
+            json.dump(self.json(), fd, indent=4)
+            fd.write("\n")
+
+    def append_from_file(self, fname: str):
+        r"""Append records from a JSON file to this schedule.
+
+        Args:
+            fname: Path to the JSON file containing the records.
+
+        """
+        with open(fname, "r") as fd:
+            records = json.load(fd)
+        for k, v in records.items():
+            for x in v:
+                self.record(k, x)
+
+    def clear(self) -> None:
+        r"""Clear the records."""
+        self.records.clear()
+
+    def copy(self) -> "BaseSchedule":
+        r"""Create a deep copy of this schedule.
+
+        Returns:
+            New schedule instance with copied records.
+
+        """
+        out = type(self)()
+        out.records = copy.deepcopy(self.records)
+        return out
+
+    def record(self, time: str | datetime.datetime, record: Any) -> None:
+        r"""Add a record.
+
+        Args:
+            time: Time record.
+            record: Record to add.
+
+        """
+        time = self.validate_time(time)
+        record = self.validate_record(record)
+        self.records[time].append(record)
+
+    def __getitem__(self, time: str | datetime.datetime) -> Any:
+        r"""Get the records at a given time.
+
+        Args:
+            time: Time to get records for.
+
+        Returns:
+            List of records at the provided time.
+
+        """
+        time = self.validate_time(time)
+        return self.records[time]
+
+    def __setitem__(self, time: str | datetime.datetime,
+                    records: List[Any]) -> None:
+        r"""Set the records at a given time.
+
+        Args:
+            time: Time to set records for.
+            records: List of records to set.
+
+        """
+        time = self.validate_time(time)
+        assert isinstance(records, list)
+        records = [
+            self.validate_record(x) for x in records
+        ]
+        self.records[time] = records
+
+    def __delitem__(self, time: str | datetime.datetime) -> None:
+        r"""Delete the records at a given time.
+
+        Args:
+            time: Time to delete records for.
+
+        """
+        time = self.validate_time(time)
+        del self.record[time]
+
+    def __iter__(self) -> Iterator[Tuple[datetime.datetime, List[Any]]]:
+        r"""Iterate over the times in chronological order.
+
+        Yields:
+            Times with associated records.
+
+        """
+        for k in sorted(self.records.keys()):
+            yield k
+            # yield (k, v)
+
+    def __len__(self) -> int:
+        r"""Get the number of times in the schedule.
+
+        Returns:
+            int: Number of times in the schedule.
+
+        """
+        return len(self.records)
+
+    def items_records(
+            self, maxtime: Optional[datetime.datetime] = None,
+    ) -> Iterator[Tuple[datetime.datetime, Any]]:
+        r"""Iterate over individual records.
+
+        Args:
+            maxtime: Maximum (inclusive) time to iterate over.
+
+        Yields:
+            Tuples of (time, record) pairs.
+
+        """
+        for t, records in self.items():
+            if maxtime is not None and t > maxtime:
+                break
+            for record in records:
+                yield (t, record)
+
+
+class ModelOperation(BaseModel):
+    r"""Class for storing a single operation to be performed on a model.
+
+    An operation records the method to call (e.g. ``set``, ``act``,
+    ``setvars``, ``actvars``), the arguments to pass to that method, and
+    whether or not the operation has already been performed.
+
+    """
+
+    method: Literal["set", "act", "setvars", "actvars"] = Field(
+        description="Operation method name",
+    )
+    args: Optional[tuple] = Field(
+        default_factory=lambda: tuple(),
+        description="Operation arguments",
+    )
+    kwargs: Optional[dict] = Field(
+        default_factory=lambda: {},
+        description="Operation keyword arguments",
+    )
+    complete: Optional[bool] = Field(
+        default=False,
+        description="True if the operation has been performed",
+    )
+
+    @classmethod
+    def from_json(cls, data: dict):
+        r"""Create a model operation from a JSON-serializable mapping.
+
+        The mapping may either contain an ``action`` key (shorthand for
+        constructing an ``act`` operation with the remaining items as
+        keyword arguments) or the explicit ``method``, ``args``, and
+        ``kwargs`` keys.
+
+        Args:
+            data: Mapping describing the operation.
+
+        Returns:
+            New model operation instance.
+
+        Raises:
+            AssertionError: If the mapping specifies ``method`` but
+                also contains unrecognized keys.
+
+        """
+        if "action" in data:
+            method = "act"
+            args = (data.pop("action"), )
+            kwargs = data
+        else:
+            assert "method" in data
+            method = data.pop("method")
+            args = data.pop("args", tuple())
+            kwargs = data.pop("kwargs", {})
+            assert not data
+        return cls(method=method, args=args, kwargs=kwargs)
+
+    def __str__(self) -> str:
+        r"""Get a string representation of the operation.
+
+        Returns:
+            String representation.
+
+        """
+        return f"ModelOperation({self.method}, {self.args}, {self.kwargs})"
+
+    def json(self) -> dict:
+        r"""Get a JSON-serializable representation of the operation.
+
+        Returns:
+            Mapping describing the operation.
+
+        """
+        return {"method": self.method,
+                "args": self.args,
+                "kwargs": self.kwargs}
+
+
+class ModelSchedule(BaseSchedule):
+    r"""Class for storing a schedule of model operations.
+
+    Records are :class:`ModelOperation` instances, optionally grouped by
+    the time/date at which they should be performed.
+
+    """
+
+    @classmethod
+    def validate_record(cls, record: Any) -> Any:
+        r"""Validate/normalize a record.
+
+        Records can be provided as an existing
+        :class:`ModelOperation` instance, a mapping, or a
+        ``(method, args, kwargs)`` tuple.
+
+        Args:
+            record: Record to validate.
+
+        Returns:
+            Validated record.
+
+        """
+        if isinstance(record, ModelOperation):
+            return record
+        if isinstance(record, Mapping):
+            return ModelOperation.from_json(record)
+        assert isinstance(record, tuple)
+        assert len(record) == 3
+        record = {
+            k: v for k, v in zip(["method", "args", "kwargs"], record)
+        }
+        return ModelOperation(**record)
+
+    @property
+    def json(self) -> dict:
+        r"""dict: JSON-serializable representation of the schedule.
+
+        Maps times to lists of JSON-serializable operations.
+        """
+        return {
+            t: [x.json() for x in records]
+            for t, records in self.records.items()
+        }
+
+    @property
+    def actions(self) -> List[str]:
+        r"""list: Sorted list of action names referenced by the
+        scheduled operations."""
+        out = set()
+        for v in itertools.chain(self.cached.values(),
+                                 self.records.values()):
+            for x in v:
+                if v.method == "act":
+                    out.add(v.args[0])
+                elif v.method == "actvars":
+                    out |= set(v.args[0].keys())
+        return sorted(list(out))
+
+    def restore_completed(self) -> None:
+        r"""Restored the cached records."""
+        for k, v in self.records.items():
+            for x in v:
+                x.complete = False
+
+    def items_records(
+            self, maxtime: Optional[datetime.datetime] = None,
+            mark_completed: Optional[bool] = False,
+    ) -> Iterator[Tuple[datetime.datetime, Any]]:
+        r"""Iterate over individual records that are not marked as
+        completed.
+
+        Args:
+            maxtime: Maximum (inclusive) time to iterate over.
+            mark_completed: If true, the yielded records will be marked
+                as completed.
+
+        Yields:
+            Tuples of (time, record) pairs.
+
+        """
+        for t, x in super().items_records(maxtime=maxtime):
+            if x.complete:
+                continue
+            yield t, x
+            if mark_completed:
+                x.complete = True
+
+
 class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
     r"""Base class for exposing a model as an environment engine."""
 
@@ -1707,6 +2112,14 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
     action_param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
         description="Action parameters to use keyed to action names.")
+    operation_schedule_file: Optional[str | SkipJsonSchema[None]] = Field(
+        default=None,
+        description="Path to file containing a set of actions to perform")
+    operation_schedule: CliSuppress[
+        Optional[MutableMapping[datetime.datetime, tuple]]] = Field(
+            default_factory=ModelSchedule,
+            description="Schedule of actions to perform.",
+        )
     model_log_level: CliSuppress[
         Optional[str | int | SkipJsonSchema[None]]] = Field(
             default=logging.INFO,
@@ -1734,7 +2147,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         self.initial_param_static = {}
         self.initial_param_dynamic = {}
         self.initial_param_src = {}
-        self.history = defaultdict(lambda: [])
+        self.history = ModelSchedule()
         self.trace = defaultdict(lambda: [])
         self.model = None
         if isinstance(self.model_file, BaseModelFile):
@@ -1750,9 +2163,26 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                     self.model_dir(), self.model_file)
             if os.path.isfile(self.model_file):
                 self.model = self.INPUT_FILE_TYPE(self.model_file)
+        if not isinstance(self.operation_schedule, ModelSchedule):
+            self.operation_schedule = ModelSchedule(
+                records=self.operation_schedule)
         if self.non_interactive:
             self.actions = []
             self.action_param = {}
+            if self.operation_schedule_file or self.operation_schedule:
+                logger.warning(
+                    "Predefined action schedule not supported for "
+                    "non-interactive models"
+                )
+                self.operation_schedule_file = None
+                self.operation_schedule.clear()
+        if self.operation_schedule_file:
+            self.operation_schedule.append_from_file(
+                self.operation_schedule_file)
+        # TODO: Update default actions based on those in the
+        #   operation_schedule
+        # if self.operation_schedule:
+        #     self.operation_schedule.actions
         self.actions = self._check_actions(self.actions)
         if self.action_param:
             for k, v in self.action_param.items():
@@ -1778,6 +2208,14 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
     def check_actions(cls, v):
         r"""Parse actions input."""
         return cls._check_actions(v)
+
+    @field_validator('operation_schedule', mode="before")
+    @classmethod
+    def check_operation_schedule(cls, v):
+        r"""Parse action schedule."""
+        if isinstance(v, ModelSchedule):
+            return v
+        return ModelSchedule(records=v)
 
     @classmethod
     def _check_actions(cls, v, **kwargs):
@@ -2554,6 +2992,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 )
         else:
             self.setvars(self.initial_param_dynamic)
+            self.perform_scheduled_operations()
         logger.info(f"Simulating from {self.start_time} to {self.end_time}")
         # added = {}
         # for k in self.EXPLICIT_PARAM:
@@ -2613,8 +3052,9 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         r"""Re-start the model."""
         self.stop()
         self.start(reset=True)
-        self.history = defaultdict(lambda: [])
+        self.history = ModelSchedule()
         self.trace = defaultdict(lambda: [])
+        self.operation_schedule.restore_completed()
 
     @abstractmethod
     def _get(self, name: str | List[str]) -> Any:
@@ -2658,7 +3098,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
             raise RecoverableError("Model is not interactive")
 
     @contextlib.contextmanager
-    def stop_on_error(self, record: Optional[tuple] = None,
+    def stop_on_error(self, record: Optional[ModelOperation] = None,
                       allow_error: Optional[bool] = False) -> Iterator[None]:
         r"""Context manager that stops the simulation on an error.
 
@@ -2670,8 +3110,8 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         """
         try:
             yield
-            if record:
-                self.record(*record)
+            if record is not None:
+                self.history.record(self.current_time, record)
         except RecoverableError as e:
             if allow_error:
                 logger.warning(e)
@@ -2680,6 +3120,15 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         except BaseException:
             self.stop()
             raise
+
+    def perform_operation(self, op: ModelOperation, **kwargs: Any) -> None:
+        r"""Perform an operation.
+
+        Args:
+            op: Operation description.
+
+        """
+        getattr(self, op.method)(*op.args, **op.kwargs, **kwargs)
 
     def get(self, name: str, allow_error: Optional[bool] = False) -> Any:
         r"""Send a request to get the current value of a simulation state
@@ -2702,7 +3151,8 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         return out
 
     def set(self, name: str, value: Any,
-            allow_error: Optional[bool] = False) -> Any:
+            allow_error: Optional[bool] = False,
+            dont_record: Optional[bool] = False) -> Any:
         r"""Send a request to set a simulation state variable.
 
         Args:
@@ -2710,11 +3160,16 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
             value: New value for the named variable.
             allow_error: If True, a RecoverableError error will not
                 result in the simulation being stopped.
+            dont_record: If True, don't add a record of this operation
+                to the history.
 
         """
         out = None
-        with self.stop_on_error(("set", name, (value, ), {}),
-                                allow_error=allow_error):
+        record = (
+            None if dont_record
+            else ModelOperation(method="set", args=(name, value, ))
+        )
+        with self.stop_on_error(allow_error=allow_error, record=record):
             self.check_interactive()
             out = self._set(name, value)
         logger.debug(f"set: {name} -> {value}")
@@ -2722,6 +3177,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
 
     def act(self, action: str, *args: Any,
             allow_error: Optional[bool] = False,
+            dont_record: Optional[bool] = False,
             **kwargs: Any) -> Any:
         r"""Perform an action.
 
@@ -2732,13 +3188,19 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                  actions.
             allow_error: If True, a RecoverableError error will not
                 result in the simulation being stopped.
+            dont_record: If True, don't add a record of this operation
+                to the history.
             **kwargs: Additional keyword arguments provide action
                  parameters by name.
 
         """
         out = None
-        with self.stop_on_error(("act", action, args, kwargs),
-                                allow_error=allow_error):
+        record = (
+            None if dont_record
+            else ModelOperation(method="act", args=(action, *args),
+                                kwargs=kwargs)
+        )
+        with self.stop_on_error(allow_error=allow_error, record=record):
             self.check_interactive()
             if action not in self.actions:
                 raise InvalidActionError(
@@ -2806,7 +3268,8 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         return out
 
     def setvars(self, values: dict,
-                allow_error: Optional[bool] = False) -> None:
+                allow_error: Optional[bool] = False,
+                dont_record: Optional[bool] = False) -> None:
         r"""Send a request to set simulation state variables.
 
         Args:
@@ -2814,22 +3277,30 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 values they should be set to.
             allow_error: If True, a RecoverableError error will not
                 result in the simulation being stopped.
+            dont_record: If True, don't add a record of this operation
+                to the history.
 
         """
         if self._allow_bulk_set:
             if not values:
                 return
-            with self.stop_on_error(("setvars", values, tuple([]), {}),
-                                    allow_error=allow_error):
+            record = (
+                None if dont_record
+                else ModelOperation(method="setvars", args=(values, ))
+            )
+            with self.stop_on_error(allow_error=allow_error,
+                                    record=record):
                 self.check_interactive()
                 self._set(values)
             logger.debug(f"setvars: {values}")
             return
         for k, v in values.items():
-            self.set(k, v, allow_error=allow_error)
+            self.set(k, v, allow_error=allow_error,
+                     dont_record=dont_record)
 
     def actvars(self, values: dict,
-                allow_error: Optional[bool] = False) -> None:
+                allow_error: Optional[bool] = False,
+                dont_record: Optional[bool] = False) -> None:
         r"""Perform multiple actions.
 
         Args:
@@ -2837,13 +3308,19 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 action parameters.
             allow_error: If True, a RecoverableError error will not
                 result in the simulation being stopped.
+            dont_record: If True, don't add a record of this operation
+                to the history.
 
         """
         if self._allow_bulk_act:
             if not values:
                 return
-            with self.stop_on_error(("actvars", values, tuple([]), {}),
-                                    allow_error=allow_error):
+            record = (
+                None if dont_record
+                else ModelOperation(method="actvars", args=(values, ))
+            )
+            with self.stop_on_error(allow_error=allow_error,
+                                    record=record):
                 self.check_interactive()
                 missing = [action for action in values.keys()
                            if action not in self.actions]
@@ -2860,16 +3337,8 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
             logger.debug(f"actvars: {values}")
             return
         for k, v in values.items():
-            self.act(k, *v, allow_error=allow_error)
-
-    def record(self, *args: Any) -> None:
-        r"""Record an action.
-
-        Args:
-            *args: Positional arguments are stored in the history.
-
-        """
-        self.history[self.current_time].append(args)
+            self.act(k, *v, allow_error=allow_error,
+                     dont_record=dont_record)
 
     def record_trace(self):
         r"""Record output variables for the current state."""
@@ -2952,6 +3421,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 and not self.is_complete)):
             if dont_record_trace:
                 self._resume(wait=True)
+                self.perform_scheduled_operations()
             else:
                 self.resume(wait=True)
 
@@ -2994,12 +3464,21 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                 if t in history:
                     for action in history[t]:
                         logger.debug(f"Replaying t={t}: {action}")
-                        getattr(self, action[0])(
-                            action[1], *action[2], **action[3])
+                        self.perform_operation(action)
                 if t in trace:
                     self.record_trace()
         if time > self.current_time:
             self.fast_forward(time, dont_record_trace=True)
+
+    def perform_scheduled_operations(self) -> None:
+        r"""Complete any scheduled actions for the current time."""
+        for t, action in self.operation_schedule.items_records(
+                maxtime=self.current_time, mark_completed=True):
+            assert t <= self.current_time
+            logger.debug(f"Performing scheduled action at "
+                         f"t={self.current_time} "
+                         f"(scheduled for {t}): {action}")
+            self.perform_operation(action, dont_record=True)
 
     def resume(self, wait: Optional[bool] = False,
                dont_record_trace: Optional[bool] = False) -> dict:
@@ -3023,6 +3502,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
             self.fast_forward(self.timestep, dont_record_trace=True)
             return out
         self._resume(wait=wait)
+        self.perform_scheduled_operations()
         return out
 
     @abstractmethod

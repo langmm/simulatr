@@ -116,6 +116,9 @@ filterwarnings = [
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:pandas.*",
   "ignore:((.|\n)*)datetime\\.datetime\\.utcfromtimestamp((.|\n)*):DeprecationWarning:dateutil.*",
   "ignore:((.|\n)*)will be accessed as an attribute((.|\n)*):FutureWarning:earthaccess.*",
+  "ignore:((.|\n)*)is an invalid escape sequence((.|\n)*):SyntaxWarning:DSSATTools.*",
+  "ignore:((.|\n)*)is an invalid escape sequence((.|\n)*):DeprecationWarning:DSSATTools.*",
+  "ignore:((.|\n)*)is a major upgrade((.|\n)*):DeprecationWarning:DSSATTools.*",
 ]
 markers = [
   "slow: marks tests as slow (enable with '--run-slow')",
@@ -190,7 +193,6 @@ exclude = '''
   | _version\.py
 )/
 '''
-
 
 [tool.git-changelog]
 template = "keepachangelog"

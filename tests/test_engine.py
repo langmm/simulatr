@@ -8,6 +8,7 @@ from simulatr import logger, get_simulator_class
 from simulatr.base import (
     InvalidActionError, RecoverableError,
     RecoverableModelEngineError,
+    ModelSchedule,
 )
 if platform.system() == 'Windows':
     logging.basicConfig(level=logging.DEBUG)
@@ -93,6 +94,14 @@ class TestModelEngine(TestBase):
 
     _name = None
     _class_type = "engine"
+
+    @pytest.fixture(scope="class", autouse=True)
+    @classmethod
+    def using_test_data(cls, data_dir, alternate_data_dir):
+        with alternate_data_dir(data_dir,
+                                skip_keys=["HUMERIS"],
+                                download_disabled=True):
+            yield
 
     @pytest.fixture(scope="class")
     @classmethod
@@ -345,14 +354,6 @@ class TestApsimXFile(TestModelFile):
 @add_simulator_test("apsimx")
 class TestApsimXEngine(TestModelEngine):
 
-    @pytest.fixture(scope="class", autouse=True)
-    @classmethod
-    def using_test_data(cls, data_dir, alternate_data_dir):
-        with alternate_data_dir(data_dir,
-                                skip_keys=["HUMERIS"],
-                                download_disabled=True):
-            yield
-
     @pytest.fixture(scope="class")
     @classmethod
     def default_instance_kwargs(cls):
@@ -484,6 +485,34 @@ class TestApsimXEngine(TestModelEngine):
             instance.fast_forward(
                 datetime.datetime(year=1981, month=5, day=23))
             instance.act("harvest")
+
+    def test_operation_schedule(self, new_instance,
+                                default_instance_kwargs):
+        start_time = default_instance_kwargs["start_time"]
+        operation_schedule = ModelSchedule(
+            records={
+                start_time: [
+                    {"action": "nitrogen", "amount": 160.0,
+                     "type": "UreaN"},
+                ],
+                (start_time + datetime.timedelta(days=10)): [
+                    ("act", ("irrigate", 10.0, ), {}),
+                ],
+                (start_time + datetime.timedelta(days=20)): [
+                    ("set",
+                     ("[Grain].MaximumPotentialGrainSize.FixedValue",
+                      0.043, ),
+                     {}),
+                ],
+            }
+        )
+        # TODO: Output to file and run with operation_schedule_file?
+        with new_instance(
+                operation_schedule=operation_schedule,
+        ) as instance:
+            instance.fast_forward()
+            for k, v in instance.operation_schedule.items_records():
+                assert v.complete
 
 
 @add_simulator_test("apsimx")

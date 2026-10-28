@@ -12,11 +12,14 @@ from yggdrasil_rapidjson import units as rj_units
 _markers_disabled_by_default = [
     "slow", "download",
 ]
-# TODO: Use pytest option to control this via the command line
-_create_missing = False
 
 
 def pytest_addoption(parser):
+    parser.addoption(
+        "--create-missing-data", dest="create_missing_data",
+        help="Create missing test data.",
+        action='store_true',
+    )
     parser.addoption(
         '--service-location', dest="service_location",
         type=str, choices=["local", "remote", "docker"],
@@ -99,8 +102,8 @@ def alternate_data_dir() -> str:
 
 
 @pytest.fixture(scope="session")
-def create_missing_data():
-    if not _create_missing:
+def create_missing_data(pytestconfig):
+    if not pytestconfig.getoption("create_missing_data"):
         return False
 
     def _create_missing_data(actual, expected, desc=""):
@@ -152,7 +155,13 @@ def assert_allclose():
     r"""Assert that arrays are close."""
 
     def _assert_allclose(a, b, rtol=1e-07, atol=1e-15, **kwargs):
-        np.testing.assert_allclose(a, b, rtol=rtol, atol=atol, **kwargs)
+        import pandas as pd
+        if isinstance(b, pd.DataFrame):
+            pd.testing.assert_frame_equal(
+                a, b, rtol=rtol, atol=atol, **kwargs)
+        else:
+            np.testing.assert_allclose(
+                a, b, rtol=rtol, atol=atol, **kwargs)
 
     return _assert_allclose
 

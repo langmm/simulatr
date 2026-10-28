@@ -26,6 +26,7 @@ from .base import (
     RecoverableError, ModelEngineError, InvalidActionError,
     RecoverableModelEngineError,
     SimulatorNotInstalled,
+    ModelOperation,
 )
 from .data import (
     ParameterCalculator,
@@ -663,6 +664,15 @@ class ApsimXWeatherFile(BaseWeatherFile):
         "rain",
         "vp",
     ]
+    SORTED_PARAMETERS: ClassVar[List[str]] = [
+        "year",
+        "day",
+        "radn",
+        "maxt",
+        "mint",
+        "rain",
+        "vp",
+    ]
     INDEPENDENT_PARAMETERS: ClassVar[List[str]] = [
         "year", "day",
     ]
@@ -702,6 +712,7 @@ class ApsimXWeatherFile(BaseWeatherFile):
         return {
             "constants": {},
             "columns": pd.DataFrame(),
+            "units": {},
         }
 
     @ParameterCalculator.register_method("time", "year", "day")
@@ -715,13 +726,15 @@ class ApsimXWeatherFile(BaseWeatherFile):
     def year_from_time(cls, time: float) -> float:
         # return time.astype("datetime64[Y]").astype(int) + 1970
         import pandas as pd
-        return pd.DatetimeIndex(time).year.to_numpy()
+        out = pd.DatetimeIndex(time).year.to_numpy()
+        return out.astype('int64')
 
     @ParameterCalculator.register_method("day", "time")
     @classmethod
     def day_from_time(cls, time: float) -> float:
         import pandas as pd
-        return pd.DatetimeIndex(time).dayofyear.to_numpy()
+        out = pd.DatetimeIndex(time).day_of_year.to_numpy()
+        return out.astype('int64')
 
     @classmethod
     def independent_parameters(cls):
@@ -756,20 +769,33 @@ class ApsimXWeatherFile(BaseWeatherFile):
             return self.contents["constants"][name]
         return np.array(self.contents["columns"][name])
 
-    def _set(self, name: str, value: Any) -> Any:
+    def _set(self, name: str, value: Any,
+             allow_add: Optional[bool] = False) -> Any:
         r"""Set a parameter in the file.
 
         Args:
             name: Parameter name.
             value: Parameter value.
+            allow_add: Allow for a new parameter value to be added.
 
         Raises:
             KeyError: If name is not a valid parameter name.
 
         """
-        if name in self.HEADER_PARAMETERS:
+        if name in self.HEADER_PARAMETERS + self.SCALAR_PARAMETERS:
+            if name not in self.contents["constants"]:
+                if not allow_add:
+                    raise KeyError(name)
+                if name in self.PARAMETER_UNITS:
+                    self.contents["units"][name] = (
+                        self.PARAMETER_UNITS[name])
             self.contents["constants"][name] = value
             return
+        if name not in self.contents["columns"]:
+            if not allow_add:
+                raise KeyError(name)
+            if name in self.PARAMETER_UNITS:
+                self.contents["units"][name] = self.PARAMETER_UNITS[name]
         self.contents["columns"][name] = value
 
     @classmethod
@@ -857,48 +883,6 @@ class ApsimXWeatherFile(BaseWeatherFile):
         out.append(body)
         with open(fname, "w") as fd:
             fd.write("\n".join(out))
-
-    @classmethod
-    def _from_compatible(cls, src: BaseWeatherFile, **kwargs):
-        r"""Convert weather data from another file format into the
-        correct format for this file.
-
-        Args:
-            src: Universal weather parameters.
-            \*\*kwargs: Additional keyword arguments are passed to
-                get_universal_parameter_map.
-
-        Returns:
-            Converted data.
-
-        """
-        import pandas as pd
-        parameters = src.get_universal_parameter_map(cls, **kwargs)
-        out = {}
-        out["constants"] = {
-            k: float(parameters[k]) for k in
-            cls.HEADER_PARAMETERS
-        }
-        columns = {}
-        for k in cls.REQUIRED_PARAMETERS:
-            if k in cls.HEADER_PARAMETERS:
-                continue
-            columns[k] = pd.Series(parameters[k])
-        out["units"] = {
-            k: v for k, v in cls.PARAMETER_UNITS.items()
-            if k in out["constants"] or k in columns
-        }
-        # TODO
-        # fill_value = float(src.contents["header"]["fill_value"])
-        # for k in list(columns.keys()):
-        #     s = columns[k]
-        #     s[s == fill_value] = np.nan
-        #     columns[k] = s
-        columns = pd.DataFrame(columns)
-        ix = columns.isnull().any(axis=1)
-        columns = columns[~ix]
-        out["columns"] = columns
-        return out
 
     def update_param(self, contents: Any) -> None:
         r"""Merge downloaded parameters into the current data.
@@ -3834,7 +3818,8 @@ class ApsimXEngine(CropModelEngine):
             self._resume(wait=True)
         if self.is_operable:
             try:
-                with self.stop_on_error(("act", "terminate", tuple(), {})):
+                record = ModelOperation(method="act", args=("terminate", ))
+                with self.stop_on_error(record=record):
                     self._act("terminate", {})
                 self._resume(wait=True)
                 if self.status != "finished":

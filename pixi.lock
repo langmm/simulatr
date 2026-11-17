@@ -65,10 +65,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.424-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.30-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.30-h7148c6a_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.424-h7148c6a_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.12.0-py313h9f4c961_0.conda
@@ -455,10 +455,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py313hbf74eec_0.conda
@@ -993,10 +993,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py313h98b818e_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.4-py313haec644f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.424-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.30-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.30-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.424-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.12.0-py313h883faa3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -1326,10 +1326,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py313h2af2deb_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.4-py313h9ca8f16_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.424-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.30-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.30-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.424-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.12.0-py313hedc2b7d_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -1660,11 +1660,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py313h1a38498_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.4-py313h868807b_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.424-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.30-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.30-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.30-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.424-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.12.0-py313h633daaa_0.conda
@@ -1858,10 +1858,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py313hcf592b0_0.conda
@@ -2250,10 +2250,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py313hbf74eec_0.conda
@@ -2790,10 +2790,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py313h98b818e_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.4-py313haec644f_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py313he62640c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -3124,10 +3124,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py313h2af2deb_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.4-py313h9ca8f16_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py313hb5b1e11_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -3460,11 +3460,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py313h1a38498_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.4-py313h868807b_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py313h633daaa_0.conda
@@ -3653,10 +3653,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/contourpy-1.3.3-py313hc8edb43_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py313hcf592b0_0.conda
@@ -3968,10 +3968,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/contourpy-1.3.3-py313h75bc965_4.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py313hbf74eec_0.conda
@@ -4375,10 +4375,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cairo-1.18.4-h7656bdc_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cffi-2.1.1-py313h5487b31_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py313h98b818e_4.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py313he62640c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fontconfig-2.18.3-h7f3b9c9_1.conda
@@ -4632,10 +4632,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cairo-1.18.4-he0f2337_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cffi-2.1.1-py313h056b358_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py313h2af2deb_4.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py313hb5b1e11_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fontconfig-2.18.3-h81aa574_1.conda
@@ -4890,11 +4890,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/cairo-1.18.4-h477c42c_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cffi-2.1.1-py313h5ea7bf4_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py313h1a38498_4.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py313h633daaa_0.conda
@@ -5070,10 +5070,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py311h89961e0_0.conda
@@ -5463,10 +5463,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py311h05b83d5_0.conda
@@ -6004,10 +6004,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py311h9d13916_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.3-py311ha8ae342_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py311h8660805_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -6340,10 +6340,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py311h7d85929_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.3-py311hc290fe0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py311h619901f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -6677,11 +6677,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py311h275cad7_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.3-py311h3f79411_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py311h8a1b207_0.conda
@@ -6875,10 +6875,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py312h42cbcb6_0.conda
@@ -7268,10 +7268,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py312h0a09efd_0.conda
@@ -7809,10 +7809,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py312hb0c38da_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.3-py312heb39f77_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py312he87df83_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -8145,10 +8145,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py312h3093aea_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.3-py312h04c11ed_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py312headc6f5_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -8482,11 +8482,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py312h78d62e6_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.3-py312h05f76fc_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py312hb482819_0.conda
@@ -8680,10 +8680,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py313hcf592b0_0.conda
@@ -9072,10 +9072,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py313hbf74eec_0.conda
@@ -9612,10 +9612,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py313h98b818e_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.3-py313h035b7d0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py313he62640c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -9947,10 +9947,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py313h2af2deb_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.3-py313h65a2061_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py313hb5b1e11_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -10283,11 +10283,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py313h1a38498_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.3-py313hd650c13_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py313h633daaa_0.conda
@@ -10479,10 +10479,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cpp-expected-1.3.1-h171cf75_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/cyrus-sasl-2.1.28-hac629b4_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/dbus-1.16.2-h24cb091_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/epoxy-1.5.10-hb03c661_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/fastar-0.11.0-py314h0b738fb_0.conda
@@ -10873,10 +10873,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cpp-expected-1.3.1-hdc560ac_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/cyrus-sasl-2.1.28-h6598af7_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dbus-1.16.2-h71d469a_2.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/epoxy-1.5.10-he30d5cf_2.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/fastar-0.12.0-py314h96ccd42_0.conda
@@ -11423,10 +11423,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/contourpy-1.3.3-py314h22a2ed9_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/coverage-7.15.3-py314h77fa6c7_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/cpp-expected-1.3.1-hebe015c_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fastar-0.11.0-py314h1f604f8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/fmt-12.1.0-he6aba6a_1.conda
@@ -11760,10 +11760,10 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/contourpy-1.3.3-py314hf8a3a22_4.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/coverage-7.15.3-py314h6e9b3f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/cpp-expected-1.3.1-h3feff0a_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fastar-0.11.0-py314hbcbdb20_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/fmt-12.1.0-h99e4e11_1.conda
@@ -12098,11 +12098,11 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/contourpy-1.3.3-py314hf309875_4.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/coverage-7.15.3-py314h2359020_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/cpp-expected-1.3.1-h477610d_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/epoxy-1.5.10-hfd05255_2.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/fastar-0.11.0-py314h401f7ea_0.conda
@@ -12613,7 +12613,7 @@ packages:
   - zstd >=1.5.7,<1.6.0a0
   license: BSD-3-Clause AND MIT AND EPL-2.0
   purls:
-  - pkg:pypi/backports-zstd?source=compressed-mapping
+  - pkg:pypi/backports-zstd?source=hash-mapping
   run_exports: {}
   size: 243610
   timestamp: 1786861410562
@@ -13386,7 +13386,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/coverage?source=compressed-mapping
+  - pkg:pypi/coverage?source=hash-mapping
   run_exports: {}
   size: 423474
   timestamp: 1786292729866
@@ -13438,110 +13438,54 @@ packages:
     - dbus >=1.16.2,<2.0a0
   size: 447649
   timestamp: 1764536047944
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.423-ha770c72_0.conda
-  sha256: 3969276c77e92c3ab4ffae5fc5cce480b4fe0ef27b0a7681a4d3c3fdd04c6116
-  md5: 519c94ff0c406de68d9a9ce666e2fb96
+- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-10.0.404-ha770c72_1.conda
+  sha256: d7fa633fc7dc815831732a921b22e376283f2099a55fabcd3eac4ab52a5b1a66
+  md5: 1f6fd2315e58e24fd49935f7c346e1cd
   depends:
-  - dotnet-aspnetcore 8.0.29.*
-  - dotnet-runtime 8.0.29.*
-  - dotnet-sdk 8.0.423.*
+  - dotnet-aspnetcore 10.0.15.*
+  - dotnet-runtime 10.0.15.*
+  - dotnet-sdk 10.0.404.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15411
-  timestamp: 1785855438597
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-8.0.424-ha770c72_0.conda
-  sha256: e405e206a42c95c1fecc6bdd587bc9249d0e318817488b814f4f2a61a46f7721
-  md5: dd850415463ff486e171fee00557fec4
+  size: 16284
+  timestamp: 1794852547334
+- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-10.0.15-ha770c72_1.conda
+  sha256: 6556d60e8f61063613a0cbb85ba0715c3685d2eba2266fecda17f030d49f2c60
+  md5: f0bbbafbd96acbf2c3cf70e68ed6dde6
   depends:
-  - dotnet-aspnetcore 8.0.30.*
-  - dotnet-runtime 8.0.30.*
-  - dotnet-sdk 8.0.424.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15468
-  timestamp: 1787317029514
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.29-ha770c72_0.conda
-  sha256: b2f8acacf9be88e5192aba0ea0911eeeccf8061a012eba7c80314bcbcc6831c8
-  md5: 41a67f2ecaa26e6d8367737062e54244
+  size: 9320646
+  timestamp: 1794852415296
+- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-10.0.15-h4e4d5bb_1.conda
+  sha256: 354c7e75ae5b672a9093d86d4ad9edbadda99d06b29ede337f90c981c64f4c31
+  md5: e1e0c02a3cd192b234dbc10fe0e6cbc1
   depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8562235
-  timestamp: 1785855245846
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-aspnetcore-8.0.30-ha770c72_0.conda
-  sha256: 48f97b97cd9fe8d5af16435f9ac1b0aa02c54a881219e38a6e59888e131cdda5
-  md5: f82ffa51bc8df017db492594f26635ea
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8536970
-  timestamp: 1787316866275
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.29-hb700be7_0.conda
-  sha256: 866ea4ab4852ec5f7b20658c0c1b6f97212775c83d1f23a035f6b83358dbcbe2
-  md5: 2e278c9b6b069859ee88d8fc2a5d7e59
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - icu
-  - libgcc >=14
-  - libstdcxx >=14
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 26009182
-  timestamp: 1785855218499
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-runtime-8.0.30-h7148c6a_0.conda
-  sha256: 88e6cf0f77cb720cb5fb1cd0f1579d413e505c6aaa2d045345839f87cf68ec48
-  md5: c2b022deb3188d261222085f98e2a57c
-  depends:
-  - __glibc >=2.17,<3.0.a0
+  - __glibc >=2.28,<3.0.a0
   - icu
   - libgcc >=15
   - libstdcxx >=15
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 25842380
-  timestamp: 1787316843092
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.423-hb700be7_0.conda
-  sha256: 9727460f5188f4c73812f5e2880b4a58294bbc98e22912b9681b546b4b650006
-  md5: f9fd66d10057eea01440cd445b044b30
+  size: 28573151
+  timestamp: 1794852389615
+- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-10.0.404-h4e4d5bb_1.conda
+  sha256: 741f8b201e9c31e3a8a23d2662cee2ab4092c3a347ced2a8ac84d373dfad07d8
+  md5: 921706013a0272f067da56918a21240c
   depends:
-  - __glibc >=2.17,<3.0.a0
-  - dotnet-runtime 8.0.29.*
-  - libgcc >=14
-  - libstdcxx >=14
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 132067407
-  timestamp: 1785855267718
-- conda: https://conda.anaconda.org/conda-forge/linux-64/dotnet-sdk-8.0.424-h7148c6a_0.conda
-  sha256: 99f276e648155cfa17e2ba2a08f610834379e812ab17156877e3ea4b7d3d2740
-  md5: be0747bab1d461b4889dce432dda0c45
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - dotnet-runtime 8.0.30.*
+  - __glibc >=2.28,<3.0.a0
+  - dotnet-runtime 10.0.15.*
   - libgcc >=15
   - libstdcxx >=15
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 132417439
-  timestamp: 1787316886390
+  size: 140925859
+  timestamp: 1794852430420
 - conda: https://conda.anaconda.org/conda-forge/linux-64/double-conversion-3.4.0-hecca717_0.conda
   sha256: 40cdd1b048444d3235069d75f9c8e1f286db567f6278a93b4f024e5642cfaecc
   md5: dbe3ec0f120af456b3477743ffd99b74
@@ -14281,7 +14225,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/h5py?source=compressed-mapping
+  - pkg:pypi/h5py?source=hash-mapping
   run_exports: {}
   size: 1357261
   timestamp: 1787108682064
@@ -14317,7 +14261,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/h5py?source=compressed-mapping
+  - pkg:pypi/h5py?source=hash-mapping
   run_exports: {}
   size: 1362750
   timestamp: 1787108724992
@@ -18415,7 +18359,8 @@ packages:
   license: LGPL-3.0-only
   license_family: LGPL
   purls:
-  - pkg:pypi/pyside6?source=compressed-mapping
+  - pkg:pypi/pyside6?source=hash-mapping
+  - pkg:pypi/shiboken6?source=hash-mapping
   run_exports: {}
   size: 13946979
   timestamp: 1787219441414
@@ -19451,7 +19396,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=compressed-mapping
+  - pkg:pypi/tornado?source=hash-mapping
   run_exports: {}
   size: 869730
   timestamp: 1786226754702
@@ -19481,7 +19426,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=compressed-mapping
+  - pkg:pypi/tornado?source=hash-mapping
   run_exports: {}
   size: 923237
   timestamp: 1786226770518
@@ -19794,7 +19739,7 @@ packages:
   - python_abi 3.12.* *_cp312
   license: BSD-2-Clause
   purls:
-  - pkg:pypi/wrapt?source=compressed-mapping
+  - pkg:pypi/wrapt?source=hash-mapping
   run_exports: {}
   size: 141669
   timestamp: 1788174911031
@@ -19808,7 +19753,7 @@ packages:
   - python_abi 3.13.* *_cp313
   license: BSD-2-Clause
   purls:
-  - pkg:pypi/wrapt?source=compressed-mapping
+  - pkg:pypi/wrapt?source=hash-mapping
   run_exports: {}
   size: 144411
   timestamp: 1788174910718
@@ -19822,7 +19767,7 @@ packages:
   - python_abi 3.14.* *_cp314
   license: BSD-2-Clause
   purls:
-  - pkg:pypi/wrapt?source=compressed-mapping
+  - pkg:pypi/wrapt?source=hash-mapping
   run_exports: {}
   size: 146273
   timestamp: 1788174915189
@@ -21108,7 +21053,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/brotli?source=compressed-mapping
+  - pkg:pypi/brotli?source=hash-mapping
   run_exports: {}
   size: 367664
   timestamp: 1788480421097
@@ -21125,7 +21070,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/brotli?source=compressed-mapping
+  - pkg:pypi/brotli?source=hash-mapping
   run_exports: {}
   size: 366485
   timestamp: 1788480367792
@@ -21230,7 +21175,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/cffi?source=compressed-mapping
+  - pkg:pypi/cffi?source=hash-mapping
   run_exports: {}
   size: 332548
   timestamp: 1788485269704
@@ -21278,7 +21223,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/cffi?source=compressed-mapping
+  - pkg:pypi/cffi?source=hash-mapping
   run_exports: {}
   size: 329121
   timestamp: 1788485263944
@@ -21614,59 +21559,55 @@ packages:
     - dbus >=1.16.2,<2.0a0
   size: 482209
   timestamp: 1788197942246
-- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-8.0.424-h8af1aa0_0.conda
-  sha256: ad5549f853ee29e23c936c24737c533f3e1cdfc81bc37b7e4ac4bf6f8d8fd72b
-  md5: 2d07e93322f7086a4076f913c30ca74a
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-10.0.404-h8af1aa0_1.conda
+  sha256: 96a2b4a61822353af94560d9fa1dfe2bf91d682bd27d1a58b23104b329350ade
+  md5: 02bbf2270b065ee463f405ba617c7dcd
   depends:
-  - dotnet-aspnetcore 8.0.30.*
-  - dotnet-runtime 8.0.30.*
-  - dotnet-sdk 8.0.424.*
+  - dotnet-aspnetcore 10.0.15.*
+  - dotnet-runtime 10.0.15.*
+  - dotnet-sdk 10.0.404.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15518
-  timestamp: 1787317078996
-- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-8.0.30-h8af1aa0_0.conda
-  sha256: 66feca8dc5ac2d728bd0c4e433be382f42fde1aef009c648536c59897bea09d8
-  md5: 64c0f77f212afbe780231e296e991217
+  size: 16439
+  timestamp: 1794852653924
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-aspnetcore-10.0.15-h8af1aa0_1.conda
+  sha256: b95923d78b1b0ab0f7cd873e9301ef43e740d6cdf3f450f6e3d78947fba35e92
+  md5: 2fd55587ec8b18319387d83b38685602
   depends:
-  - dotnet-runtime 8.0.30.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 8228551
-  timestamp: 1787316897392
-- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-8.0.30-hde6636f_0.conda
-  sha256: 4cc8335740c2e5b215a62109a51fd0923f8b6517d1755081dd6727e506d5d054
-  md5: 4708a34437b04c19fdf10dd396797487
+  size: 8792430
+  timestamp: 1794852444550
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-runtime-10.0.15-h4dd03ba_1.conda
+  sha256: 2dcb4d3a875a8a689a2919fa5d7cfb3f22819dba521cc2d77827ce5a50e80994
+  md5: 4769b130edb90019ddebc47f7c407977
   depends:
+  - __glibc >=2.28,<3.0.a0
   - icu
   - libgcc >=15
   - libstdcxx >=15
   - openssl <4
-  - zlib
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 24216608
-  timestamp: 1787316869971
-- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-8.0.424-hde6636f_0.conda
-  sha256: 460d5cf563aee344a3fccf93027087a78f472ac5a1ab49cb93dcb0c5a11f5378
-  md5: 77de00e629a945e8837c0f3637ffb13b
+  size: 26511005
+  timestamp: 1794852409744
+- conda: https://conda.anaconda.org/conda-forge/linux-aarch64/dotnet-sdk-10.0.404-h4dd03ba_1.conda
+  sha256: 6b99dc024c1dc3f6c3475ca4c819654ee29103e8f32a6b39d12a3ad33fc9dd42
+  md5: d661b8a0592527f35dd7574349ee2452
   depends:
-  - dotnet-runtime 8.0.30.*
+  - __glibc >=2.28,<3.0.a0
+  - dotnet-runtime 10.0.15.*
   - libgcc >=15
   - libstdcxx >=15
-  - zlib
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 128490682
-  timestamp: 1787316919586
+  size: 135556588
+  timestamp: 1794852466236
 - conda: https://conda.anaconda.org/conda-forge/linux-aarch64/double-conversion-3.4.0-hfae3067_0.conda
   sha256: a636dfd17adc2a859cbdfce97e449e338b02a9f099c6dc0941c9f26bf448cca9
   md5: 9fd794eaf983eabf975ead524540b4be
@@ -24420,7 +24361,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/msgpack?source=compressed-mapping
+  - pkg:pypi/msgpack?source=hash-mapping
   run_exports: {}
   size: 110390
   timestamp: 1788525102161
@@ -25682,7 +25623,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/pyzmq?source=compressed-mapping
+  - pkg:pypi/pyzmq?source=hash-mapping
   run_exports: {}
   size: 218711
   timestamp: 1787300896759
@@ -25935,7 +25876,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/ruamel-yaml-clib?source=compressed-mapping
+  - pkg:pypi/ruamel-yaml-clib?source=hash-mapping
   run_exports: {}
   size: 152663
   timestamp: 1788882469055
@@ -25949,7 +25890,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/ruamel-yaml-clib?source=compressed-mapping
+  - pkg:pypi/ruamel-yaml-clib?source=hash-mapping
   run_exports: {}
   size: 150943
   timestamp: 1788882473963
@@ -25963,7 +25904,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/ruamel-yaml-clib?source=compressed-mapping
+  - pkg:pypi/ruamel-yaml-clib?source=hash-mapping
   run_exports: {}
   size: 150192
   timestamp: 1788882470628
@@ -25977,7 +25918,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/ruamel-yaml-clib?source=compressed-mapping
+  - pkg:pypi/ruamel-yaml-clib?source=hash-mapping
   run_exports: {}
   size: 151286
   timestamp: 1788882471972
@@ -26307,7 +26248,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/unicodedata2?source=compressed-mapping
+  - pkg:pypi/unicodedata2?source=hash-mapping
   run_exports: {}
   size: 414461
   timestamp: 1788554163311
@@ -27208,7 +27149,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/affine?source=compressed-mapping
+  - pkg:pypi/affine?source=hash-mapping
   run_exports: {}
   size: 16762
   timestamp: 1786226684740
@@ -27221,7 +27162,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/affine?source=compressed-mapping
+  - pkg:pypi/affine?source=hash-mapping
   run_exports: {}
   size: 22619
   timestamp: 1788134268940
@@ -27242,7 +27183,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/aiobotocore?source=compressed-mapping
+  - pkg:pypi/aiobotocore?source=hash-mapping
   run_exports: {}
   size: 93162
   timestamp: 1787053079193
@@ -27488,8 +27429,7 @@ packages:
   depends:
   - python >=3.14
   license: BSD-3-Clause AND MIT AND EPL-2.0
-  purls:
-  - pkg:pypi/backports-zstd?source=compressed-mapping
+  purls: []
   run_exports: {}
   size: 7539
   timestamp: 1788491291925
@@ -27624,7 +27564,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/cached-property?source=compressed-mapping
+  - pkg:pypi/cached-property?source=hash-mapping
   run_exports: {}
   size: 16597
   timestamp: 1787678456483
@@ -27648,7 +27588,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/cachetools?source=compressed-mapping
+  - pkg:pypi/cachetools?source=hash-mapping
   run_exports: {}
   size: 21776
   timestamp: 1788215593744
@@ -27913,7 +27853,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/conda-pypi?source=compressed-mapping
+  - pkg:pypi/conda-pypi?source=hash-mapping
   run_exports: {}
   size: 252688
   timestamp: 1788892743969
@@ -28323,7 +28263,7 @@ packages:
   - python >=3.10
   license: Unlicense
   purls:
-  - pkg:pypi/filelock?source=compressed-mapping
+  - pkg:pypi/filelock?source=hash-mapping
   run_exports: {}
   size: 78622
   timestamp: 1787521663311
@@ -28607,7 +28547,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/idna?source=compressed-mapping
+  - pkg:pypi/idna?source=hash-mapping
   run_exports: {}
   size: 177433
   timestamp: 1787059857580
@@ -28631,7 +28571,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/imagesize?source=compressed-mapping
+  - pkg:pypi/imagesize?source=hash-mapping
   run_exports: {}
   size: 21467
   timestamp: 1787649248672
@@ -28659,7 +28599,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/importlib-metadata?source=compressed-mapping
+  - pkg:pypi/importlib-metadata?source=hash-mapping
   run_exports: {}
   size: 34920
   timestamp: 1787943971257
@@ -28989,7 +28929,7 @@ packages:
   - python
   license: MIT
   purls:
-  - pkg:pypi/platformdirs?source=compressed-mapping
+  - pkg:pypi/platformdirs?source=hash-mapping
   run_exports: {}
   size: 27321
   timestamp: 1787603822584
@@ -29114,7 +29054,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pydantic?source=compressed-mapping
+  - pkg:pypi/pydantic?source=hash-mapping
   run_exports: {}
   size: 346633
   timestamp: 1787941273167
@@ -29152,7 +29092,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/pydantic-settings?source=compressed-mapping
+  - pkg:pypi/pydantic-settings?source=hash-mapping
   run_exports: {}
   size: 60984
   timestamp: 1786146776076
@@ -29335,7 +29275,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/build?source=compressed-mapping
+  - pkg:pypi/build?source=hash-mapping
   run_exports: {}
   size: 33461
   timestamp: 1787910624806
@@ -29394,7 +29334,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/python-discovery?source=compressed-mapping
+  - pkg:pypi/python-discovery?source=hash-mapping
   run_exports: {}
   size: 38785
   timestamp: 1786705670745
@@ -29408,7 +29348,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/python-discovery?source=compressed-mapping
+  - pkg:pypi/python-discovery?source=hash-mapping
   run_exports: {}
   size: 38928
   timestamp: 1787953569064
@@ -29433,7 +29373,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/python-dotenv?source=compressed-mapping
+  - pkg:pypi/python-dotenv?source=hash-mapping
   run_exports: {}
   size: 28328
   timestamp: 1787003234261
@@ -29744,7 +29684,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/rich-toolkit?source=compressed-mapping
+  - pkg:pypi/rich-toolkit?source=hash-mapping
   run_exports: {}
   size: 37486
   timestamp: 1788918484806
@@ -29799,7 +29739,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/s3fs?source=compressed-mapping
+  - pkg:pypi/s3fs?source=hash-mapping
   run_exports: {}
   size: 36424
   timestamp: 1788287049707
@@ -30049,7 +29989,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/starlette?source=compressed-mapping
+  - pkg:pypi/starlette?source=hash-mapping
   run_exports: {}
   size: 65974
   timestamp: 1786315934415
@@ -30296,7 +30236,7 @@ packages:
   - python
   license: MIT AND BSD-3-Clause
   purls:
-  - pkg:pypi/typer?source=compressed-mapping
+  - pkg:pypi/typer?source=hash-mapping
   run_exports: {}
   size: 188056
   timestamp: 1787921102267
@@ -30489,7 +30429,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/uvicorn?source=compressed-mapping
+  - pkg:pypi/uvicorn?source=hash-mapping
   run_exports: {}
   size: 60189
   timestamp: 1787133003107
@@ -30617,7 +30557,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/virtualenv?source=compressed-mapping
+  - pkg:pypi/virtualenv?source=hash-mapping
   run_exports: {}
   size: 3894937
   timestamp: 1786427893830
@@ -31748,98 +31688,50 @@ packages:
   run_exports: {}
   size: 25323
   timestamp: 1785920719997
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.423-h694c41f_0.conda
-  sha256: 4b41e97d6b9f4f4bc1476449b75e4e5379f5d52b804f04969a737a0aa123fd3f
-  md5: 7d0003fef667b7e403f045f6c27974ac
+- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-10.0.404-h694c41f_1.conda
+  sha256: d3a03cc0459774e888933a64e5f5436254753b55b06804aa651feb8e60e28826
+  md5: 2070140c138a0ba6ce9d879d150ee775
   depends:
-  - dotnet-aspnetcore 8.0.29.*
-  - dotnet-runtime 8.0.29.*
-  - dotnet-sdk 8.0.423.*
+  - dotnet-aspnetcore 10.0.15.*
+  - dotnet-runtime 10.0.15.*
+  - dotnet-sdk 10.0.404.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15449
-  timestamp: 1785855860246
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-8.0.424-h694c41f_0.conda
-  sha256: 3a18835de60f788d0ca78418cffd81cfbd0f6a96fc9c0933c579d8e44145dca0
-  md5: d26dd54d19228a3c4a7661dd44efa210
+  size: 16054
+  timestamp: 1794853027001
+- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-10.0.15-h694c41f_1.conda
+  sha256: f9b8d15123f16a5473c4dd11271248cee2eae6f1df5b421097f7ab1075182299
+  md5: bcabf6ec7db7eaf396d5340faf5cc458
   depends:
-  - dotnet-aspnetcore 8.0.30.*
-  - dotnet-runtime 8.0.30.*
-  - dotnet-sdk 8.0.424.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15431
-  timestamp: 1787317311843
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.29-h694c41f_0.conda
-  sha256: 79cc4f315b06a1823476ca5db869d4c221f53b32da97161a1566dfe3f6355a2f
-  md5: c8d52df448bd8591070d81003ee3dd45
+  size: 9272554
+  timestamp: 1794852661678
+- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-10.0.15-hce54745_1.conda
+  sha256: f40930361115b618f8d32a6cecc6751c538848586909ef9b38bd73c3f09ecd60
+  md5: 6aeb03ecb6d39142e26a98398b053f9c
   depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8458032
-  timestamp: 1785855536950
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-aspnetcore-8.0.30-h694c41f_0.conda
-  sha256: 21e3c9e384d4049c62b12f4f98288d1ca9ac1f1c77736893834bacec1811a987
-  md5: 16de081d2efd8c111af08d75535aeb6b
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8520175
-  timestamp: 1787317076290
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.29-h694c41f_0.conda
-  sha256: 5754a6e5e018e04bac899e9891ae82f2a72edd8ff2b544d818a006629c2d3d4d
-  md5: 5a19aaf5a4b7bdc05f34dea375d3ee44
-  depends:
+  - __osx >=11.3
   - icu
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 25750815
-  timestamp: 1785855497481
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-runtime-8.0.30-h694c41f_0.conda
-  sha256: c29f67639b54e0a8681f0ea0385c8d3f13e0f4395b0b9c74f90dc358f62d1566
-  md5: 311e2252444f906a23ed5b1bb2e9cce8
+  size: 27876018
+  timestamp: 1794852628272
+- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-10.0.404-hce54745_1.conda
+  sha256: 60c0d2663c24ed2e0590c3b400bb5b0f043bab8f7cc1a4b82e3990ea9f4779f3
+  md5: 6cf3e9a24440ac71c652ca45b7b2a318
   depends:
-  - icu
+  - __osx >=11.3
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 25641810
-  timestamp: 1787317047228
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.423-h694c41f_0.conda
-  sha256: 2f5d67c58516e038cc3ac55e18191906b327362360a4fe9e73e11c839acc6b5b
-  md5: 51e2a5df08560d3c361372a62849e5a1
-  depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 131489563
-  timestamp: 1785855600306
-- conda: https://conda.anaconda.org/conda-forge/osx-64/dotnet-sdk-8.0.424-h694c41f_0.conda
-  sha256: 8c80cdef923811c49e0734fc107c48043999af28978c3f55096d05d8b86e901f
-  md5: 1940a57db239dfc9b67885c35fc628b0
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 133416344
-  timestamp: 1787317121018
+  size: 139239990
+  timestamp: 1794852709636
 - conda: https://conda.anaconda.org/conda-forge/osx-64/epoxy-1.5.10-h8616949_2.conda
   sha256: d5c466bddf423a788ce5c39af20af41ebaf3de9dc9e807098fc9bf45c3c7db45
   md5: efe7fa6c60b20cb0a3a22e8c3e7b721e
@@ -37771,7 +37663,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/brotli?source=compressed-mapping
+  - pkg:pypi/brotli?source=hash-mapping
   run_exports: {}
   size: 365183
   timestamp: 1786623042491
@@ -38402,7 +38294,7 @@ packages:
   license: Apache-2.0
   license_family: APACHE
   purls:
-  - pkg:pypi/coverage?source=compressed-mapping
+  - pkg:pypi/coverage?source=hash-mapping
   run_exports: {}
   size: 422790
   timestamp: 1786292809548
@@ -38417,98 +38309,50 @@ packages:
   run_exports: {}
   size: 25909
   timestamp: 1785920661291
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.423-hce30654_0.conda
-  sha256: 1fe878db1a8419f494cd4edd00780384f397a300cf3b23ec84eb26d60a40251c
-  md5: b3f5eafeda4bbd4722bf83d4199ce9b2
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-10.0.404-hce30654_1.conda
+  sha256: 963370980f704cb09f6a46d1d7fd3247b8bfa49583ac9bb9bd862630171805a4
+  md5: bf219a738ec4cb81008625d6f9333822
   depends:
-  - dotnet-aspnetcore 8.0.29.*
-  - dotnet-runtime 8.0.29.*
-  - dotnet-sdk 8.0.423.*
+  - dotnet-aspnetcore 10.0.15.*
+  - dotnet-runtime 10.0.15.*
+  - dotnet-sdk 10.0.404.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15510
-  timestamp: 1785855856822
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-8.0.424-hce30654_0.conda
-  sha256: 5c66061fe5b17663b15c941a53622aaaa1c9fa89796d9bd220893257e2bdaeb8
-  md5: 96d699734f700868774da6efafffd9a9
+  size: 16139
+  timestamp: 1794853237402
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-10.0.15-hce30654_1.conda
+  sha256: f92152bc0a4d6299a54da23cab6a5f06edee138808629beabdb03f410a322432
+  md5: 33fa3c51a82cacaf5f92845ed748d61f
   depends:
-  - dotnet-aspnetcore 8.0.30.*
-  - dotnet-runtime 8.0.30.*
-  - dotnet-sdk 8.0.424.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 15486
-  timestamp: 1787317439719
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.29-hce30654_0.conda
-  sha256: 163756d42ad4feb9ec7914bf7f4816dec529ef6fcd8e49d4f0a4dc9ef5a1e82d
-  md5: c60c3e987cb61185f77b1940ac5f582c
+  size: 8719302
+  timestamp: 1794852843368
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-10.0.15-h754dc12_1.conda
+  sha256: 8b7555327a081e99028f01668d8f5955a242279a7493a92efa9fcc0e098d1a1e
+  md5: 24bf643498b73ab6c5450851897d312a
   depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8111365
-  timestamp: 1785855484156
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-aspnetcore-8.0.30-hce30654_0.conda
-  sha256: 6a5a5c646d61cec36d8687ad3de4f930e2f4298ae083fd6f500f320c26f7e71c
-  md5: 91d30f2bfdadab485f27b5ddd69ff0d8
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 8154522
-  timestamp: 1787317075058
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.29-hce30654_0.conda
-  sha256: e46bb5884988a347298dcf2988d108a80fff96668a75bcc99c7d4e79e4c1755d
-  md5: cd43ad3f8b7aee6e1b2832abff0da0fd
-  depends:
+  - __osx >=11.0
   - icu
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 23427847
-  timestamp: 1785855422784
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-runtime-8.0.30-hce30654_0.conda
-  sha256: 2cb2a92413c1e0d6faf64c83316d860f16636881673abfec465d0d312200dc61
-  md5: 8f402031340457692d57697a979192ba
+  size: 25581545
+  timestamp: 1794852780669
+- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-10.0.404-h754dc12_1.conda
+  sha256: f2a169490d9254ec909fe16a854c0a40c2962ee0f6566f102779e4d66c69256c
+  md5: a46560e5fa6fffc59c361ad3c4d2abe7
   depends:
-  - icu
+  - __osx >=11.0
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 23635237
-  timestamp: 1787317032096
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.423-hce30654_0.conda
-  sha256: d039cf0d8d1eb84f1e3324a5e95d8c4657827c41e90ab3acf7c0b4158d5cb7e8
-  md5: 37e3190c1d5cf76c4df5f0715b7415d7
-  depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 129256549
-  timestamp: 1785855564003
-- conda: https://conda.anaconda.org/conda-forge/osx-arm64/dotnet-sdk-8.0.424-hce30654_0.conda
-  sha256: 76217e853386720c346cf0acd80b6929e7295338f6f2b7fd3738294fd3610701
-  md5: 5ff7db926ad9c6f5c7eb577afc84b501
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 128546388
-  timestamp: 1787317131248
+  size: 135448440
+  timestamp: 1794852916545
 - conda: https://conda.anaconda.org/conda-forge/osx-arm64/epoxy-1.5.10-hc919400_2.conda
   sha256: ba685b87529c95a4bf9de140a33d703d57dc46b036e9586ed26890de65c1c0d5
   md5: 3b87dabebe54c6d66a07b97b53ac5874
@@ -39183,7 +39027,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/h5py?source=compressed-mapping
+  - pkg:pypi/h5py?source=hash-mapping
   run_exports: {}
   size: 1139741
   timestamp: 1787109268389
@@ -39217,7 +39061,7 @@ packages:
   license: BSD-3-Clause
   license_family: BSD
   purls:
-  - pkg:pypi/h5py?source=compressed-mapping
+  - pkg:pypi/h5py?source=hash-mapping
   run_exports: {}
   size: 1154631
   timestamp: 1787109201804
@@ -43348,7 +43192,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=compressed-mapping
+  - pkg:pypi/tornado?source=hash-mapping
   run_exports: {}
   size: 869700
   timestamp: 1786375852841
@@ -43851,7 +43695,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/yggdrasil-python-rapidjson?source=compressed-mapping
+  - pkg:pypi/yggdrasil-python-rapidjson?source=hash-mapping
   run_exports: {}
   size: 748119
   timestamp: 1788901406003
@@ -44503,7 +44347,7 @@ packages:
   license: MIT
   license_family: MIT
   purls:
-  - pkg:pypi/brotli?source=compressed-mapping
+  - pkg:pypi/brotli?source=hash-mapping
   run_exports: {}
   size: 336988
   timestamp: 1786623013239
@@ -45123,118 +44967,57 @@ packages:
   run_exports: {}
   size: 22027
   timestamp: 1785920525392
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.423-h57928b3_0.conda
-  sha256: a4c32c1e133cb8fb59562c24b610c1e48fcedf2366c44cfa4679b1fac71d1d3d
-  md5: 1c573bcaa25fd7a3b997d6ceacd7a3d0
+- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-10.0.404-h57928b3_1.conda
+  sha256: 8e8ee790f242debd1309ec0a03f9b2e6854b859d645fe14f7520b20e89ecd484
+  md5: a9beaa0c9d39a1af16147473a24f7c88
   depends:
-  - dotnet-aspnetcore 8.0.29.*
-  - dotnet-desktop 8.0.29.*
-  - dotnet-runtime 8.0.29.*
-  - dotnet-sdk 8.0.423.*
+  - dotnet-aspnetcore 10.0.15.*
+  - dotnet-desktop 10.0.15.*
+  - dotnet-runtime 10.0.15.*
+  - dotnet-sdk 10.0.404.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 19510
-  timestamp: 1785855698630
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-8.0.424-h57928b3_0.conda
-  sha256: 55e0caf7ffbeef6651a3ae49f6cbecadd407f4c88e884a2d23b0a558197a02f8
-  md5: 1df7711055628df708dc9370eb0f4c64
+  size: 19992
+  timestamp: 1794852780216
+- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-10.0.15-h57928b3_1.conda
+  sha256: ebd97e67846cfe9fb05696c58132adb81573a6baefb5da384333443759d2a259
+  md5: 078d400dc0fee42464ff7bc62676fce7
   depends:
-  - dotnet-aspnetcore 8.0.30.*
-  - dotnet-desktop 8.0.30.*
-  - dotnet-runtime 8.0.30.*
-  - dotnet-sdk 8.0.424.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 19513
-  timestamp: 1787317332907
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.29-h57928b3_0.conda
-  sha256: 2e4df772134545567c7b34534bf843e3b98ea8a88be6c4f3ac7d8a06af9968ea
-  md5: 5021932145efcf17591293477bf003f5
+  size: 9541963
+  timestamp: 1794852537736
+- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-10.0.15-h57928b3_1.conda
+  sha256: a8ed993b103a3be5a40cd2eb14385f9a461868f13c10cd97a886307e62a9b2dc
+  md5: 7f705ba02c211fcd23fc9a8ef3fc0334
   depends:
-  - dotnet-runtime 8.0.29.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 9048573
-  timestamp: 1785855389262
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-aspnetcore-8.0.30-h57928b3_0.conda
-  sha256: c4ab0d7d8464a8dd8ae41dafe4f031ee4e306b181c5473a3294dc713d8d52a25
-  md5: 5fece64b47bdb91a50b87f41c1143b42
+  size: 29212950
+  timestamp: 1794852557471
+- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-10.0.15-h57928b3_1.conda
+  sha256: 527bcb15f5f66766ee8435c5671163270240acfecd3018cabb710723a6ee5165
+  md5: 63047865b424383dbad54469f76e4c4d
+  license: MIT
+  purls: []
+  run_exports: {}
+  size: 28779175
+  timestamp: 1794852503187
+- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-10.0.404-h57928b3_1.conda
+  sha256: d978e61f3d22f6a535ff6fa08aea413e5c62b606bba23af4046d1765b097e444
+  md5: 5facce1b477d88d706454f3ef30cca01
   depends:
-  - dotnet-runtime 8.0.30.*
+  - dotnet-runtime 10.0.15.*
   license: MIT
-  license_family: MIT
   purls: []
   run_exports: {}
-  size: 9028846
-  timestamp: 1787317001100
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.29-h57928b3_0.conda
-  sha256: c70cbb50852bf42318a594007633820bfb6b11f55a31bbbd0fff4b7fc82c8664
-  md5: 601e7080c2aa56d16503ce051c52e236
-  depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 28349641
-  timestamp: 1785855418157
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-desktop-8.0.30-h57928b3_0.conda
-  sha256: 10780b2fc2e3f3a40b2d216029eaee664f22b62472ed0d5996033b08f17c03bf
-  md5: 35a1a5ac1b5fd2f52406b5815fdd9d72
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 28403382
-  timestamp: 1787317033906
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.29-h57928b3_0.conda
-  sha256: 6826594e2244c24eb4354c62a87a99480b78e323e0f5cba07116a4ad1ce846cf
-  md5: 9ab02c70bb9942dd10a987bc678d9788
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 26848849
-  timestamp: 1785855353748
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-runtime-8.0.30-h57928b3_0.conda
-  sha256: 3417481d72e5cd3d55f52c2b077dd56a844030256ec9d26d04d6a593bf984843
-  md5: 54fbae6d6fc025c823196a90502bd52d
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 26849144
-  timestamp: 1787316963172
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.423-h57928b3_0.conda
-  sha256: d30b13f94a89064ca3cdbfeb7379bcf56b70df7a7f40d42dba66003710189316
-  md5: 038266c2e013ceacd7818da1726368b2
-  depends:
-  - dotnet-runtime 8.0.29.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 144984853
-  timestamp: 1785855486009
-- conda: https://conda.anaconda.org/conda-forge/win-64/dotnet-sdk-8.0.424-h57928b3_0.conda
-  sha256: 9874573eb9ae5198d38af0451dc2d51b076479a268523a8942f0377501d0da90
-  md5: b1e9c6686d32e837e5def0aabe49d1a7
-  depends:
-  - dotnet-runtime 8.0.30.*
-  license: MIT
-  license_family: MIT
-  purls: []
-  run_exports: {}
-  size: 144119997
-  timestamp: 1787317105018
+  size: 146947111
+  timestamp: 1794852605081
 - conda: https://conda.anaconda.org/conda-forge/win-64/double-conversion-3.4.0-hac47afa_0.conda
   sha256: 09e30a170e0da3e9847d449b594b5e55e6ae2852edd3a3680e05753a5e015605
   md5: 3d3caf4ccc6415023640af4b1b33060a
@@ -50372,7 +50155,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=compressed-mapping
+  - pkg:pypi/tornado?source=hash-mapping
   run_exports: {}
   size: 869273
   timestamp: 1786226848377
@@ -50388,7 +50171,7 @@ packages:
   license: Apache-2.0
   license_family: Apache
   purls:
-  - pkg:pypi/tornado?source=compressed-mapping
+  - pkg:pypi/tornado?source=hash-mapping
   run_exports: {}
   size: 894576
   timestamp: 1786226856347

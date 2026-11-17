@@ -486,6 +486,35 @@ class TestApsimXEngine(TestModelEngine):
                 datetime.datetime(year=1981, month=5, day=23))
             instance.act("harvest")
 
+    def test_weed(self, new_instance):
+        r"""Test impact of weeding."""
+        with new_instance(crop_name="Wheat",
+                          weed_name="Oats",
+                          actions=["weed"]) as instance:
+            # Without weeding
+            instance.fast_forward()
+            value_none = instance.get("[Wheat].Grain.Total.Wt")
+            # 50% weeding
+            instance.rewind(datetime.timedelta(days=100))
+            instance.act("weed", 0.5)
+            instance.fast_forward()
+            value_half = instance.get("[Wheat].Grain.Total.Wt")
+            # 100% weeding
+            instance.rewind(datetime.timedelta(days=100))
+            instance.act("weed", 1.0)
+            instance.fast_forward()
+            value_full = instance.get("[Wheat].Grain.Total.Wt")
+            # 50% weeding every 20 days
+            # instance.rewind(datetime.timedelta(days=100))
+            # while instance.is_running and not instance.is_complete:
+            #     instance.act("weed", 0.5)
+            #     instance.fast_forward(datetime.timedelta(days=20))
+            # value_mult = instance.get("[Wheat].Grain.Total.Wt")
+            # print(value_none, value_half, value_full, value_mult)
+            assert value_half > value_none
+            assert value_full > value_half
+            # assert value_mult > value_full
+
     def test_operation_schedule(self, new_instance,
                                 default_instance_kwargs):
         start_time = default_instance_kwargs["start_time"]

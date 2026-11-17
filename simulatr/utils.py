@@ -37,7 +37,15 @@ cfg = PackageConfig(
             'n8n_api': "https://tools.uiuc.chat/api/v1",
         },
         'apsimx': {
-            'commit': '331bfae1fef2ef51b8792f5575dea7bb818b4694',
+            'url': "https://github.com/APSIMInitiative/ApsimX.git",
+            # This version uses dotnet 8
+            # 'dotnet_version': '8.0',
+            # 'commit': '331bfae1fef2ef51b8792f5575dea7bb818b4694',
+            # 'serialization': 'msgpack',
+            # This version uses dotnet 10
+            'commit': '62009e529d5e9c5a37ed8a692ed3af301cc45c81',
+            'dotnet_version': '10.0',
+            'serialization': 'json',
         },
     },
 )

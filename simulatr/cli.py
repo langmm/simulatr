@@ -709,9 +709,19 @@ def main() -> None:
         help='Action to perform')
     subparsers_map = {}
     for k, v in CliRegistry._registry.items():
+        if k is None:
+            continue
         subparsers_map[k] = v(subparsers)
     # Parse
-    args = parser.parse_args()
+    try:
+        args = parser.parse_args()
+    except BaseException as e:
+        import sys
+        if (not isinstance(e, SystemExit)) and "--pdb" in sys.argv:
+            print(e)
+            import pdb
+            pdb.set_trace()
+        raise
     try:
         args.func(args)
     except BaseException:

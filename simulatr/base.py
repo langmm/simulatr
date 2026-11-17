@@ -23,10 +23,10 @@ from pydantic import (
 from pydantic.fields import FieldInfo
 from pydantic.json_schema import SkipJsonSchema
 from pydantic_settings import CliSuppress
-from . import logger
+from . import logger, utils
 from .utils import (
-    promptuser, promptuser_boolean, NoDefault, readonly_cached_property,
-    CachedPropertyMixin
+    cfg, promptuser, promptuser_boolean, NoDefault,
+    readonly_cached_property, CachedPropertyMixin
 )
 from .data import BaseFile
 
@@ -2333,6 +2333,29 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         return isinstance(model_dir, str) and os.path.isdir(model_dir)
 
     @classmethod
+    def download(cls, model_dir: Optional[str] = None,
+                 **kwargs: Any) -> None:
+        r"""Clone the simulator from a git repository.
+
+        Args:
+            model_dir: Path to the root directory where the model should
+                be downloaded. Defaults to the auto-detected directory.
+            \*\*kwargs: Additional keyword arguments are passed to
+                utils.partialclone for .git URLs.
+
+        """
+        url = cfg[cls._MODEL_NAME]["url"]
+        if url.endswith(".git"):
+            if model_dir is None:
+                model_dir = cls.model_dir()
+            if "commit" in cfg[cls._MODEL_NAME]:
+                kwargs.setdefault("commit", cfg[cls._MODEL_NAME]["commit"])
+            utils.partialclone(url, model_dir, **kwargs)
+            return
+        raise NotImplementedError("Only download via git clone is "
+                                  "currently supported")
+
+    @classmethod
     def install(cls, always_yes: bool = False,
                 force: bool = False) -> None:
         r"""Install the model if it is not installed.
@@ -2365,11 +2388,12 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         else:
             ans = promptuser_boolean(
                 f"{prefix}Install the {cls._MODEL_NAME} model into "
-                f"\"{model_dir}\"? [Y/n]",
+                f"\"{model_dir}\"?",
                 _gha_default=True)
         if not ans:
             raise RuntimeError(
                 f"{cls._MODEL_NAME} model required to proceed")
+        cls.download(model_dir)
         cls._install(model_dir)
         cfg.set("directories", cls._MODEL_NAME, model_dir)
         if not cls.is_installed():

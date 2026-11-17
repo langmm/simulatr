@@ -1,24 +1,39 @@
 # To do
 
+## In progress
+- Fill in missing or incomplete docstrings in the BaseSchedule, ModelOperation, and ModelSchedule classes in simulatr/base.py
+- Update pixi tasks to split dev dependencies between test, doc, and conda (lint?)
+
 ## General
 
 - [ ] Generalize BaseDataFile
-  - Add new parameter
-  - Update parameters
-  - Soil calculations based on Saxton and Rawls (2006)
-  - Resampling of soil depths
+  - Test resampling of soil depths
   - Generation of soil profile
-  - Tests for added set
   - Setter for derived properties
   - Check that depths match between layers in irsirc soil
-  - Activate yggdrasil_rapidjson units
-  - Check lengths of parameters against layer count in soil base class set
   - Class defined value indicating missing data (so it can be replaced with NAN)
 - [ ] Fix readme inclusion in PyPI description
 - [ ] Improve human readable prompt for CLI and fix set/get description
 - [ ] Add lookup for crop costs from USDA NASS public API and plot that for intercrop comparison of yield
 - [ ] Update crop panel to go over two years to allow for variation in crop sowing times base on weather
 - [ ] Verify that AutoSow makes sense for all crops (or is parametrized correctly)
+- [ ] Non-interactive action schedule for ApsimX
+- [ ] Add DSSAT
+
+## ApsimX
+
+### Soil
+
+- [ ] Fix use of crop soil parameters to initialize with crop example by default
+- [ ] Get initial water content from NASA POWER or SMAP L4
+
+### WeedCycle in simulatr/apsimx_data/WeedCycle.json
+
+- [ ] The default values are fabrications that need to be set based on literature
+- [ ] Dormancy rate based on light (other resource competition?)
+- [ ] Set seed population from Synchroniser
+- [ ] Check that residue is treated correctly on weed "harvest"
+- [ ] Multiple cohorts w/ interval or ...?
 
 ## Server
 

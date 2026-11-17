@@ -69,7 +69,7 @@ run-docker-server = {
 }
 
 [feature.apsimx.dependencies]
-dotnet = ">=8.0.0,<9.0.0"
+dotnet = ">=10.0.0,<11.0.0"
 gtk3 = "*"
 git = "*"
 

@@ -156,6 +156,14 @@ class CropModelEngine(BaseModelEngine):
             default=None, examples=["Hartog"],
             description="Name of the crop variety/cultivar that will be "
                         "simulated")
+    weed_name: Optional[str | SkipJsonSchema[None]] = SimulatorFieldInfo(
+        default=None, examples=["Oats"],
+        description="Name of the weed that will be simulated")
+    weed_variety: Optional[
+        str | SkipJsonSchema[None]] = SimulatorFieldInfo(
+            default=None, examples=["Drummond"],
+            description="Name of the weed variety/cultivar that will be "
+                        "simulated")
     sow_date: Optional[
         datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
             default=None,

@@ -20,6 +20,7 @@ from typing import (
 )
 from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
+import yggdrasil_rapidjson as yggrj
 from . import logger, utils
 from .utils import cfg, LogPipe, readonly_cached_property
 from .base import (
@@ -366,24 +367,27 @@ class ApsimXFileNode:
             yield v
 
     def specialize_crop(self, crop_name: str,
-                        parameter_name: str = "Crop") -> None:
+                        parameter_name: str = "Crop",
+                        placeholder: str = "CROP") -> None:
         r"""Specialize the crop referenced by the node.
 
         Args:
             crop_name: Name of crop to specialize.
             parameter_name: Parameter name where the crop name is
                 stored.
+            placeholder: Placeholder to replace.
 
         """
         if self.has_parameter(parameter_name):
-            if "CROP" not in self["Name"]:
+            if placeholder not in self["Name"]:
                 prev = self.get_parameter(parameter_name)
                 self["Name"] = self["Name"].replace(prev, crop_name)
             self.set_parameter(parameter_name, crop_name)
-        if "CROP" in self["Name"]:
-            self["Name"] = self["Name"].replace("CROP", crop_name)
+        if placeholder in self["Name"]:
+            self["Name"] = self["Name"].replace(placeholder, crop_name)
         for x in self.children:
-            x.specialize_crop(crop_name)
+            x.specialize_crop(crop_name, parameter_name=parameter_name,
+                              placeholder=placeholder)
 
     def has_parameter(self, name: str | set) -> bool:
         r"""Check if the node has a parameter of a given name.
@@ -929,7 +933,7 @@ class ApsimXSoilFile(BaseSoilFile):
         "DUL": "dul",
         "SAT": "sat",
         "KS": "ksat",
-        "LL": "wilting_point",
+        # "LL": "",
         # "KL": "",
         # "XF": "",
         # "SWCON": "",
@@ -958,7 +962,7 @@ class ApsimXSoilFile(BaseSoilFile):
         "DUL": "mm**3/mm**3",
         "SAT": "mm**3/mm**3",
         "KS": "mm/day",
-        "LL": "mm**3/mm**3",
+        "LL": "",
         "KL": "",
         "XF": "",
         "SWCON": "",
@@ -988,6 +992,7 @@ class ApsimXSoilFile(BaseSoilFile):
         ]),
         # ("SoilCrop", [  # No thickness
         ("Models.Soils.SoilCrop, Models", [
+            # These are crop specific
             "LL", "KL", "XF",
         ]),
         # ("SoilWaterBalance", [
@@ -1431,6 +1436,7 @@ class ApsimXSoilFile(BaseSoilFile):
     @ParameterNormalizer.register_method("dul", "sat")
     @classmethod
     def dul_normalization(cls, dul: float, sat: float):
+        r"""Normalize DUL to be less than SAT as expected by ApsimX."""
         dul_units = cls.get_units(dul)
         dul_units_type = utils.matching_unit_type(dul)
         dul = cls.add_units(dul, "", return_scalar=True)
@@ -1448,6 +1454,12 @@ class ApsimXSoilFile(BaseSoilFile):
     @classmethod
     def default_initial_moisture(cls, dul: float, ll15: float):
         return 0.5 * (dul + ll15)
+
+    @ParameterCalculator.register_method("LL", "wilting_point")
+    @classmethod
+    def default_LL(cls, wilting_point: float):
+        # TODO: LL, KL, & KF should be normalized based on crop values
+        return wilting_point
 
     @ParameterCalculator.register_method("KL", "bottom_depth")
     @classmethod
@@ -1562,105 +1574,7 @@ class ApsimXSoilFile(BaseSoilFile):
     # all set or normalized by calculators/normalizers)
     def calculate_missing(self):
         r"""Calculate missing parameters that are required."""
-        curveparam_a = 0.0
-        curveparam_b = 0.2
         # TODO: Check for scalars and interpolate?
-        if (((not self.physical.contents.get("ParticleSizeSilt", None))
-             and self.physical.contents.get("ParticleSizeClay", None)
-             and self.physical.contents.get("ParticleSizeSand", None))):
-            self.physical.contents["ParticleSizeSilt"] = [
-                100 - s - c for s, c in zip(
-                    self.physical.contents["ParticleSizeSand"],
-                    self.physical.contents["ParticleSizeClay"]
-                )
-            ]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.physical.contents.get("LL15", None))
-             and self.crop_soil.contents.get("LL", None))):
-            self.physical.contents["LL15"] = (
-                self.crop_soil.contents["LL"]
-            )
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.crop_soil.contents.get("LL", None))
-             and self.physical.contents.get("LL15", None))):
-            self.crop_soil.contents["LL"] = (
-                self.physical.contents["LL15"]
-            )
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.physical.contents.get("LL15", None))
-             and self.physical.contents.get("ParticleSizeClay", None)
-             and self.physical.contents.get("ParticleSizeSand", None)
-             and self.organic.contents.get("Carbon", None))):
-            self.physical.contents["LL15"] = [
-                float(self.wilting_point_from_texture(
-                    c / 100, s / 100, 1.724 * o / 100).value)
-                for c, s, o in zip(
-                        self.physical.contents["ParticleSizeClay"],
-                        self.physical.contents["ParticleSizeSand"],
-                        self.organic.contents["Carbon"]
-                )
-            ]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.physical.contents.get("DUL", None))
-             and self.physical.contents.get("ParticleSizeClay", None)
-             and self.physical.contents.get("ParticleSizeSand", None)
-             and self.organic.contents.get("Carbon", None))):
-            self.physical.contents["DUL"] = [
-                # TODO: Double check if this should be dul_from_texture
-                float(self.dul_from_texture(
-                    c / 100, s / 100, 1.724 * o / 100).value)
-                for c, s, o in zip(
-                        self.physical.contents["ParticleSizeClay"],
-                        self.physical.contents["ParticleSizeSand"],
-                        self.organic.contents["Carbon"]
-                )
-            ]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if ((self.physical.contents.get("DUL", None)
-             and self.physical.contents.get("SAT", None))):
-            # ApsimX expects DUL to be less than SAT
-            # TODO: This should be moved into generic normalization
-            for idx in range(len(self.physical.contents["DUL"])):
-                if ((self.physical.contents["DUL"][idx]
-                     >= self.physical.contents["SAT"][idx])):
-                    self.physical.contents["DUL"][idx] = (
-                        self.physical.contents["SAT"][idx] - 0.002)
-                    raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.physical.contents.get("AirDry", None))
-             and self.physical.contents.get("LL15", None))):
-            self.physical.contents["AirDry"] = [
-                max(0.005, 0.5 * x)   # if i < 3 else x
-                for i, x in enumerate(self.physical.contents["LL15"])
-            ]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.physical.contents.get("KS", None))
-             and self.physical.contents.get("LL15", None)
-             and self.physical.contents.get("DUL", None)
-             and self.physical.contents.get("SAT", None))):
-            self.physical.contents["KS"] = [
-                float(self.ksat_from_moisture(
-                    sat, dul, ll15).to("mm/day").value)
-                for sat, dul, ll15 in zip(
-                        self.physical.contents["SAT"],
-                        self.physical.contents["DUL"],
-                        self.physical.contents["LL15"]
-                )
-            ]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        # if (((not self.physical.contents.get("KS", None))
-        #      and self.physical.contents.get("ParticleSizeClay", None)
-        #      and self.physical.contents.get("ParticleSizeSand", None)
-        #      and self.organic.contents.get("Carbon", None))):
-        #     self.physical.contents["KS"] = [
-        #         float(self.ksat_from_texture(
-        #             c / 100, s / 100, 1.724 * o / 100).value)
-        #         for c, s, o in zip(
-        #                 self.physical.contents["ParticleSizeClay"],
-        #                 self.physical.contents["ParticleSizeSand"],
-        #                 self.organic.contents["Carbon"]
-        #         )
-        #     ]
-        #     raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         if ((self.physical.contents.get("KS", None)
              and not np.isfinite(self.physical.contents["KS"]).all())):
             raise ValueError(
@@ -1678,83 +1592,8 @@ class ApsimXSoilFile(BaseSoilFile):
             #     )
             # ]
             raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if (((not self.root.contents.get("SoilType", None))
-             and self.physical.contents.get("ParticleSizeClay", None)
-             and self.physical.contents.get("ParticleSizeSand", None))):
-            self.root.contents["SoilType"] = self.texture_class_minasny(
-                self.physical.contents["ParticleSizeClay"][0],
-                self.physical.contents["ParticleSizeSand"][0]
-            )
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         layers = np.array(self.physical.contents["Thickness"]).cumsum()
         nlayers = len(layers)
-        if not self.crop_soil.contents.get("KL", None):
-            self.crop_soil.contents["KL"] = (
-                0.06 * self.create_profile(
-                    layers, a=curveparam_a, b=curveparam_b)
-            ).tolist()
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.crop_soil.contents.get("XF", None):
-            self.crop_soil.contents["XF"] = (
-                self.create_profile(layers, a=curveparam_a, b=0)
-            ).tolist()
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.organic.contents.get("FOMCNRatio", None):
-            self.organic.contents["FOMCNRatio"] = 40.0
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.organic.contents.get("SoilCNRatio", None):
-            self.organic.contents["SoilCNRatio"] = nlayers * [12.0]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.organic.contents.get("FBiom", None):
-            self.organic.contents["FBiom"] = (
-                0.045 * self.create_profile(
-                    layers, a=curveparam_a, b=curveparam_b)
-            ).tolist()
-            # TODO: Scale?
-            self.organic.contents["FBiom"][0] = 0.0395
-            self.organic.contents["FBiom"][1] = 0.035
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.organic.contents.get("FInert", None):
-            self.organic.contents["FInert"] = (
-                0.83 * self.create_profile(
-                    layers, a=curveparam_a, b=-0.01)
-            ).tolist()
-            # TODO: Scale?
-            self.organic.contents["FInert"][0] = 0.65
-            self.organic.contents["FInert"][1] = 0.668
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.organic.contents.get("FOM", None):
-            self.organic.contents["FOM"] = (
-                160 * self.create_profile(
-                    layers, a=curveparam_a, b=curveparam_b)
-            ).tolist()
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.uses_soil_samples:
-            if (("NO3" in self.solutes
-                 and not self.solutes["NO3"].contents.get(
-                     "InitialValues", None))):
-                self.solutes["NO3"].contents["InitialValues"] = (
-                    0.5 * self.create_profile(
-                        layers, a=curveparam_a, b=0.01)
-                ).tolist()
-                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-            if (("NH4" in self.solutes
-                 and not self.solutes["NH4"].contents.get(
-                     "InitialValues", None))):
-                self.solutes["NH4"].contents["InitialValues"] = (
-                    0.05 * self.create_profile(
-                        layers, a=curveparam_a, b=0.01)
-                ).tolist()
-                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-            if (("Urea" in self.solutes
-                 and not self.solutes["Urea"].contents.get(
-                     "InitialValues", None))):
-                self.solutes["Urea"].contents["InitialValues"] = (
-                    nlayers * [0.0])
-                raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
-        if not self.water_balance.contents.get("SWCON", None):
-            self.water_balance.contents["SWCON"] = nlayers * [0.3]
-            raise Exception("THIS SHOULD HAVE BEEN CALCULATED")
         # TODO: Generic minimum number of layers
         if nlayers == 1:
             raise Exception("CALCUALTE_MISSING WOULD HAVE RESAMPLED")
@@ -2185,18 +2024,6 @@ class ApsimXFile(CropModelFile):
             ApsimXFileNode.from_data("Soil", crop_root=crop_root),
             ApsimXFileNode.from_data("SurfaceOrganicMatter",
                                      crop_root=crop_root),
-            # SOIL:
-            # "Models.Soils.Soil, Models"
-            #    "Models.Soils.Physical, Models"
-            #       "Models.Soils.SoilCrop, Models"
-            #    "Models.WaterModel.WaterBalance, Models"
-            #    "Models.Soils.Organic, Models"
-            #    "Models.Soils.Chemical, Models"
-            #    "Models.Soils.Water, Models"
-            #    "Models.Soils.CERESSoilTemperature, Models"
-            #    "Models.Soils.Nutrients.Nutrient, Models"
-            #    "Models.Soils.Solute, Models" -> NO3, NH4, Urea
-            # "Models.Surface.SurfaceOrganicMatter, Models"
             ApsimXFileNode.from_param(
                 "Models.PMF.Plant, Models",
                 Name=crop_name,
@@ -2222,6 +2049,32 @@ class ApsimXFile(CropModelFile):
             #     crop_root=crop_root,
             # ),
         ]
+        if "weed" in actions:
+            kwargs.setdefault("weed_name", "Oats")
+        weed_soil = None
+        weed_name = kwargs.get("weed_name", None)
+        weed_variety = kwargs.get("weed_variety", None)
+        if weed_name is not None:
+            weed_name = kwargs["weed_name"]
+            weed_variety = kwargs.get("weed_variety", None)
+            if weed_variety is None:
+                weed_varieties = cls.available_cultivars(weed_name)
+                weed_variety = weed_varieties[0]
+                kwargs["weed_variety"] = weed_variety
+            weed_root = ApsimXFileNode.from_example(weed_name)
+            weed_soil = ApsimXFileNode.from_data(
+                "SoilCrop", crop_root=weed_root, Name="WEEDSoil")
+            zone_children += [
+                ApsimXFileNode.from_param(
+                    "Models.PMF.Plant, Models",
+                    Name=weed_name,
+                    ResourceName=weed_name,
+                    Description="Weed",
+                ),
+                ApsimXFileNode.from_data(
+                    "WeedCycle",
+                )
+            ]
         sim_children.append(
             ApsimXFileNode.from_param(
                 "Models.Core.Zone, Models",
@@ -2250,6 +2103,13 @@ class ApsimXFile(CropModelFile):
             ]
         )
         contents.specialize_crop(crop_name)
+        if weed_name is not None:
+            soil_node = contents.find(
+                requirements={"$type": "Models.Soils.Physical, Models"})
+            soil_node["Children"].append(weed_soil)
+            contents.specialize_crop(weed_name,
+                                     parameter_name="WeedName",
+                                     placeholder="WEED")
         assert contents["Name"] == "Simulations"
         out = cls(dst, generated=True, contents=contents.contents)
         if interactive or actions:
@@ -3017,7 +2877,8 @@ class ApsimXFile(CropModelFile):
             actions: List of actions that should be enabled.
 
         """
-        sync = ApsimXFileNode.from_data("Synchroniser")
+        serialization = cfg["apsimx"].get("serialization", "json")
+        sync = ApsimXFileNode.from_data(f"Synchroniser_{serialization}")
         field = self.find("Field", required=True)
         for k, v in self.ACTION_NODES.items():
             parent = None
@@ -3123,6 +2984,17 @@ class ApsimXEngine(CropModelEngine):
     INPUT_FILE_TYPE: ClassVar[Any] = ApsimXFile
     WEATHER_FILE_TYPE: ClassVar[Any] = ApsimXWeatherFile
     SOIL_FILE_TYPE: ClassVar[Any] = ApsimXSoilFile
+    SERIALIZER: ClassVar[Callable] = staticmethod(
+        msgpack.packb
+        if cfg["apsimx"].get("serialization", "json") == "msgpack"
+        else lambda x: yggrj.dumps(x).encode('utf8')
+    )
+    DESERIALIZER: ClassVar[Callable] = staticmethod(
+        msgpack.unpackb
+        if cfg["apsimx"].get("serialization", "json") == "msgpack"
+        else lambda x: yggrj.loads(x.decode('utf8'),
+                                   datetime_mode=yggrj.DM_ISO8601)
+    )
     AVAILABLE_ACTION_MAP: ClassVar[dict] = {
         "sow": {
             "description": (
@@ -3209,6 +3081,31 @@ class ApsimXEngine(CropModelEngine):
                 },
             },
         },
+        "weed": {
+            "description": (
+                "Reduce a {weed_name} weed by removing "
+                "{killFractionPlants} of the weed population and "
+                "{killFractionSeeds} of the weed seeds"
+            ),
+            "action_param": "killFractionPlants",
+            "param_desc": {
+                "killFractionPlants": {
+                    "type": "number",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "default": 0.9,
+                },
+                "weed_name": {
+                    "type": "string",
+                },
+                "killFractionSeeds": {
+                    "type": "number",
+                    "min": 0.0,
+                    "max": 1.0,
+                    "default": 0.0,
+                },
+            },
+        },
     }
     EXAMPLE_STATE: ClassVar[Tuple[str, float]] = (
         "[Grain].MaximumPotentialGrainSize.FixedValue",
@@ -3236,7 +3133,8 @@ class ApsimXEngine(CropModelEngine):
                     "contains": {
                         "$type": "Models.PMF.Plant, Models"
                     },
-                    "field": "Name",  # "ResourceName"?
+                    "field": "Name",
+                    "fvalid": lambda x: x.get("Description", None) != "Weed",
                 },
                 {
                     "contains": {"Name": "SowOrHarvestByDate"},
@@ -3259,6 +3157,32 @@ class ApsimXEngine(CropModelEngine):
             },
             "calls": "Sow",
             "parameter": "CultivarName",
+            "fvalid": lambda x: (not x["Name"].endswith(
+                "Weed Lifecycle")),
+        },
+        "weed_name": {
+            "anyOf": [
+                {
+                    "contains": {
+                        "$type": "Models.PMF.Plant, Models"
+                    },
+                    "field": "Name",
+                    "fvalid": lambda x: x.get("Description", None) == "Weed",
+                },
+                {
+                    "contains": {
+                        "$type": "Models.Manager, Models"
+                    },
+                    "parameter": "WeedName",
+                },
+            ],
+            "fget": lambda x: x.lower(),
+        },
+        "weed_variety": {
+            "contains": {
+                "$type": "Models.Manager, Models",
+            },
+            "parameter": "WeedCultivarName",
         },
         "year": {
             "fget": lambda x: x.year,
@@ -3390,26 +3314,28 @@ class ApsimXEngine(CropModelEngine):
         ]
 
     @classmethod
-    def apsim_direct(cls) -> str:
-        r"""Path to the apsimx models executable."""
+    def library_directory(cls, dotnet_version: Optional[str] = None) -> str:
+        r"""Path to the directory containing apsimx executables."""
+        if dotnet_version is None:
+            dotnet_version = cfg["apsimx"].get("dotnet_version", "10.0")
         # if platform.system() == "Windows":
         #     return os.path.join(
-        #         cls.model_dir(), "bin", "x64", "Debug", "net8.0",
-        #         "Models.dll")
+        #         cls.model_dir(), "bin", "x64", "Debug",
+        #         f"net{dotnet_version}")
         return os.path.join(
-            cls.model_dir(), "bin", "Debug", "net8.0",
-            "Models.dll")
+            cls.model_dir(), "bin", "Debug", f"net{dotnet_version}")
 
     @classmethod
-    def apsim_srv(cls) -> str:
+    def apsim_direct(cls, **kwargs) -> str:
+        r"""Path to the apsimx models executable."""
+        return os.path.join(cls.library_directory(**kwargs),
+                            "Models.dll")
+
+    @classmethod
+    def apsim_srv(cls, **kwargs) -> str:
         r"""Path to the apsimx server executable."""
-        # if platform.system() == "Windows":
-        #     return os.path.join(
-        #         cls.model_dir(), "bin", "x64", "Debug", "net8.0",
-        #         "ApsimZMQServer.dll")
-        return os.path.join(
-            cls.model_dir(), "bin", "Debug", "net8.0",
-            "ApsimZMQServer.dll")
+        return os.path.join(cls.library_directory(**kwargs),
+                            "ApsimZMQServer.dll")
 
     @classmethod
     def is_installed(cls) -> bool:
@@ -3421,21 +3347,34 @@ class ApsimXEngine(CropModelEngine):
         """
         if not super().is_installed():
             return False
+        if not os.path.isfile(cls.apsim_srv()):
+            for dotnet_version in ["8.0", "10.0"]:
+                fsrv = cls.apsim_srv(dotnet_version=dotnet_version)
+                if os.path.isfile(fsrv):
+                    logger.warning(
+                        f"{cls._MODEL_NAME} exists for dotnet version "
+                        f"{dotnet_version}, but that version is not "
+                        f"specified in the configuration "
+                        f"({cfg['apsimx']['dotnet_version']}). "
+                        f"Update the config if you would like to use it."
+                    )
+                    break
         return os.path.isfile(cls.apsim_srv())
 
     @classmethod
-    def _install(cls, model_dir: str) -> None:
-        r"""Install APSIMX by building it from source.
+    def download(cls, model_dir: Optional[str] = None,
+                 **kwargs: Any) -> None:
+        r"""Clone the simulator from a git repository.
 
         Args:
-            model_dir: Path to the root directory of the APSIMX source
-                checkout. Defaults to the auto-detected directory.
+            model_dir: Path to the root directory where the model should
+                be downloaded. Defaults to the auto-detected directory.
+            \*\*kwargs: Additional keyword arguments are passed to
+                utils.partialclone for .git URLs.
 
         """
-        repourl = "https://github.com/APSIMInitiative/ApsimX.git"
-        utils.partialclone(
-            repourl, model_dir,
-            patterns=[
+        kwargs.setdefault(
+            "patterns", [
                 "APSIM.*",
                 "CONTRIBUTING.md",
                 "README.md",
@@ -3450,9 +3389,19 @@ class ApsimXEngine(CropModelEngine):
                 "!Tests/",
                 "!Tools/",
                 "!Gtk.Sheet/",
-            ],
-            commit=cfg["apsimx"]["commit"],
+            ]
         )
+        super().download(model_dir=model_dir, **kwargs)
+
+    @classmethod
+    def _install(cls, model_dir: str) -> None:
+        r"""Install APSIMX by building it from source.
+
+        Args:
+            model_dir: Path to the root directory of the APSIMX source
+                checkout. Defaults to the auto-detected directory.
+
+        """
         sln_file = os.path.join(
             model_dir, "APSIM.Server", "ZMQ+msgpack",
             "APSIM.ZMQServer.csproj")
@@ -3870,7 +3819,7 @@ class ApsimXEngine(CropModelEngine):
         self.socket.send_string(command, zmq.SNDMORE if args else 0)
         if args:
             for i, arg in enumerate(args):
-                self.socket.send(msgpack.packb(arg),
+                self.socket.send(self.SERIALIZER(arg),
                                  zmq.SNDMORE if i < len(args) - 1 else 0)
         if self.status != 'finished':
             self._status = None
@@ -3888,8 +3837,8 @@ class ApsimXEngine(CropModelEngine):
         if unpack:
             outb = self.socket.recv()
             try:
-                out = msgpack.unpackb(outb)
-            except msgpack.exceptions.ExtraData:
+                out = self.DESERIALIZER(outb)
+            except (msgpack.exceptions.ExtraData, yggrj.JSONDecodeError):
                 out = outb.decode()
                 if out not in self.STATUS_MESSAGES:
                     raise

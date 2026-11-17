@@ -1,8 +1,3 @@
-// TODO:
-// - Dormancy rate based on light (other resource competition?)
-// - Set seed population from Synchroniser
-// - Check that residue is treated correctly on weed "harvest"
-// - Multiple cohorts w/ interval or ...?
 {
     "$type": "Models.Manager, Models",
     "CodeArray": [
@@ -24,16 +19,14 @@
         "        [Link] private Clock Clock;",
         "        [Link] private Summary Summary;",
         "        [Link] private Soil Soil;",
-        "        private Accumulator accumulatedRain;",
-        "        [Link]",
-        "        private ISoilWater waterBalance;",
         "        ",
-        "        [Description(\"Weed\")]",
-        "        public IPlant Weed { get; set; }",
+        "        [Description(\"WeedName\")]",
+        "        public string WeedName { get; set; }",
+        "        // public Plant Weed { get; set; }",
         "",
         "        [Display(Type = DisplayType.CultivarName)]",
-        "        [Description(\"Cultivar to be sown\")]",
-        "        public string CultivarName { get; set; }",
+        "        [Description(\"Weed cultivar to be sown\")]",
+        "        public string WeedCultivarName { get; set; }",
         "",
         "        [Description(\"Sowing depth (mm)\")]",
         "        public double SowingDepth { get; set; }",
@@ -57,14 +50,16 @@
         "        [EventSubscribe(\"StartOfSimulation\")]",
         "        private void OnSimulationCommencing(object sender, EventArgs e)",
         "        {",
+        "            Plant Weed = FindByPath(\"[\" + WeedName + \"]\")?.Value as Plant;",
         "            double PopulationGerminate = GerminationRate * Population * (1 - DormancyRate);",
-        "            Weed.Sow(seeds: PopulationGerminate, cultivar: CultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
+        "            Weed.Sow(population: PopulationGerminate, cultivar: WeedCultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
         "            Population = Population * DormancyRate;",
         "        }",
         "",
         "        [EventSubscribe(\"DoManagement\")]",
         "        private void OnDoManagement(object sender, EventArgs e)",
         "        {",
+        "            Plant Weed = FindByPath(\"[\" + WeedName + \"]\")?.Value as Plant;",
         "            if (Weed.IsReadyForHarvesting)",
         "            {",
         "                Population = Population + Weed.Population * SeedsPerPlant;",
@@ -76,7 +71,7 @@
         "                GerminationRate > 0)",
         "            {",
         "                double PopulationGerminate = GerminationRate * Population * (1 - DormancyRate);",
-        "                Weed.Sow(population: PopulationGerminate, cultivar: CultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
+        "                Weed.Sow(population: PopulationGerminate, cultivar: WeedCultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
         "                Population = Population * DormancyRate;",
         "            }",
         "        }",
@@ -86,12 +81,12 @@
     ],
     "Parameters": [
         {
-            "Key": "Weed",
-            "Value": "WheatWeed"
+            "Key": "WeedName",
+            "Value": "Oats"
         },
         {
-            "Key": "CultivarName",
-            "Value": "Hartog"
+            "Key": "WeedCultivarName",
+            "Value": "Drummond"
         },
         {
             "Key": "SowingDepth",
@@ -106,20 +101,19 @@
             "Value": "5.0"
         },
         {
-            // TODO: This should be based on the light conditions
             "Key": "DormancyRate",
-            "Value": "0.5"  // TODO: Completely fabricated
+            "Value": "0.5"
         },
         {
             "Key": "GerminationRate",
-            "Value": "1.0"  // TODO: Completely fabricated
+            "Value": "1.0"
         },
         {
             "Key": "SeedsPerPlant",
-            "Value": "100"    // TODO: Completely fabricated
+            "Value": "100"
         }
     ],
-    "Name": "WEED Lifecycle",
+    "Name": "WEED Weed Lifecycle",
     "ResourceName": null,
     "Children": [],
     "Enabled": true,

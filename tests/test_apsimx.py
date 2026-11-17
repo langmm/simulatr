@@ -40,6 +40,8 @@ class TestApsimX:
         ("SimpleWheatUnmanaged.apsimx", None),
         ({"crop_name": "Wheat"},
          "SimpleWheatUnmanaged.Report.csv.expected"),
+        ({"crop_name": "Wheat", "weed_name": "Oats"},
+         "WheatOatsWeed.Report.csv.expected"),
         ("SimpleWheatUnmanagedChampaign.apsimx", None),
         ({
             "crop_name": "Wheat",
@@ -62,6 +64,7 @@ class TestApsimX:
         f"{k.lower()}-generated-nocheck" for k in _available_crops
     ] + [
         "wheat", "wheat-unmanaged", "wheat-generated",
+        "wheat-weed-generated",
         "wheat-unmanaged-champaign",
         "wheat-generated-champaign",
         "wheat-generated-champaign-soil",
@@ -92,11 +95,14 @@ class TestApsimX:
             return out
         assert isinstance(parameters[0], dict)
         crop_name = parameters[0]['crop_name']
+        weed_name = parameters[0].get("weed_name", "")
         kws = {k: v for k, v in parameters[0].items() if k != "crop_name"}
         if "latitude" not in kws or kws.get("dont_fetch_soil", False):
-            out = os.path.join(data_dir, f"{crop_name}Generated.apsimx")
+            out = os.path.join(
+                data_dir, f"{crop_name}{weed_name}Generated.apsimx")
         else:
-            out = os.path.join(data_dir, f"{crop_name}GeneratedSoil.apsimx")
+            out = os.path.join(
+                data_dir, f"{crop_name}{weed_name}GeneratedSoil.apsimx")
         assert not os.path.isfile(out)
         fout = ApsimXEngine.INPUT_FILE_TYPE.from_crop_name(
             crop_name, dst=out, **kws)

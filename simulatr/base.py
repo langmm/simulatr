@@ -1542,6 +1542,31 @@ class BaseModelFile(BaseFile):
         """
         raise NotImplementedError  # pragma: no cover
 
+    @classmethod
+    @abstractmethod
+    def create_from_parameters(cls, dst: Optional[str | None] = None,
+                               directory: Optional[str | None] = None,
+                               interactive: Optional[bool] = False,
+                               actions: Optional[List[str] | None] = None,
+                               **kwargs: Any) -> "BaseModelFile":
+        r"""Create an input model file for a given set of parameters.
+
+        Args:
+            dst: Path to the location where the generated file should
+                be saved.
+            directory: Directory where the generated file should be
+                saved (only used if dst is not provided).
+            interactive: If True, make the file interactive.
+            actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
+
+        Returns:
+            BaseModelFile: Constructed model input file.
+
+        """
+        raise NotImplementedError  # pragma: no cover
+
 
 class _SimulatorEngineMeta(type(BaseModel)):
     r"""Metaclass to add simulator field annotations."""
@@ -2756,15 +2781,28 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
         if not dont_update:
             self.update_param_in_file(names, required=required)
 
-    @abstractmethod
-    def create_model_file(self) -> BaseModelFile:
+    def create_model_file(self, **kwargs) -> BaseModelFile:
         r"""Create the model input file.
+
+        Args:
+            \*\*kwargs: Keyword arguments are passed to INPUT_FILE_TYPE
+                create_from_parameters method.
 
         Returns:
             BaseModelFile: Constructed model input file.
 
         """
-        raise NotImplementedError  # pragma: no cover
+        kwargs.setdefault('dst', self.model_file)
+        kwargs.setdefault('directory', self.output_dir)
+        kwargs.setdefault('interactive', (not self.non_interactive))
+        kwargs.setdefault('actions', list(self.actions.keys()))
+        for k in self.parameter_fields():
+            if k in kwargs:
+                continue
+            v = getattr(self, k, None)
+            if v is not None:
+                kwargs[k] = v
+        return self.INPUT_FILE_TYPE.create_from_parameters(**kwargs)
 
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the

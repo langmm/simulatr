@@ -372,6 +372,7 @@ class TestDataBase:
                                          using_args=args_compare)
         other_example = get_example_data(name_compare,
                                          using_args=args_compare)
+        kws = {}
         if name == "soilmat_data" and name_compare == "isric_soilgrids_data":
             # a_mean = other_example.universal_parameter_map(
             #     include_calculated=True)
@@ -381,8 +382,13 @@ class TestDataBase:
             # assert_nested_allclose(a_mean, a_median)
             # print("SUCCESS")
             # import pdb; pdb.set_trace()
+            kws["atol"] = {
+                k: v.max() for k, v in local_example.stddev.items()
+            }
+            # import pprint; pprint.pprint(kws["atol"])
+            # import pdb; pdb.set_trace()
         assert_data_allclose(
-            local_example, other_example, convert_units=True,
+            local_example, other_example, convert_units=True, **kws
             # rtol=0.4,
         )
 

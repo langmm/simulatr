@@ -2002,7 +2002,7 @@ class BaseDataFile(BaseFile):
                 raise ValueError(
                     f"The requested date range {(start_date, end_date)} "
                     f"is not withing the date limits for {cls.DESC} "
-                    f"data files {cls.DATE_LIMITS}"
+                    f"data files {cls.PARAMETER_LIMITS['start_date']}"
                 )
         if "latitude" in cls.PARAMETER_LIMITS:
             if not cls._check_inside_range(
@@ -4104,7 +4104,7 @@ class SoilMatFile(BaseSoilFile):
         # TODO: SoilMat is coarser than SoilGrids
         return ISRICSoilGridsFile._round_location(loc, **kwargs)
 
-    def _get(self, name: str):
+    def _get(self, name: str) -> Any:
         r"""Get a parameter from the file.
 
         Args:
@@ -4214,6 +4214,22 @@ class SoilMatFile(BaseSoilFile):
                 out.append(k)
         return out
 
+    @readonly_cached_property
+    def stddev(self) -> dict:
+        r"""dict: Standard deviation of the values from SoilGrids that
+        soilmat used to get the data for the queried point."""
+        # TODO: Include estimate of error propagation for calculated
+        #   variables. Make this more generic on the base data class,
+        #   maybe via get
+        out = {}
+        for k in self.contents["layers"][0].get("stddev", {}).keys():
+            kext = self.external_param_name(k)
+            out[kext] = np.array(
+                [layer["stddev"][k] for layer in
+                 self.contents["layers"]],
+                dtype=np.float64)
+        return out
+
     def update_param(self, contents: Any) -> None:
         r"""Merge downloaded parameters into the current data.
 
@@ -4272,6 +4288,7 @@ class SoilMatFile(BaseSoilFile):
                     "top_depth": float(top),
                     "bottom_depth": float(bottom),
                     "values": {},
+                    "stddev": {},
                 }
                 for top, bottom in
                 ISRICSoilGridsFile.SOIL_GRIDS_DEPTHS.values()
@@ -4281,12 +4298,22 @@ class SoilMatFile(BaseSoilFile):
         for k, v in raw.items():
             if k in out:
                 continue
+            is_stddev = k.endswith("_SD")
+            if is_stddev:
+                k = k.rsplit("_SD")[0]
             if not k.endswith(depth_strings):
                 out[k] = v
                 continue
             kp, depth_str = k.rsplit('_', 1)
             idx = depth_strings.index(depth_str)
-            out["layers"][idx]["values"][kp] = v
+            if is_stddev:
+                out["layers"][idx]["stddev"][kp] = v
+            else:
+                out["layers"][idx]["values"][kp] = v
+        # print(raw.keys())
+        # print(out["layers"][0]["values"].keys())
+        # print(out["layers"][0]["stddev"].keys())
+        # import pdb; pdb.set_trace()
         return out
 
 

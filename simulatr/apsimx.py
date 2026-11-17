@@ -22,12 +22,13 @@ from pydantic import Field
 from pydantic.json_schema import SkipJsonSchema
 import yggdrasil_rapidjson as yggrj
 from . import logger, utils
-from .utils import cfg, LogPipe, readonly_cached_property
+from .utils import cfg, LogPipe, readonly_cached_property, NoDefault
 from .base import (
     RecoverableError, ModelEngineError, InvalidActionError,
     RecoverableModelEngineError,
     SimulatorNotInstalled,
     ModelOperation,
+    SimulatorFieldInfo,
 )
 from .data import (
     ParameterCalculator,
@@ -77,6 +78,30 @@ def _replace_root(x: str) -> str:
         from pathlib import PureWindowsPath
         root = str(PureWindowsPath(root).as_posix())
     return x.replace("%root%", root)
+
+
+class ApsimXNodeFieldInfo(SimulatorFieldInfo):
+    r"""FieldInfo subclass for storing simulator metadata on a field"""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+
+
+class ApsimXWeedNodeFieldInfo(ApsimXNodeFieldInfo):
+    r"""FieldInfo subclass for storing simulator metadata on a field"""
+
+    def __init__(self, parameter_name: str,
+                 simulator_metadata: Any = NoDefault,
+                 **kwargs: Any) -> None:
+        if simulator_metadata is NoDefault:
+            simulator_metadata = {}
+        simulator_metadata["parameter"] = parameter_name
+        simulator_metadata.setdefault(
+            "contains", {"$type": "Models.Manager, Models"})
+        simulator_metadata.setdefault(
+            "fvalid", lambda x: x.get("Name", "").endswith(
+                "WeedLifecycle"))
+        super().__init__(simulator_metadata=simulator_metadata, **kwargs)
 
 
 class ApsimXFileNode:
@@ -2049,8 +2074,6 @@ class ApsimXFile(CropModelFile):
             #     crop_root=crop_root,
             # ),
         ]
-        if "weed" in actions:
-            kwargs.setdefault("weed_name", "Oats")
         weed_soil = None
         weed_name = kwargs.get("weed_name", None)
         weed_variety = kwargs.get("weed_variety", None)
@@ -3084,12 +3107,11 @@ class ApsimXEngine(CropModelEngine):
         "weed": {
             "description": (
                 "Reduce a {weed_name} weed by removing "
-                "{killFractionPlants} of the weed population and "
-                "{killFractionSeeds} of the weed seeds"
+                "{kill_fraction} of the weed {target_name}"
             ),
-            "action_param": "killFractionPlants",
+            "action_param": "kill_fraction",
             "param_desc": {
-                "killFractionPlants": {
+                "kill_fraction": {
                     "type": "number",
                     "min": 0.0,
                     "max": 1.0,
@@ -3098,11 +3120,9 @@ class ApsimXEngine(CropModelEngine):
                 "weed_name": {
                     "type": "string",
                 },
-                "killFractionSeeds": {
-                    "type": "number",
-                    "min": 0.0,
-                    "max": 1.0,
-                    "default": 0.0,
+                "target_name": {
+                    "type": "string",
+                    "default": "plants",
                 },
             },
         },
@@ -3158,7 +3178,7 @@ class ApsimXEngine(CropModelEngine):
             "calls": "Sow",
             "parameter": "CultivarName",
             "fvalid": lambda x: (not x["Name"].endswith(
-                "Weed Lifecycle")),
+                "WeedLifecycle")),
         },
         "weed_name": {
             "anyOf": [
@@ -3174,15 +3194,11 @@ class ApsimXEngine(CropModelEngine):
                         "$type": "Models.Manager, Models"
                     },
                     "parameter": "WeedName",
+                    "fvalid": lambda x: x.get("Name", "").endswith(
+                        "WeedLifecycle"),
                 },
             ],
             "fget": lambda x: x.lower(),
-        },
-        "weed_variety": {
-            "contains": {
-                "$type": "Models.Manager, Models",
-            },
-            "parameter": "WeedCultivarName",
         },
         "year": {
             "fget": lambda x: x.year,
@@ -3270,6 +3286,44 @@ class ApsimXEngine(CropModelEngine):
         },
     }
 
+    weed_name: Optional[str | SkipJsonSchema[None]] = SimulatorFieldInfo(
+        default=None, examples=["Oats"],
+        description="Name of the weed that will be simulated")
+    weed_variety: Optional[
+        str | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "WeedCultivarName", default=None, examples=["Drummond"],
+            description="Name of the weed variety/cultivar that will be "
+                        "simulated")
+    weed_sowing_density: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "Population", default=None, examples=[5.0],
+            description="Number of seeds per square meter that should "
+                        "be sown at the beginning of the simulation")
+    weed_sowing_depth: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "SowingDepth", default=None, examples=[10.0],
+            description="Depth to sow weed seeds at in mm")
+    weed_row_spacing: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "RowSpacing", default=None, examples=[100.0],
+            description="Row spacing to sow weed seeds at in mm")
+    weed_dormancy_rate: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "DormancyRate", default=None, examples=[0.5],
+            description="Fraction of seeds that will become dormant "
+                        "as part of the seed bank after sowing "
+                        "or when the weed releases seeds")
+    weed_germination_rate: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "GerminationRate", default=None, examples=[1.0],
+            description="Fraction of seeds that will be viable for "
+                        "germination after sowing "
+                        "or when the weed releases seeds")
+    weed_seeds_per_plant: Optional[
+        float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
+            "SeedsPerPlant", default=None, examples=[50.0],
+            description="Number of seeds that will be produced by one "
+                        "plant when it reaches maturity")
     from_example: Optional[bool | str | SkipJsonSchema[None]] = Field(
         default=False,
         description="If True, copy the bundled example for the crop to "
@@ -3427,10 +3481,25 @@ class ApsimXEngine(CropModelEngine):
         out["actions"] = [
             k for k in out["actions"] if k not in ["sow", "harvest"]
         ]
+        # TODO: Set this via metadata to SimulatorFieldInfo
+        out.update(
+            weed_name=None,
+            weed_variety=None,
+            weed_sowing_density=None,
+            weed_sowing_depth=None,
+            weed_row_spacing=None,
+            weed_dormancy_rate=None,
+            weed_germination_rate=None,
+            weed_seeds_per_plant=None,
+        )
         return out
 
-    def create_model_file(self) -> CropModelFile:
-        r"""Create a model input file.
+    def create_model_file(self, **kwargs) -> CropModelFile:
+        r"""Create the model input file.
+
+        Args:
+            \*\*kwargs: Keyword arguments are passed to INPUT_FILE_TYPE
+                create_from_parameters method.
 
         Returns:
             CropModelFile: Constructed model input file.
@@ -3440,19 +3509,27 @@ class ApsimXEngine(CropModelEngine):
             if isinstance(self.from_example, str):
                 src = self.from_example
             else:
-                if not self.crop_name:
+                crop_name = kwargs.pop("crop_name", self.crop_name)
+                if not crop_name:
                     raise ValueError(
                         "Either model_file or crop_name must "
                         "be provided"
                     )
-                src = self.INPUT_FILE_TYPE.find_example(self.crop_name)
-            return self.INPUT_FILE_TYPE.from_example(
-                src, dst=self.model_file,
-                directory=self.output_dir,
-                interactive=(not self.non_interactive),
-                actions=list(self.actions.keys()),
-            )
-        return super().create_model_file()
+                src = self.INPUT_FILE_TYPE.find_example(crop_name)
+            kwargs.setdefault('dst', self.model_file)
+            kwargs.setdefault('directory', self.output_dir)
+            kwargs.setdefault('interactive', (not self.non_interactive))
+            kwargs.setdefault('actions', list(self.actions.keys()))
+            for k in self.parameter_fields():
+                if k in kwargs or k == "crop_name":
+                    continue
+                v = getattr(self, k, None)
+                if v is not None:
+                    kwargs[k] = v
+            return self.INPUT_FILE_TYPE.from_example(src, **kwargs)
+        kwargs.setdefault("dont_fetch_weather", True)
+        kwargs.setdefault("dont_fetch_soil", True)
+        return super().create_model_file(**kwargs)
 
     @property
     def is_running(self) -> bool:

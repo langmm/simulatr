@@ -101,6 +101,45 @@ class CropModelFile(BaseModelFile):
         """
         raise NotImplementedError  # pragma: no cover
 
+    @classmethod
+    def create_from_parameters(cls, dst: Optional[str | None] = None,
+                               directory: Optional[str | None] = None,
+                               interactive: Optional[bool] = False,
+                               actions: Optional[List[str] | None] = None,
+                               **kwargs: Any) -> "BaseModelFile":
+        r"""Create an input model file for a given set of parameters.
+
+        Args:
+            dst: Path to the location where the generated file should
+                be saved.
+            directory: Directory where the generated file should be
+                saved (only used if dst is not provided).
+            interactive: If True, make the file interactive.
+            actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
+
+        Returns:
+            BaseModelFile: Constructed model input file.
+
+        """
+        if "crop_name" in kwargs:
+            return cls.from_crop_name(
+                kwargs.pop("crop_name"),
+                dst=dst,
+                directory=directory,
+                interactive=interactive,
+                actions=actions,
+                **kwargs
+            )
+        return super().create_from_parameters(
+            dst=dst,
+            directory=directory,
+            interactive=interactive,
+            actions=actions,
+            **kwargs
+        )
+
     @BaseModelFile.parameter_property
     def crop_name(self) -> str:
         r"""str: Crop name."""
@@ -155,14 +194,6 @@ class CropModelEngine(BaseModelEngine):
         str | SkipJsonSchema[None]] = SimulatorFieldInfo(
             default=None, examples=["Hartog"],
             description="Name of the crop variety/cultivar that will be "
-                        "simulated")
-    weed_name: Optional[str | SkipJsonSchema[None]] = SimulatorFieldInfo(
-        default=None, examples=["Oats"],
-        description="Name of the weed that will be simulated")
-    weed_variety: Optional[
-        str | SkipJsonSchema[None]] = SimulatorFieldInfo(
-            default=None, examples=["Drummond"],
-            description="Name of the weed variety/cultivar that will be "
                         "simulated")
     sow_date: Optional[
         datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
@@ -240,24 +271,21 @@ class CropModelEngine(BaseModelEngine):
         )
         return out
 
-    def create_model_file(self) -> CropModelFile:
-        r"""Create a model input file.
+    def create_model_file(self, **kwargs) -> CropModelFile:
+        r"""Create the model input file.
+
+        Args:
+            \*\*kwargs: Keyword arguments are passed to INPUT_FILE_TYPE
+                create_from_parameters method.
 
         Returns:
-            CropModelFile: Constructed model input file.
+            BaseModelFile: Constructed model input file.
 
         """
-        if not self.crop_name:
+        if not (self.crop_name or kwargs.get("crop_name", None)):
             raise ValueError("Either model_file or crop_name must "
                              "be provided")
-        return self.INPUT_FILE_TYPE.from_crop_name(
-            self.crop_name,
-            crop_variety=self.crop_variety,
-            dst=self.model_file,
-            directory=self.output_dir,
-            interactive=(not self.non_interactive),
-            actions=list(self.actions.keys()),
-        )
+        return super().create_model_file(**kwargs)
 
     def update_model_file(self) -> None:
         r"""Update the model file to make it interactive and set the

@@ -71,8 +71,10 @@
         "                GerminationRate > 0)",
         "            {",
         "                double PopulationGerminate = GerminationRate * Population * (1 - DormancyRate);",
+        "                Console.WriteLine(\"Reseeding {0} of {1} weed\", PopulationGerminate, WeedName);",
         "                Weed.Sow(population: PopulationGerminate, cultivar: WeedCultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
         "                Population = Population * DormancyRate;",
+        "                Console.WriteLine(\"Seed bank population of {0} weed is {1} seeds/m**2 after reseeding\", WeedName, Population);",
         "            }",
         "        }",
         "    }",
@@ -94,7 +96,7 @@
         },
         {
             "Key": "RowSpacing",
-            "Value": "1000.0"
+            "Value": "100.0"
         },
         {
             "Key": "Population",
@@ -110,10 +112,10 @@
         },
         {
             "Key": "SeedsPerPlant",
-            "Value": "100"
+            "Value": "50"
         }
     ],
-    "Name": "WEED Weed Lifecycle",
+    "Name": "WEEDWeedLifecycle",
     "ResourceName": null,
     "Children": [],
     "Enabled": true,

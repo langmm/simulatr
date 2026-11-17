@@ -199,9 +199,20 @@ def assert_nested_allclose(assert_allclose):
                 a_keys = [k for k in a_keys if k in only_keys]
                 b_keys = [k for k in b_keys if k in only_keys]
             assert a_keys == b_keys
+            atol_per_key = {}
+            rtol_per_key = {}
+            if isinstance(kwargs.get("atol", None), dict):
+                atol_per_key = kwargs.pop("atol")
+            if isinstance(kwargs.get("rtol", None), dict):
+                rtol_per_key = kwargs.pop("rtol")
             for k in b_keys:
+                ikwargs = kwargs
+                if atol_per_key and k in atol_per_key:
+                    ikwargs = dict(ikwargs, atol=atol_per_key[k])
+                if rtol_per_key and k in rtol_per_key:
+                    ikwargs = dict(ikwargs, rtol=rtol_per_key[k])
                 try:
-                    _assert_nested_allclose(a[k], b[k], **kwargs)
+                    _assert_nested_allclose(a[k], b[k], **ikwargs)
                 except AssertionError as e:
                     if isinstance(e, NestedAssertionError):
                         for kerr, verr in e.nested.items():

@@ -101,6 +101,8 @@ class ApsimXWeedNodeFieldInfo(ApsimXNodeFieldInfo):
         simulator_metadata.setdefault(
             "fvalid", lambda x: x.get("Name", "").endswith(
                 "WeedLifecycle"))
+        kwargs.setdefault(
+            "json_schema_extra", {"hidden_for_server": True})
         super().__init__(simulator_metadata=simulator_metadata, **kwargs)
 
 

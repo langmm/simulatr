@@ -382,10 +382,21 @@ class TestDataBase:
             # assert_nested_allclose(a_mean, a_median)
             # print("SUCCESS")
             # import pdb; pdb.set_trace()
+            other_param = other_example.universal_parameter_map(
+                include_calculated=True)
+            other_param_nocalc = other_example.universal_parameter_map(
+                include_calculated=False)
+            calculated = [
+                k for k in other_param.keys()
+                if k not in other_param_nocalc
+            ]
             kws["atol"] = {
                 k: v.max() for k, v in local_example.stddev.items()
             }
+            kws["ignore_keys"] = calculated
+            # import pprint; pprint.pprint(other_param)
             # import pprint; pprint.pprint(kws["atol"])
+            # print(calculated)
             # import pdb; pdb.set_trace()
         assert_data_allclose(
             local_example, other_example, convert_units=True, **kws

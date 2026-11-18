@@ -169,6 +169,10 @@ class N8nFieldHandler(FieldHandler):
             form_fields: List to add the field to.
 
         """
+        if ((self.field_info.json_schema_extra
+             and self.field_info.json_schema_extra.get(
+                 "hidden_for_server", False))):
+            self.skip_field("hidden_for_server")
         out = {
             "fieldLabel": self.field_name,
             "fieldName": self.field_name.replace("_", " ").title(),

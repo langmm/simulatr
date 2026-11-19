@@ -83,27 +83,39 @@ def _replace_root(x: str) -> str:
 class ApsimXNodeFieldInfo(SimulatorFieldInfo):
     r"""FieldInfo subclass for storing simulator metadata on a field"""
 
-    def __init__(self, **kwargs: Any) -> None:
-        super().__init__(**kwargs)
+    def __init__(self, node_description: Optional[dict] = NoDefault,
+                 simulator_metadata: Any = NoDefault,
+                 **kwargs: Any) -> None:
+        if simulator_metadata is NoDefault:
+            simulator_metadata = {}
+        if node_description is not NoDefault:
+            assert "node_description" not in simulator_metadata
+            simulator_metadata["node_description"] = node_description
+        super().__init__(simulator_metadata=simulator_metadata, **kwargs)
 
 
 class ApsimXWeedNodeFieldInfo(ApsimXNodeFieldInfo):
     r"""FieldInfo subclass for storing simulator metadata on a field"""
 
     def __init__(self, parameter_name: str,
+                 node_description: Optional[dict] = NoDefault,
                  simulator_metadata: Any = NoDefault,
                  **kwargs: Any) -> None:
-        if simulator_metadata is NoDefault:
-            simulator_metadata = {}
-        simulator_metadata["parameter"] = parameter_name
-        simulator_metadata.setdefault(
+        if node_description is NoDefault:
+            node_description = {}
+        assert "parameter" not in node_description
+        node_description["parameter"] = parameter_name
+        node_description.setdefault(
             "contains", {"$type": "Models.Manager, Models"})
-        simulator_metadata.setdefault(
+        node_description.setdefault(
             "fvalid", lambda x: x.get("Name", "").endswith(
                 "WeedLifecycle"))
-        kwargs.setdefault(
-            "json_schema_extra", {"hidden_for_server": True})
-        super().__init__(simulator_metadata=simulator_metadata, **kwargs)
+        kwargs.setdefault("server_default", None)
+        kwargs.setdefault("zero_indicates_null", True)
+        kwargs.setdefault("hidden_for_server", True)
+        super().__init__(node_description=node_description,
+                         simulator_metadata=simulator_metadata,
+                         **kwargs)
 
 
 class ApsimXFileNode:
@@ -179,6 +191,35 @@ class ApsimXFileNode:
         with open(fname, 'r') as fd:
             contents = json.load(fd)
         return cls(contents, **kwargs)
+
+    @classmethod
+    def get_node_description(cls, name: str,
+                             default: Optional[Any] = NoDefault):
+        r"""Get description of the node containing a simulator field.
+
+        Args:
+            name: Field name.
+            default: Default to return if the field does not exist or
+                does not have a node description.
+
+        Returns:
+            dict: Description information.
+
+        Raises:
+            KeyError: If the field does not exist or does not have
+                a node description and a default is not provided.
+
+        """
+        metadata = ApsimXEngine.get_field_metadata(name, None)
+        if metadata is not None:
+            if "node_description" in metadata:
+                return metadata["node_description"]
+            return metadata
+        # if metadata and "node_description" in metadata:
+        #     return metadata["node_description"]
+        if default is NoDefault:
+            raise KeyError(name)
+        return default
 
     @classmethod
     def from_data(cls, name: str, crop_name: Optional[str] = None,
@@ -621,8 +662,7 @@ class ApsimXFileNode:
             if not add_error(f"{self} is missing parameter \"{parameter}\""):
                 return False
         if internal:
-            if not self.matches(
-                    **ApsimXEngine.get_field_metadata(internal)):
+            if not self.matches(**self.get_node_description(internal)):
                 return False
         if contains:
             if isinstance(contains, str):
@@ -2177,7 +2217,8 @@ class ApsimXFile(CropModelFile):
             str: Parameter name.
 
         """
-        # TODO: Map field variables in PARAM_NODES?
+        # TODO: Map field variables in field definitions or
+        #   _SIMULATOR_FIELD_ANNOTATIONS?
         if name.startswith(f"[{self.formal_crop_name}]"):
             return name.replace(f"[{self.formal_crop_name}]", "[CROP]")
         return name
@@ -2192,7 +2233,7 @@ class ApsimXFile(CropModelFile):
             str: Internal parameter name.
 
         """
-        info = ApsimXEngine.get_field_metadata(name, None)
+        info = ApsimXFileNode.get_node_description(name, None)
         if info is None:
             if name.startswith("[CROP]"):
                 return name.replace("[CROP]",
@@ -2284,7 +2325,7 @@ class ApsimXFile(CropModelFile):
             out = node[info["field"]]
         elif "internal" in info:
             out = cls._get_parameter(
-                node, ApsimXEngine.get_field_metadata(info["internal"]))
+                node, ApsimXFileNode.get_node_description(info["internal"]))
         elif "anyOf" in info:
             for x in info["anyOf"]:
                 if cls.node_matches(node, **x):
@@ -2342,7 +2383,8 @@ class ApsimXFile(CropModelFile):
             node[info["field"]] = value
         elif "internal" in info:
             cls._set_parameter(
-                node, ApsimXEngine.get_field_metadata(info["internal"]),
+                node,
+                ApsimXFileNode.get_node_description(info["internal"]),
                 value)
         elif "anyOf" in info:
             for x in info["anyOf"]:
@@ -2377,7 +2419,7 @@ class ApsimXFile(CropModelFile):
 
         """
         node = self.find_parameter(name, required=True)
-        info = ApsimXEngine.get_field_metadata(name)
+        info = ApsimXFileNode.get_node_description(name)
         try:
             return self._get_parameter(node, info)
         except KeyError as e:
@@ -2398,7 +2440,7 @@ class ApsimXFile(CropModelFile):
         """
         add_missing = (info is None)
         if info is None:
-            info = ApsimXEngine.get_field_metadata(name)
+            info = ApsimXFileNode.get_node_description(name)
         if info is False:
             return
         if name == "output_vars" and isinstance(value, list):
@@ -2454,7 +2496,7 @@ class ApsimXFile(CropModelFile):
         if info is None:
             info = (
                 self.ACTION_NODES[name] if name in self.ACTION_NODES
-                else ApsimXEngine.get_field_metadata(name)
+                else ApsimXFileNode.get_node_description(name)
             )
         if node is None and self.includes_constraints(info):
             node = self.find_parameter(name, info=info)
@@ -2487,7 +2529,7 @@ class ApsimXFile(CropModelFile):
         if info is None:
             info = (
                 self.ACTION_NODES[name] if name in self.ACTION_NODES
-                else ApsimXEngine.get_field_metadata(name)
+                else ApsimXFileNode.get_node_description(name)
             )
         # Do conflicts first before adding the default so that the
         # default is not disabled by mistake
@@ -2671,7 +2713,7 @@ class ApsimXFile(CropModelFile):
                 return False
         if internal:
             if not cls.node_matches(
-                    node, **ApsimXEngine.get_field_metadata(internal)):
+                    node, **ApsimXFileNode.get_node_description(internal)):
                 return False
         if contains:
             if isinstance(contains, str):
@@ -2753,7 +2795,7 @@ class ApsimXFile(CropModelFile):
 
         """
         if info is None:
-            info = ApsimXEngine.get_field_metadata(name, None)
+            info = ApsimXFileNode.get_node_description(name, None)
             if info is None:
                 if name in self.ACTION_NODES:
                     info = self.ACTION_NODES[name]
@@ -2787,7 +2829,7 @@ class ApsimXFile(CropModelFile):
 
         """
         if info is None:
-            info = ApsimXEngine.get_field_metadata(name, None)
+            info = ApsimXFileNode.get_node_description(name, None)
             if info is None:
                 if name not in self.ACTION_NODES:
                     if not kwargs.get("required", False):
@@ -3137,8 +3179,8 @@ class ApsimXEngine(CropModelEngine):
         "nitrogen", {"amount": 160.0},
     )
     _SIMULATOR_FIELD_ANNOTATIONS: ClassVar[dict] = {
-        "duration": False,
-        "season_length": False,
+        "duration": {"node_description": False},
+        "season_length": {"node_description": False},
         "output_vars": {
             "contains": {
                 "$type": "Models.Report, Models",
@@ -3181,26 +3223,6 @@ class ApsimXEngine(CropModelEngine):
             "parameter": "CultivarName",
             "fvalid": lambda x: (not x["Name"].endswith(
                 "WeedLifecycle")),
-        },
-        "weed_name": {
-            "anyOf": [
-                {
-                    "contains": {
-                        "$type": "Models.PMF.Plant, Models"
-                    },
-                    "field": "Name",
-                    "fvalid": lambda x: x.get("Description", None) == "Weed",
-                },
-                {
-                    "contains": {
-                        "$type": "Models.Manager, Models"
-                    },
-                    "parameter": "WeedName",
-                    "fvalid": lambda x: x.get("Name", "").endswith(
-                        "WeedLifecycle"),
-                },
-            ],
-            "fget": lambda x: x.lower(),
         },
         "year": {
             "fget": lambda x: x.year,
@@ -3288,9 +3310,30 @@ class ApsimXEngine(CropModelEngine):
         },
     }
 
-    weed_name: Optional[str | SkipJsonSchema[None]] = SimulatorFieldInfo(
-        default=None, examples=["Oats"],
-        description="Name of the weed that will be simulated")
+    weed_name: Optional[str | SkipJsonSchema[None]] = ApsimXNodeFieldInfo(
+        default=None, server_default=None, examples=["Oats"],
+        description="Name of the weed that will be simulated",
+        node_description={
+            "anyOf": [
+                {
+                    "contains": {
+                        "$type": "Models.PMF.Plant, Models"
+                    },
+                    "field": "Name",
+                    "fvalid": lambda x: x.get("Description", None) == "Weed",
+                },
+                {
+                    "contains": {
+                        "$type": "Models.Manager, Models"
+                    },
+                    "parameter": "WeedName",
+                    "fvalid": lambda x: x.get("Name", "").endswith(
+                        "WeedLifecycle"),
+                },
+            ],
+            "fget": lambda x: x.lower(),
+        }
+    )
     weed_variety: Optional[
         str | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
             "WeedCultivarName", default=None, examples=["Drummond"],
@@ -3304,6 +3347,7 @@ class ApsimXEngine(CropModelEngine):
     weed_sowing_depth: Optional[
         float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
             "SowingDepth", default=None, examples=[10.0],
+            zero_indicates_null=False,
             description="Depth to sow weed seeds at in mm")
     weed_row_spacing: Optional[
         float | SkipJsonSchema[None]] = ApsimXWeedNodeFieldInfo(
@@ -3483,17 +3527,6 @@ class ApsimXEngine(CropModelEngine):
         out["actions"] = [
             k for k in out["actions"] if k not in ["sow", "harvest"]
         ]
-        # TODO: Set this via metadata to SimulatorFieldInfo
-        out.update(
-            weed_name=None,
-            weed_variety=None,
-            weed_sowing_density=None,
-            weed_sowing_depth=None,
-            weed_row_spacing=None,
-            weed_dormancy_rate=None,
-            weed_germination_rate=None,
-            weed_seeds_per_plant=None,
-        )
         return out
 
     def create_model_file(self, **kwargs) -> CropModelFile:

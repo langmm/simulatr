@@ -8,6 +8,7 @@ import requests
 import warnings
 import datetime
 import typing
+from typing import Optional, List
 from functools import cached_property
 from pydantic import BaseModel
 from .utils import cfg, FieldHandler, FieldSource
@@ -24,9 +25,6 @@ _n8n_type_mapping = {
 _n8n_type_nodefault = ["password", "html", "hiddenField", "file"]
 _n8n_type_noplaceholder = [
     "dropdown", "checkbox", "radio", "date", "file"
-]
-_n8n_zero_indicates_null = [
-    "year", "timestep", "duration", "season_length",
 ]
 _n8n_simulator_tool_name = {
     "apsimx": "ApsimX",
@@ -162,16 +160,23 @@ class N8nFieldHandler(FieldHandler):
             out = out[len(field_name):].strip()
         return out
 
-    def __call__(self, form_fields: list):
+    def __call__(self, form_fields: list,
+                 zero_indicates_null: Optional[List] = None):
         r"""Add a field entry to a list of form fields for this field.
 
         Args:
             form_fields: List to add the field to.
+            zero_indicates_null: List that field names should be added to
+                if a zero value indicates NULL.
 
         """
-        if ((self.field_info.json_schema_extra
-             and self.field_info.json_schema_extra.get(
-                 "hidden_for_server", False))):
+        field_metadata = getattr(
+            self.field_info, "simulator_metadata",
+            self.field_info.json_schema_extra
+        )
+        if not field_metadata:
+            field_metadata = {}
+        if field_metadata.get("hidden_for_server", False):
             self.skip_field("hidden_for_server")
         out = {
             "fieldLabel": self.field_name,
@@ -201,20 +206,26 @@ class N8nFieldHandler(FieldHandler):
                 "values": [{"option": k} for k in self.enum]
             }
         if ((self.n8n_type == "number" and "defaultValue" not in out
-             and self.field_name not in _n8n_zero_indicates_null)):
+             and (not field_metadata.get("zero_indicates_null", False)))):
             raise RuntimeError(
                 f"Default must be defined for number fields "
                 f"to prevent the n8n form from autofilling "
                 f"with 0 (field = \"{self.field_name}\")")
+        if ((zero_indicates_null is not None
+             and field_metadata.get("zero_indicates_null", False))):
+            zero_indicates_null.append(self.field_name)
         form_fields.append(out)
 
 
-def pydantic_to_n8n_fields(model: type[BaseModel]):
+def pydantic_to_n8n_fields(model: type[BaseModel],
+                           zero_indicates_null: Optional[List] = None):
     r"""Convert a pydantic model into a list of n8n form field
     definitions.
 
     Args:
         model: Pydantic model to convert.
+        zero_indicates_null: List that field names should be added to
+            if a zero value indicates NULL.
 
     Returns:
         list: n8n form field definitions.
@@ -225,24 +236,26 @@ def pydantic_to_n8n_fields(model: type[BaseModel]):
         model=model,
         field_handler=N8nFieldHandler,
     )
-    field_src(form_fields)
+    field_src(form_fields, zero_indicates_null=zero_indicates_null)
     return form_fields
 
 
 def pydantic_to_n8n_form(simulator: str, name: str,
-                         model: type[BaseModel]):
+                         model: type[BaseModel], **kwargs):
     r"""Convert a pydantic model into an n8n form trigger node.
 
     Args:
         simulator: Name of the simulator.
         name: Name of the entry point the form is for.
         model: Pydantic model to convert.
+        \*\*kwargs: Additional keyword arguments are passed to
+            pydantic_to_n8n_fields
 
     Returns:
         dict: n8n form trigger node.
 
     """
-    fields = pydantic_to_n8n_fields(model)
+    fields = pydantic_to_n8n_fields(model, **kwargs)
     out = {
         "name": f"{simulator} {name} Form Trigger",
         "type": "n8n-nodes-base.formTrigger",
@@ -261,7 +274,8 @@ def pydantic_to_n8n_form(simulator: str, name: str,
 
 
 def name_to_n8n_form(simulator: str, name: str,
-                     output: str | bool | None = None):
+                     output: str | bool | None = None,
+                     **kwargs):
     r"""Create an n8n form for a named entry point.
 
     Args:
@@ -269,6 +283,8 @@ def name_to_n8n_form(simulator: str, name: str,
         name: Name of the entry point to create a form for.
         output: File name or True to dump the form to the scratch
             directory.
+        \*\*kwargs: Additional keyword arguments are passed to
+            pydantic_to_n8n_form.
 
     Returns:
         dict: n8n form trigger node.
@@ -276,7 +292,7 @@ def name_to_n8n_form(simulator: str, name: str,
     """
     model = EndPointRegistry.get_simulator_endpoints(
         simulator.lower())[name]
-    form = pydantic_to_n8n_form(simulator, name, model)
+    form = pydantic_to_n8n_form(simulator, name, model, **kwargs)
     dump_to_scratch(form, output, f"n8n-form-{simulator.lower()}-{name}")
     return form
 
@@ -500,7 +516,9 @@ def publish_n8n_service(simulator: str,
             )
     if not (service_address or output_form):
         output_form = True
-    form_node = name_to_n8n_form(simulator, name, output=output_form)
+    zero_indicates_null = []
+    form_node = name_to_n8n_form(simulator, name, output=output_form,
+                                 zero_indicates_null=zero_indicates_null)
     if not service_address:
         warnings.warn("Cannot create n8n tool without service address")
         return
@@ -519,7 +537,7 @@ def publish_n8n_service(simulator: str,
                 "}",
             ] + [
                 "if ($json." + x + " == 0) { delete $json." + x + "; }"
-                for x in _n8n_zero_indicates_null
+                for x in zero_indicates_null
             ] + [
                 "return $json;"
             ])

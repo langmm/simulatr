@@ -198,12 +198,14 @@ class CropModelEngine(BaseModelEngine):
     sow_date: Optional[
         datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
             default=None,
+            server_default=None,
             examples=[datetime.datetime.fromisoformat("1991-01-01")],
             description="Date that the crop should be sown (ISO 8601 "
                         "format).")
     harvest_date: Optional[
         datetime.date | SkipJsonSchema[None]] = SimulatorFieldInfo(
             default=None,
+            server_default=None,
             examples=[datetime.datetime.fromisoformat("1991-11-05")],
             description="Date that the crop should be harvested "
                         "(ISO 8601 format).")
@@ -214,11 +216,14 @@ class CropModelEngine(BaseModelEngine):
         description="Time between sowing and harvest. Only used if only "
                     "one of sow_date or harvest_date are used. If a "
                     "number is provided, it is assumed to be in units "
-                    "of days.")
+                    "of days.",
+        zero_indicates_null=True)
     year: Optional[int | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
+        server_default=None,
         examples=[1991],
-        description="Year to use to get weather data.")
+        description="Year to use to get weather data.",
+        zero_indicates_null=True)
     latitude: Optional[float | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
         examples=[40.1164],
@@ -234,10 +239,12 @@ class CropModelEngine(BaseModelEngine):
     weather_file: Optional[str | CliSuppress[BaseWeatherFile]
                            | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
+        server_default=None,
         description="Path to a file containing weather data.")
     soil_file: Optional[str | CliSuppress[BaseSoilFile]
                         | SkipJsonSchema[None]] = SimulatorFieldInfo(
         default=None,
+        server_default=None,
         description="Path to a file containing soil data.")
 
     @field_validator('sow_date', 'harvest_date', mode="before")
@@ -257,19 +264,6 @@ class CropModelEngine(BaseModelEngine):
                 return None
             return datetime.timedelta(days=v)
         return v
-
-    @classmethod
-    def default_server_fields(cls) -> dict:
-        r"""dict: The default fields that should be used for a server."""
-        out = super().default_server_fields()
-        out.update(
-            year=None,
-            sow_date=None,
-            harvest_date=None,
-            weather_file=None,
-            soil_file=None,
-        )
-        return out
 
     def create_model_file(self, **kwargs) -> CropModelFile:
         r"""Create the model input file.

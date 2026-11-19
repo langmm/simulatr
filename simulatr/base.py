@@ -64,9 +64,32 @@ class SimulatorFieldInfo(FieldInfo):
     )
 
     def __init__(self, simulator_metadata: Any = NoDefault,
+                 hidden_for_server: Optional[bool] = NoDefault,
+                 server_default: Optional[Any] = NoDefault,
+                 zero_indicates_null: Optional[bool] = NoDefault,
                  **kwargs: Any) -> None:
         if simulator_metadata is NoDefault:
             simulator_metadata = {}
+
+        def _add_field(k, v, dst=None, in_schema=False):
+            if v is NoDefault:
+                return False
+            if dst is None:
+                dst = simulator_metadata
+            if k in dst:
+                assert dst[k] == v
+            dst[k] = v
+            if in_schema:
+                # These are variables that will need to be accessed
+                # from the schema generated for a model where the
+                # FieldInfo instance is not available
+                kwargs.setdefault("json_schema_extra", {})
+                _add_field(k, v, dst=kwargs["json_schema_extra"])
+            return True
+
+        _add_field("server_default", server_default)
+        _add_field("hidden_for_server", hidden_for_server, in_schema=True)
+        _add_field("zero_indicates_null", zero_indicates_null)
         self.simulator_metadata = simulator_metadata
         super().__init__(**kwargs)
 
@@ -150,7 +173,10 @@ def InheritSimulatorField(src: FieldInfo,
     for k, v in kwargs.items():
         if k in base:
             assert k != "attributes"
-            base[k] = v
+            if k == "simulator_metadata":
+                base[k].update(v)
+            else:
+                base[k] = v
         else:
             base["attributes"][k] = v
     return SimulatorFieldInfo.fromdict(base)
@@ -2108,7 +2134,8 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
             default=None,
             description="Duration of the simulation. Only used if "
                         "either start_time or end_time is not provided.",
-            json_schema_extra={"hidden_for_server": True},
+            zero_indicates_null=True,
+            hidden_for_server=True,
         )
     timestep: Optional[datetime.timedelta | SkipJsonSchema[None]] = Field(
         default=None,
@@ -2117,12 +2144,14 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
                     "simulation resumes between pauses for user "
                     "interaction and/or logging output variables "
                     "in the trace",
+        json_schema_extra={"zero_indicates_null": True},
     )
     output_vars: Optional[
         List[str] | SkipJsonSchema[None]] = SimulatorField(
             default=None,
             description="List of state variable names to record in the "
                         "trace at each time step.",
+            server_default=None,
         )
     param: CliSuppress[Optional[dict | SkipJsonSchema[None]]] = Field(
         default=None,
@@ -2827,10 +2856,10 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
 
     @classmethod
     def default_server_fields(cls) -> dict:
-        r"""dict: The default fields that should be used for a server."""
+        r"""dict: The default fields that should be used for a server
+        that are not simulator fields."""
         return {
             "actions": list(cls.AVAILABLE_ACTION_MAP.keys()),
-            "output_vars": None,
             "model_file": None,
         }
 

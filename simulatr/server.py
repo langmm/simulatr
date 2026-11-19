@@ -390,7 +390,10 @@ class EndPointModelMixin(EndPointBase):
                      and v.json_schema_extra.get(
                          "hidden_for_server", False)))):
                 continue
-            if v.examples:
+            if ((hasattr(v, "simulator_metadata")
+                 and "server_default" in v.simulator_metadata)):
+                v.default = v.simulator_metadata["server_default"]
+            elif v.examples:
                 v.default = v.examples[0]
                 continue
         out.model_rebuild(force=True)

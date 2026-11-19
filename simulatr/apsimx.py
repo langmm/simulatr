@@ -1209,11 +1209,21 @@ class ApsimXSoilFile(BaseSoilFile):
     @cached_property
     def solutes(self) -> ApsimXFileNode:
         if self.uses_soil_samples:
-            return self.root._child("Models.Soils.Sample, Models")
+            return self._child("Models.Soils.Sample, Models")
         # This one will match multiple
         return {x.contents["Name"]: x for x in self.root.findall(
             requirements={"$type": "Models.Soils.Solute, Models"},
         )}
+
+    @cached_property
+    def solute_names(self) -> List[str]:
+        if self.uses_soil_samples:
+            valid_solutes = get_fertilizer_solutes()
+            return [
+                k for k in self.solutes.keys()
+                if k in valid_solutes
+            ]
+        return list(self.solutes.keys())
 
     @cached_property
     def uses_soil_samples(self) -> bool:
@@ -1271,28 +1281,6 @@ class ApsimXSoilFile(BaseSoilFile):
             DataSource=None,
             Comments=None,
             Children=[],
-            # Children=[
-            #     ApsimXFileNode.from_data(
-            #         "SoilPhysical",
-            #         Children=[
-            #             ApsimXFileNode.from_data(
-            #                 "SoilCrop",
-            #             ).contents,
-            #         ],
-            #     ).contents,
-            #     ApsimXFileNode.from_data("SoilWaterBalance").contents,
-            #     ApsimXFileNode.from_data("SoilOrganic").contents,
-            #     ApsimXFileNode.from_data("SoilChemical").contents,
-            #     ApsimXFileNode.from_data("SoilWater").contents,
-            #     ApsimXFileNode.from_param(
-            #         "Models.Soils.Nutrients.Nutrient, Models",
-            #         ResourceName="Nutrient",
-            #     ).contents,
-            #     cls.create_solute("NO3", [], [], "ppm"),
-            #     cls.create_solute("NH4", [], [], "ppm"),
-            #     cls.create_solute("Urea", [], [], "kg/ha"),
-            #     ApsimXFileNode.from_data("SoilTemperature").contents,
-            # ],
         ).contents
 
     def add_empty_node(self, node: str, **kwargs):
@@ -1668,6 +1656,36 @@ class ApsimXSoilFile(BaseSoilFile):
         #     thickness = 200.0 * np.ones((10, ))
         #     self.resample_depths(thickness=thickness)
 
+    def add_solute(self, name: str, initial: Optional[list] = None,
+                   units: Optional[str | int] = "ppm") -> None:
+        r"""Add a solute node if it is missing.
+
+        Args:
+            name: Solute name.
+            initial: Initial solute concentration at each layer.
+            units: Solute contentration units. 0 indicates ppm, 1
+                indicates kg/ha.
+
+        """
+        # TODO: Dynamic discovery of solutes for getting/setting etc.
+        if name in self.solute_names:
+            # TODO: Allow this to set?
+            # initial
+            # self.set(name, initial)
+            return
+        thickness = self.get("thickness", return_scalar=True).tolist()
+        if isinstance(initial, np.ndarray):
+            initial = initial.tolist()
+        elif initial is None:
+            initial = len(thickness) * [0.0]
+        with self.prevent_overwrite():
+            if self.uses_soil_samples:
+                parent = self._child("Models.Soils.Sample, Models")
+                parent[name] = initial
+                return
+            node = self.create_solute(name, thickness, initial, units)
+            self.root.contents["Children"].append(node)
+
     @classmethod
     def create_solute(cls, name: str,
                       thickness: list,
@@ -1678,7 +1696,7 @@ class ApsimXSoilFile(BaseSoilFile):
         Args:
             name: Solute name.
             thickness: Layer thickness.
-            initial: Initial solute concentration at each later.
+            initial: Initial solute concentration at each layer.
             units: Solute contentration units. 0 indicates ppm, 1
                 indicates kg/ha.
 
@@ -1747,16 +1765,20 @@ class ApsimXFile(CropModelFile):
         "sow": {
             "conflicts": [
                 {
-                    "contains": {"$type": "Models.Manager, Models"},
+                    "$type": "Models.Manager, Models",
                     "calls": "Sow",
+                    "fvalid": lambda x: (not x["Name"].endswith(
+                        "WeedLifecycle")),
                 },
             ],
         },
         "harvest": {
             "conflicts": [
                 {
-                    "contains": {"$type": "Models.Manager, Models"},
+                    "$type": "Models.Manager, Models",
                     "calls": "Harvest",
+                    "fvalid": lambda x: (not x["Name"].endswith(
+                        "WeedLifecycle")),
                 },
             ],
         },
@@ -1938,35 +1960,177 @@ class ApsimXFile(CropModelFile):
         raise ValueError(f"Could not locate a model file for crop "
                          f"\"{crop_name}\".")
 
+    def add_solute(self, solute_name: str,
+                   initial: Optional[list] = None,
+                   units: Optional[str | int] = "ppm") -> None:
+        r"""Add a solute node if it is missing.
+
+        Args:
+            name: Solute name.
+            initial: Initial solute concentration at each layer.
+            units: Solute contentration units. 0 indicates ppm, 1
+                indicates kg/ha.
+
+        """
+        with self.prevent_overwrite():
+            self.get("soil_file").add_solute(solute_name,
+                                             initial=initial,
+                                             units=units)
+
+    def add_action_solutes(self, actions: List[str]) -> None:
+        r"""Add missing solute nodes required by the fertilizers enabled
+        by the provided set of actions.
+
+        Args:
+            actions: List of actions that should be enabled.
+
+        """
+        fertilizer_actions = [
+            k for k in ["fertilize", "nitrogen", "calcium", "phosphorus"]
+            if k in actions
+        ]
+        if not fertilizer_actions:
+            return
+        fertilizer_solutes = get_fertilizer_solutes(fertilizer_actions)
+        if not fertilizer_solutes:
+            return
+        with self.prevent_overwrite():
+            for k in fertilizer_solutes:
+                self.add_solute(k)
+
+    def add_weed(self, weed_name: str,
+                 weed_variety: Optional[str | None] = None) -> None:
+        r"""Add a weed to the simulation.
+
+        Args:
+            weed_name: Name of weed to include.
+            weed_variety: Name of weed variety to include.
+
+        """
+        weed_name = self.validate_crop_name(weed_name)
+        if self.get("weed_name", None) is not None:
+            assert self.get("weed_name") == weed_name
+            return
+        if weed_variety is None:
+            weed_varieties = self.available_cultivars(weed_name)
+            weed_variety = weed_varieties[0]
+        weed_root = ApsimXFileNode.from_example(weed_name)
+        weed_soil = ApsimXFileNode.from_data(
+            "SoilCrop", crop_root=weed_root, Name="WEEDSoil")
+        root = ApsimXFileNode(self.contents)
+        zone = self.find(
+            required=True,
+            requirements={"$type": "Models.Core.Zone, Models"})
+        soil = self.find(
+            required=True,
+            requirements={"$type": "Models.Soils.Physical, Models"})
+        with self.prevent_overwrite():
+            zone["Children"] += [
+                ApsimXFileNode.from_param(
+                    "Models.PMF.Plant, Models",
+                    Name=weed_name,
+                    ResourceName=weed_name,
+                    Description="Weed",
+                ),
+                ApsimXFileNode.from_data(
+                    "WeedCycle",
+                )
+            ]
+            soil["Children"].append(weed_soil)
+            root.specialize_crop(weed_name,
+                                 parameter_name="WeedName",
+                                 placeholder="WEED")
+        self.set("weed_name", weed_name)
+        self.set("weed_variety", weed_variety)
+
+    def finalize_for_model(self,
+                           interactive: Optional[bool] = False,
+                           actions: Optional[List[str] | None] = None,
+                           dont_fetch_weather: Optional[bool] = False,
+                           dont_fetch_soil: Optional[bool] = False,
+                           weed_name: Optional[str | None] = None,
+                           weed_variety: Optional[str | None] = None,
+                           **kwargs: Any) -> None:
+        r"""Finalize the file by setting model parameters, adding model
+        actions, and adding any required any required nodes that are
+        missing for the provided parameters/actions.
+
+        Args:
+            interactive: If True, make the file interactive.
+            actions: Interactive actions that should be added.
+            dont_fetch_weather: If True, don't download weather data.
+            dont_fetch_soil: If True, don't download soil data.
+            weed_name: Name of weed to include.
+            weed_variety: Name of weed variety to include.
+            \*\*kwargs: Additional keyword arguments are treated as
+                parameter key/value pairs.
+
+        """
+        if actions is None:
+            if interactive:
+                actions = list(ApsimXEngine.AVAILABLE_ACTION_MAP.keys())
+            else:
+                actions = []
+        if interactive or actions:
+            self.make_interactive(actions)
+        if weed_name is not None:
+            self.add_weed(weed_name, weed_variety=weed_variety)
+        if actions:
+            self.add_action_solutes(actions)
+        for k, v in kwargs.items():
+            self.set(k, v)
+        if ((("latitude" in kwargs and "longitude" in kwargs)
+             or ("start_time" in kwargs and "end_time" in kwargs))):
+            if "weather_file" not in kwargs and not dont_fetch_weather:
+                self.set(
+                    "weather_file",
+                    ApsimXWeatherFile.fetch_data(
+                        self.get("latitude"), self.get("longitude"),
+                        self.get("start_time"), self.get("end_time"),
+                    )
+                )
+            if "soil_file" not in kwargs and not dont_fetch_soil:
+                self.set(
+                    "soil_file",
+                    ApsimXSoilFile.fetch_data(
+                        self.get("latitude"), self.get("longitude"),
+                        self.get("start_time"), self.get("end_time"),
+                    )
+                )
+
     @classmethod
     def from_example(cls, src: Union[str, "ApsimXFile"],
+                     crop_name: Optional[str | None] = None,
+                     crop_variety: Optional[str | None] = None,
                      dst: Optional[str | None] = None,
                      directory: Optional[str | None] = None,
-                     interactive: Optional[bool] = False,
-                     actions: Optional[List[str] | None] = None
-                     ) -> CropModelFile:
+                     **kwargs: Any) -> CropModelFile:
         r"""Create an input model file from an example.
 
         Args:
             src (str, ApsimXFile): Path to the source .apsimx model.
+            crop_name: Crop name.
+            crop_variety: Crop variety.
             dst (str, optional): Path to the location where the generated
                 .apsimx model should be saved.
             directory: Directory where the generated file should be
                 saved (only used if dst is not provided).
-            interactive: If True, make the file interactive.
-            actions: Interactive actions that should be added.
+            \*\*kwargs: Additional keyword arguments are passed to
+                finalize_for_model.
 
         Returns:
             CropModelFile: Constructed model input file.
 
         """
+        if crop_name is not None:
+            crop_name = cls.validate_crop_name(crop_name)
+            kwargs["crop_name"] = crop_name
+        if crop_variety is not None:
+            kwargs["crop_variety"] = crop_variety
         if not isinstance(src, ApsimXFile):
             src = ApsimXFile(src)
         out = src.copy(dst=dst, directory=directory)
-        if interactive or actions:
-            if not actions:
-                actions = list(ApsimXEngine.AVAILABLE_ACTION_MAP.keys())
-            out.make_interactive(actions)
+        out.finalize_for_model(**kwargs)
         return out
 
     @classmethod
@@ -1976,8 +2140,6 @@ class ApsimXFile(CropModelFile):
                        directory: Optional[str | None] = None,
                        interactive: Optional[bool] = False,
                        actions: Optional[List[str] | None] = None,
-                       dont_fetch_weather: Optional[bool] = False,
-                       dont_fetch_soil: Optional[bool] = False,
                        **kwargs: Any) -> CropModelFile:
         r"""Create an input model file for a given crop name.
 
@@ -1990,8 +2152,6 @@ class ApsimXFile(CropModelFile):
                 saved (only used if dst is not provided).
             interactive: If True, make the file interactive.
             actions: Interactive actions that should be added.
-            dont_fetch_weather: If True, don't download weather data.
-            dont_fetch_soil: If True, don't download soil data.
             \*\*kwargs: Additional keyword arguments are treated as
                 parameter key/value pairs.
 
@@ -2116,30 +2276,6 @@ class ApsimXFile(CropModelFile):
             #     crop_root=crop_root,
             # ),
         ]
-        weed_soil = None
-        weed_name = kwargs.get("weed_name", None)
-        weed_variety = kwargs.get("weed_variety", None)
-        if weed_name is not None:
-            weed_name = kwargs["weed_name"]
-            weed_variety = kwargs.get("weed_variety", None)
-            if weed_variety is None:
-                weed_varieties = cls.available_cultivars(weed_name)
-                weed_variety = weed_varieties[0]
-                kwargs["weed_variety"] = weed_variety
-            weed_root = ApsimXFileNode.from_example(weed_name)
-            weed_soil = ApsimXFileNode.from_data(
-                "SoilCrop", crop_root=weed_root, Name="WEEDSoil")
-            zone_children += [
-                ApsimXFileNode.from_param(
-                    "Models.PMF.Plant, Models",
-                    Name=weed_name,
-                    ResourceName=weed_name,
-                    Description="Weed",
-                ),
-                ApsimXFileNode.from_data(
-                    "WeedCycle",
-                )
-            ]
         sim_children.append(
             ApsimXFileNode.from_param(
                 "Models.Core.Zone, Models",
@@ -2168,37 +2304,11 @@ class ApsimXFile(CropModelFile):
             ]
         )
         contents.specialize_crop(crop_name)
-        if weed_name is not None:
-            soil_node = contents.find(
-                requirements={"$type": "Models.Soils.Physical, Models"})
-            soil_node["Children"].append(weed_soil)
-            contents.specialize_crop(weed_name,
-                                     parameter_name="WeedName",
-                                     placeholder="WEED")
         assert contents["Name"] == "Simulations"
         out = cls(dst, generated=True, contents=contents.contents)
-        if interactive or actions:
-            out.make_interactive(actions)
-        for k, v in kwargs.items():
-            out.set(k, v)
-        if ((("latitude" in kwargs and "longitude" in kwargs)
-             or ("start_time" in kwargs and "end_time" in kwargs))):
-            if "weather_file" not in kwargs and not dont_fetch_weather:
-                out.set(
-                    "weather_file",
-                    ApsimXWeatherFile.fetch_data(
-                        out.get("latitude"), out.get("longitude"),
-                        out.get("start_time"), out.get("end_time"),
-                    )
-                )
-            if "soil_file" not in kwargs and not dont_fetch_soil:
-                out.set(
-                    "soil_file",
-                    ApsimXSoilFile.fetch_data(
-                        out.get("latitude"), out.get("longitude"),
-                        out.get("start_time"), out.get("end_time"),
-                    )
-                )
+        out.finalize_for_model(interactive=interactive,
+                               actions=actions,
+                               **kwargs)
         return out
 
     @property
@@ -2965,16 +3075,84 @@ class ApsimXFile(CropModelFile):
         field["Children"].append(copy.deepcopy(sync.contents))
 
 
-_fertilizer_node = _read_resource("Fertiliser")
+_fertilizer_node = None
+_fertilizer_info = {
+    "nitrogen": {
+        "solutes": ["NO3", "NH4", "Urea"],
+    },
+    "calcium": {
+        "solutes": ["Ca"],
+    },
+    "phosphorus": {
+        "solutes": ["RockP", "LabileP", "BandedP", "UnavailableP"],
+    }
+}
 
 
-def _fertilizer_action(name: Optional[str] = None,
-                       solutes: Optional[List[str]] = None,
-                       **kwargs):
+def get_fertilizer_node():
+    global _fertilizer_node
+    if _fertilizer_node is None:
+        _fertilizer_node = _read_resource("Fertiliser")
+    return _fertilizer_node
+
+
+def get_fertilizer_type_nodes():
+    return get_fertilizer_node()["Children"][0].get("Children", [])
+
+
+def get_fertilizer_info(fertilizer_action: Optional[str] = "fertilize"):
+    if "fertilize" in _fertilizer_info:  # Indicates incomplete
+        return _fertilizer_info[fertilizer_action]
+    toplevel = {"solutes": [], "types": []}
+    for k, kinfo in _fertilizer_info.items():
+        _fertilizer_info[k]["types"] = []
+        toplevel["solutes"] += [
+            isol for isol in kinfo["solutes"]
+            if isol not in toplevel["solutes"]
+        ]
+    for x in get_fertilizer_type_nodes():
+        xsolutes = [
+            x[f"Solute{i}Name"] for i in range(1, 10)
+            if f"Solute{i}Name" in x
+        ]
+        toplevel["types"].append(x["Name"])
+        toplevel["solutes"] += [
+            isol for isol in xsolutes if isol not in toplevel["solutes"]
+        ]
+        for k, kinfo in _fertilizer_info.items():
+            if not any(isol in xsolutes for isol in kinfo["solutes"]):
+                continue
+            kinfo["types"].append(x["Name"])
+    if "UnavailableP" not in toplevel["solutes"]:
+        toplevel["solutes"].append("UnavailableP")
+    _fertilizer_info["fertilize"] = toplevel
+    return _fertilizer_info[fertilizer_action]
+
+
+def get_fertilizer_names(fertilizer_action: Optional[str] = "fertilize"):
+    return get_fertilizer_info(fertilizer_action)["types"]
+
+
+def get_fertilizer_solutes(
+        fertilizer_action: Optional[List[str] | str] = "fertilize"):
+    if isinstance(fertilizer_action, list):
+        if "fertilize" in fertilizer_action:
+            return get_fertilizer_solutes()
+        out = []
+        for k in fertilizer_action:
+            out += [x for x in get_fertilizer_solutes(k)
+                    if x not in out]
+        return out
+    return get_fertilizer_info(fertilizer_action)["solutes"]
+
+
+def create_fertilizer_action(fertilizer_action: Optional[str] = "fertilize",
+                             solutes: Optional[List[str]] = None,
+                             **kwargs):
     r"""Construct an action specification for applying fertilizer.
 
     Args:
-        name: Name of the fertilizer to apply.
+        fertilizer_action: Name of the fertilizer action.
         solutes: Solutes that the fertilizer must contain.
         **kwargs: Additional keywords are added to the action.
 
@@ -2982,21 +3160,12 @@ def _fertilizer_action(name: Optional[str] = None,
         dict: Action specification.
 
     """
-    if name is None:
+    if fertilizer_action == "fertilize":
+        fertilizer_action = "fertilize"
         fullname = "fertilizer"
     else:
-        fullname = f"{name} fertilizer"
-    if solutes:
-        types = []
-        for x in _fertilizer_node.get("Children", []):
-            for i in range(1, 10):
-                field = f"Solute{i}Name"
-                if field not in x:
-                    break
-                if x[field] in solutes:
-                    types.append(x["Name"])
-    else:
-        types = [x["Name"] for x in _fertilizer_node.get("Children", [])]
+        fullname = f"{fertilizer_action} fertilizer"
+    types = get_fertilizer_names(fertilizer_action)
     out = {
         "description": (
             "Apply {amount} {amount_units} "
@@ -3012,7 +3181,7 @@ def _fertilizer_action(name: Optional[str] = None,
             },
             "type": {
                 "type": "string",
-                "default": types[0] if types else name,
+                "default": types[0] if types else fertilizer_action,
                 "enum": types,
             },
             # "depth": {
@@ -3118,18 +3287,15 @@ class ApsimXEngine(CropModelEngine):
                 },
             },
         },
-        "fertilize": _fertilizer_action(),
-        "nitrogen": _fertilizer_action(
-            "nitrogen", ["NO3", "NH4", "Urea"],
-            alias="N",  # cost=0.46,  # $/kg
+        "fertilize": create_fertilizer_action(),
+        "nitrogen": create_fertilizer_action(
+            "nitrogen", alias="N",  # cost=0.46,  # $/kg
         ),
-        "calcium": _fertilizer_action(
-            "calcium", ["Ca"],
-            alias="Ca",
+        "calcium": create_fertilizer_action(
+            "calcium", alias="Ca",
         ),
-        "phosphorus": _fertilizer_action(
-            "phosphorus", ["RockP", "LabileP", "BandedP"],
-            alias="P",
+        "phosphorus": create_fertilizer_action(
+            "phosphorus", alias="P",
         ),
         "irrigate": {
             "alias": "water",
@@ -3150,8 +3316,9 @@ class ApsimXEngine(CropModelEngine):
         },
         "weed": {
             "description": (
-                "Reduce a {weed_name} weed by removing "
-                "{kill_fraction} of the weed {target_name}"
+                "Reduce the {weed_name} weeds by removing "
+                "{kill_fraction} of the weed {target_name} using "
+                "{method_name}"
             ),
             "action_param": "kill_fraction",
             "param_desc": {
@@ -3167,6 +3334,22 @@ class ApsimXEngine(CropModelEngine):
                 "target_name": {
                     "type": "string",
                     "default": "plants",
+                    "enum": [
+                        "plants",
+                        "seeds",
+                        "leaves",
+                        "nodules",
+                        "roots",
+                    ],
+                },
+                "method_name": {
+                    "type": "string",
+                    "default": "manual weeding",
+                    "enum": [
+                        "manual weeding",
+                        "herbicide",
+                        "chop-and-drop",
+                    ],
                 },
             },
         },
@@ -3207,10 +3390,14 @@ class ApsimXEngine(CropModelEngine):
                 {
                     "calls": "Sow",
                     "parameter": "Crop",
+                    "fvalid": lambda x: (not x["Name"].endswith(
+                        "WeedLifecycle")),
                 },
                 {
                     "calls": "Harvest",
                     "parameter": "Crop",
+                    "fvalid": lambda x: (not x["Name"].endswith(
+                        "WeedLifecycle")),
                 },
             ],
             "fget": lambda x: x.lower(),
@@ -3280,12 +3467,7 @@ class ApsimXEngine(CropModelEngine):
             "parameter": "SowingDate",
             "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
-            "conflicts": [
-                {
-                    "$type": "Models.Manager, Models",
-                    "calls": "Sow",
-                },
-            ],
+            "conflicts": ApsimXFile.ACTION_NODES["sow"]["conflicts"],
             "parameter_properties": {
                 "CropName": "formal_crop_name",
                 "CultivarName": "crop_variety",
@@ -3297,12 +3479,7 @@ class ApsimXEngine(CropModelEngine):
             "parameter": "HarvestDate",
             "default": "SowOrHarvestByDate.json",
             "fget": datetime.datetime.fromisoformat,
-            "conflicts": [
-                {
-                    "$type": "Models.Manager, Models",
-                    "calls": "Harvest",
-                },
-            ],
+            "conflicts": ApsimXFile.ACTION_NODES["harvest"]["conflicts"],
             "parameter_properties": {
                 "CropName": "formal_crop_name",
                 "CultivarName": "crop_variety",

@@ -54,6 +54,7 @@
         "            double PopulationGerminate = GerminationRate * Population * (1 - DormancyRate);",
         "            Weed.Sow(population: PopulationGerminate, cultivar: WeedCultivarName, depth: SowingDepth, rowSpacing: RowSpacing);    ",
         "            Population = Population * DormancyRate;",
+        "            Console.WriteLine(\"{0} weed life cycle started\", WeedName);",
         "        }",
         "",
         "        [EventSubscribe(\"DoManagement\")]",

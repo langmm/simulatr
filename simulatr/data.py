@@ -1144,12 +1144,14 @@ class BaseDataFile(BaseFile):
                                      return_scalar=(not with_units))
 
     def get(self, name: str, default: Optional[Any] = NoDefault,
-            **kwargs: Any) -> Any:
+            return_scalar: Optional[bool] = False, **kwargs: Any) -> Any:
         r"""Get a parameter from the file.
 
         Args:
             name: Parameter name.
             default: Value to return if the parameter can't be found.
+            return_scalar: If True, return the scalar value without
+                units, but scaled to the units of the parameter.
             \*\*kwargs: Additional keyword arguments are passed to _get.
 
         Returns:
@@ -1182,6 +1184,7 @@ class BaseDataFile(BaseFile):
             if out is None and name_int in self.PARAMETER_DEFAULTS:
                 out = self.PARAMETER_DEFAULTS[name_int]
         return self._get_post_process(name_int, out, default=default,
+                                      return_scalar=return_scalar,
                                       valid_parameters=valid_parameters)
 
     def set(self, name: str, value: Any,

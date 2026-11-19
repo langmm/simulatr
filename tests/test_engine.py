@@ -3,6 +3,7 @@ import numpy as np
 import datetime
 import logging
 import contextlib
+import itertools
 import pytest
 from simulatr import logger, get_simulator_class
 from simulatr.base import (
@@ -142,6 +143,34 @@ class TestModelEngine(TestBase):
         r"""Test instance attributes."""
         print(reusable_instance.output_vars)
 
+    @pytest.fixture(scope="class")
+    @classmethod
+    def reusable_instance_all_actions(cls, simulator_cls, new_instance):
+        kws = {
+            "crop_name": "Wheat",
+            "weed_name": "Oats",
+            "model_suffix": "-AllActions",
+            "actions": sorted(list(
+                simulator_cls.AVAILABLE_ACTION_MAP.keys())),
+        }
+        with new_instance(**kws) as instance:
+            yield instance
+
+    @pytest.fixture(params=[])
+    @classmethod
+    def action_param(cls, request):
+        return request.param
+
+    def test_actions(self, reusable_instance_all_actions, action_param):
+        r"""Test action values with parameters."""
+        start_time = reusable_instance_all_actions.start_time
+        end_time = reusable_instance_all_actions.end_time
+        if action_param[0] == "harvest":
+            reusable_instance_all_actions.fast_forward(
+                (end_time - start_time) / 2)
+        reusable_instance_all_actions.act(
+            action_param[0], **action_param[1])
+
     @pytest.mark.parametrize(
         "command,error,command_args", [
             ("set", RecoverableModelEngineError, (
@@ -269,7 +298,7 @@ class TestModelEnv(TestBase):
         return _is_valid_action
 
     @pytest.fixture(params=[])
-    def action_id_base(request, continuous, simultaneous):
+    def action_id_base(self, request, continuous, simultaneous):
         return request.param
 
     @pytest.fixture
@@ -468,6 +497,55 @@ class TestApsimXEngine(TestModelEngine):
         assert value_full > value_half
         running_instance.rewind()
         assert running_instance.current_time == start_time
+
+    @pytest.fixture(params=[
+        pytest.param(("sow", {
+            "crop_name": "Wheat",
+            "crop_variety": "Hartog",
+            "population": 10.0,
+            "sowingDepth": 10.0,
+            "rowSpacing": 500.0,
+        }), id="sow"),
+        pytest.param(("tillage", {
+            "type": "disc",
+        }), id="tillage"),
+        pytest.param(("fertilize", {
+            "type": "UreaN",
+            "amount": 10.0,
+        }), id="fertilize"),
+        pytest.param(("nitrogen", {
+            "type": "NO3N",
+            "amount": 10.0,
+        }), id="nitrogen"),
+        pytest.param(("calcium", {
+            "type": "CalciteFine",
+            "amount": 10.0,
+        }), id="calcium"),
+        pytest.param(("phosphorus", {
+            "type": "BandedP",
+            "amount": 10.0,
+        }), id="phosphorus"),
+        pytest.param(("irrigate", {
+            "amount": 10.0,
+        }), id="irrigate"),
+    ] + [
+        pytest.param(("weed", {
+            "target_name": target_name,
+            "kill_fraction": 0.5,
+            "method_name": method_name,
+        }), id=f"weed-{target_name}-{method_name.replace(' ', '-')}")
+        for target_name, method_name in itertools.product(
+                ["plants", "seeds", "leaves"],
+                ["manual weeding", "herbicide", "chop-and-drop"]
+        )
+    ] + [
+        pytest.param(("harvest", {
+            "crop_name": "Wheat",
+        }), id="harvest"),
+    ])
+    @classmethod
+    def action_param(cls, request):
+        return request.param
 
     def test_action_param(self, new_instance):
         r"""Test actions with parameters."""

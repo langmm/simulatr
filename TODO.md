@@ -7,10 +7,9 @@
 ## General
 
 - [ ] Generalize BaseDataFile
-  - Test resampling of soil depths
+  - Answer test resampling of soil depths
   - Generation of soil profile
   - Setter for derived properties
-  - Check that depths match between layers in irsirc soil
   - Class defined value indicating missing data (so it can be replaced with NAN)
 - [ ] Fix readme inclusion in PyPI description
 - [ ] Improve human readable prompt for CLI and fix set/get description
@@ -24,14 +23,11 @@
 
 ### Soil
 
-- [ ] Fix use of crop soil parameters to initialize with crop example by default
 - [ ] Get initial water content from NASA POWER or SMAP L4
 
 ### WeedCycle in simulatr/apsimx_data/WeedCycle.json
 
-- [ ] The default values are fabrications that need to be set based on literature
 - [ ] Dormancy rate based on light (other resource competition?)
-- [ ] Set seed population from Synchroniser
 - [ ] Check that residue is treated correctly on weed "harvest"
 - [ ] Multiple cohorts w/ interval or ...?
 

@@ -1,17 +1,17 @@
 {
     "$type": "Models.Soils.Physical, Models",
-    "Thickness": [],
+    "Thickness": null,
     "ParticleSizeSand": null,
     "ParticleSizeSilt": null,
     "ParticleSizeClay": null,
     "Rocks": null,
     "Texture": null,
-    "BD": [],
-    "AirDry": [],
-    "LL15": [],
-    "DUL": [],
-    "SAT": [],
-    "KS": [],
+    "BD": null,
+    "AirDry": null,
+    "LL15": null,
+    "DUL": null,
+    "SAT": null,
+    "KS": null,
     "BDMetadata": null,
     "AirDryMetadata": null,
     "LL15Metadata": null,
@@ -25,22 +25,7 @@
     "ParticleSizeClayMetadata": null,
     "Name": "Physical",
     "ResourceName": null,
-    "Children": [
-        {
-            "$type": "Models.Soils.SoilCrop, Models",
-            "LL": [],
-            "KL": [],
-            "XF": [],
-            "LLMetadata": null,
-            "KLMetadata": null,
-            "XFMetadata": null,
-            "Name": "CROPSoil",
-            "ResourceName": null,
-            "Children": [],
-            "Enabled": true,
-            "ReadOnly": false
-        }
-    ],
+    "Children": [],
     "Enabled": true,
     "ReadOnly": false
 }

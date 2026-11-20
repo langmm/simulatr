@@ -80,7 +80,8 @@ class ParameterCalculator:
         return getattr(source, self.method)(*args, **kwargs)
 
     @classmethod
-    def valid_entries(cls, source, external: Optional[list] = None):
+    def valid_entries(cls, source, external: Optional[list] = None,
+                      dont_recurse: Optional[bool] = False):
         r"""Get the set of parameters that can be calculated for the
         provided source.
 
@@ -88,6 +89,8 @@ class ParameterCalculator:
             source: Data file providing parameters.
             external: List of parameters that can be used to run the
                 calculation.
+            dont_recurse: If True, don't allow calculated parameters to
+                be used to satisfy the requirements.
 
         Returns:
             list: Parameters that can be calculated.
@@ -100,14 +103,16 @@ class ParameterCalculator:
         for k in cls.REGISTRY.keys():
             if cls != ParameterNormalizer and k in external + out:
                 continue
-            if cls.has_valid_entry(source, k, previous=(external + out)):
+            if cls.has_valid_entry(source, k, previous=(external + out),
+                                   dont_recurse=dont_recurse):
                 out.append(k)
         return out
 
     @classmethod
     def has_valid_entry(cls, source, name: str,
                         previous: Optional[list] = None,
-                        excluded: Optional[list] = None):
+                        excluded: Optional[list] = None,
+                        dont_recurse: Optional[bool] = False):
         r"""Check if a parameter has a registered calculation that can
         be called from the existing parameters in the data file.
 
@@ -117,6 +122,8 @@ class ParameterCalculator:
                 to have values or be calculatable.
             excluded: Names of parameters that cannot be used in the
                 parameter calculation.
+            dont_recurse: If True, don't allow calculated parameters to
+                be used to satisfy the requirements.
 
         Returns:
             bool: True if the parameter calculation can be called.
@@ -139,7 +146,7 @@ class ParameterCalculator:
             missing = [xx for xx in x.required if xx not in previous]
             if not missing:
                 return True
-            if any(xx in excluded for xx in missing):
+            if dont_recurse or any(xx in excluded for xx in missing):
                 continue
             if all(ParameterCalculator.has_valid_entry(
                     source, xx, previous=previous,
@@ -177,13 +184,16 @@ class ParameterCalculator:
 
     @classmethod
     def try_registered(cls, source, name: str,
-                       stack: Optional[list] = None, **kwargs) -> Any:
+                       stack: Optional[list] = None,
+                       normalize_result: Optional[bool] = False,
+                       **kwargs) -> Any:
         r"""Try calculating a parameter using registered parameter
         calculators.
 
         Args:
             source: Data file providing parameters.
             name: Name of the parameter to calculate.
+            normalize_result: If True, the result should be normalized.
             \*\*kwargs: Additional keyword arguments are passed to the
                 calculators.
 
@@ -207,7 +217,11 @@ class ParameterCalculator:
                     raise KeyError(f"Recursive {iname}")
                 stack.append(iname)
                 try:
-                    return calculator(source, stack=stack, **kwargs)
+                    out = calculator(source, stack=stack, **kwargs)
+                    if normalize_result:
+                        out = ParameterNormalizer.try_registered(
+                            source, name, prev=out, **kwargs)
+                    return out
                 except KeyError:
                     pass
                 finally:
@@ -238,7 +252,9 @@ class ParameterNormalizer(ParameterCalculator):
 
     @classmethod
     def try_registered(cls, source, name: str,
-                       prev: Optional[Any] = None, **kwargs) -> Any:
+                       prev: Optional[Any] = None,
+                       allow_calculate_prev: Optional[bool] = False,
+                       **kwargs) -> Any:
         r"""Try normalizing a parameter using registered parameter
         normalizers.
 
@@ -246,6 +262,8 @@ class ParameterNormalizer(ParameterCalculator):
             source: Data file providing parameters.
             name: Name of the parameter to normalize.
             prev: Value to normalize.
+            allow_calculate_prev: If True and prev not provided or set,
+                it can be calculated.
             \*\*kwargs: Additional keyword arguments are passed to the
                 normalizers.
 
@@ -258,11 +276,17 @@ class ParameterNormalizer(ParameterCalculator):
         """
         name_int, name_ext = source.param_name_aliases(name)
         if prev is None:
-            if isinstance(source, type):
-                assert "params" in kwargs
-                prev = kwargs["params"][name_int]
-            else:
-                prev = source.get(name_int)
+            try:
+                if isinstance(source, type):
+                    assert "params" in kwargs
+                    prev = kwargs["params"][name_int]
+                else:
+                    prev = source.get(name_int)
+            except KeyError:
+                if not allow_calculate_prev:
+                    raise
+                prev = ParameterCalculator.try_registered(
+                    source, name, **kwargs)
         for iname in set([name_int, name_ext]):
             for normalizer in cls.REGISTRY.get(iname, []):
                 try:
@@ -1480,6 +1504,68 @@ class BaseDataFile(BaseFile):
                 self, k, value)
             self.set(k, value)
 
+    @classmethod
+    def normalize_to_limits(cls, value: float,
+                            value_min: Optional[float] = None,
+                            value_max: Optional[float] = None,
+                            gap_min: Optional[float] = 0.0,
+                            gap_max: Optional[float] = 0.0) -> float:
+        r"""Normalize a parameter value so that it does not exceed a
+        minimum/maximum with a gap.
+
+        Args:
+            value: Parameter to normalize.
+            value_min: Minimum for parameter.
+            value_max: Maximum for parameter.
+            gap_max: Buffer amount that should be between value and
+                value_max.
+            gap_min: Buffer amount that should be between value and
+                value_min.
+
+        Returns:
+            float: Normalized value.
+
+        """
+        # This can be updated once yggdrasil_python_rapidjson units
+        #   updated to support all numpy ufuncs
+        value_units = cls.get_units(value)
+        value_units_type = utils.matching_unit_type(value)
+        value = cls.add_units(value, value_units, return_scalar=True)
+        if value_min is not None:
+            value_min = cls.add_units(value_min, value_units,
+                                      return_scalar=True)
+        if value_max is not None:
+            value_max = cls.add_units(value_max, value_units,
+                                      return_scalar=True)
+        gap_min = cls.add_units(gap_min, value_units,
+                                return_scalar=True)
+        gap_max = cls.add_units(gap_max, value_units,
+                                return_scalar=True)
+        if isinstance(value, np.ndarray):
+            if len(value) > 0:
+                if value_min is not None:
+                    idx_min = ((value - value_min) < gap_min)
+                    if isinstance(value_min, np.ndarray):
+                        value[idx_min] = value_min[idx_min] + gap_min
+                    else:
+                        value[idx_min] = value_min + gap_min
+                if value_max is not None:
+                    idx_max = ((value_max - value) < gap_max)
+                    if isinstance(value_max, np.ndarray):
+                        value[idx_max] = value_max[idx_max] - gap_max
+                    else:
+                        value[idx_max] = value_max - gap_max
+        else:
+            if value_min is not None:
+                if (value - value_min) < gap_min:
+                    value = value_min + gap_min
+            if value_max is not None:
+                if (value_max - value) < gap_max:
+                    value = value_max - gap_max
+        if value_units is not None:
+            value = value_units_type(value, value_units)
+        return value
+
     @readonly_cached_property
     def _external_parameters(self) -> list:
         r"""list: Aliased parameters."""
@@ -1562,13 +1648,14 @@ class BaseDataFile(BaseFile):
         parameters = self.universal_parameter_map(
             include_header=True, include_calculated=True)
         external = list(parameters.keys())
-        for k in ParameterNormalizer.valid_entries(dst, external=external):
+        for k in ParameterNormalizer.valid_entries(dst, external=external,
+                                                   dont_recurse=True):
             parameters[k] = ParameterNormalizer.try_registered(
                 dst, k, prev=parameters[k], params=parameters)
         for k in ParameterCalculator.valid_entries(dst, external=external):
             try:
                 parameters[k] = ParameterCalculator.try_registered(
-                    dst, k, params=parameters)
+                    dst, k, params=parameters, normalize_result=True)
             except KeyError:
                 continue
         out = {}
@@ -2166,8 +2253,6 @@ class BaseDataFile(BaseFile):
         for k, v in parameters.items():
             out.set(k, v, allow_add=True)
         out.normalize_parameters()
-        # raise NotImplementedError(
-        #     f"Conversion from {type(src)} to {cls}")  # pragma: no cover
         return out
 
     @classmethod

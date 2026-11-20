@@ -1,8 +1,8 @@
 {
     "$type": "Models.Soils.SoilCrop, Models",
-    "LL": [],
-    "KL": [],
-    "XF": [],
+    "LL": null,
+    "KL": null,
+    "XF": null,
     "LLMetadata": null,
     "KLMetadata": null,
     "XFMetadata": null,

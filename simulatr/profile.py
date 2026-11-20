@@ -1,3 +1,5 @@
+r"""Profiling helpers for simulator engines and commands."""
+
 import sys
 import os
 import time
@@ -17,6 +19,7 @@ TargetRegistry = create_registry_metaclass(base_type=BaseModel)
 
 class TargetBaseClass(BaseModel, metaclass=TargetRegistry):
 
+    r"""TargetBaseClass implementation."""
     _NAME: ClassVar[str] = None
     _DESCRIPTION: ClassVar[str] = None
 
@@ -65,10 +68,12 @@ class TargetBaseClass(BaseModel, metaclass=TargetRegistry):
         print(msg)
 
     def run(self):
+        r"""Run."""
         self._print_header(self._DESCRIPTION)
         self._run()
 
     def _run(self):
+        r"""Run."""
         raise NotImplementedError
 
     def time_direct(self, func,
@@ -115,12 +120,14 @@ class TargetBaseClass(BaseModel, metaclass=TargetRegistry):
              args: Optional[tuple] = None,
              kwargs: Optional[dict] = None,
              **kws: Any):
+        r"""Time execution."""
         if self.use_cprofile:
             return self.time_cprofile(func, args, kwargs, **kws)
         return self.time_direct(func, args, kwargs, **kws)
 
     def time_subprocess(self, code: str | list,
                         label: Optional[str] = ""):
+        r"""Time subprocess."""
         import subprocess
         if not isinstance(code, list):
             code = [code]
@@ -169,6 +176,7 @@ class ProfileImport(TargetBaseClass):
     _DESCRIPTION: ClassVar[str] = "Import Time Profile"
 
     def _run(self):
+        r"""Run."""
         modules = [
             "simulatr",
             "simulatr.utils",
@@ -194,6 +202,7 @@ class ProfileApsimXFile(TargetBaseClass):
     _DESCRIPTION: ClassVar[str] = "ApsimX Tree Traversal Profile"
 
     def _run(self):
+        r"""Run."""
         from simulatr.apsimx import ApsimXFile, ApsimXFileNode
 
         apsimx_dir = None
@@ -221,6 +230,7 @@ class ProfileApsimXFile(TargetBaseClass):
 
             # Count nodes
             def count_nodes(node):
+                r"""Count nodes."""
                 n = 1
                 for child in node.get("Children", []):
                     n += count_nodes(child)
@@ -289,6 +299,7 @@ class ProfileApsimXFile(TargetBaseClass):
 
         # Find a node with parameters
         def find_param_node(node):
+            r"""Find param node."""
             if "Parameters" in node and node["Parameters"]:
                 return node
             for child in node.get("Children", []):
@@ -333,6 +344,7 @@ class ProfileSimulator(TargetBaseClass):
     )
 
     def model_post_init(self, __context: Any) -> None:
+        r"""Perform post-initialization setup."""
         self._simulator_cls = get_simulator_class(
             self.simulator)
         self._reusable_model = self._simulator_cls(
@@ -344,6 +356,7 @@ class ProfileSimulator(TargetBaseClass):
         return super().model_post_init(__context)
 
     def _run_run(self):
+        r"""Run run."""
         model = self._simulator_cls(
             model_log_level=logging.DEBUG,
             **self._simulator_cls.EXAMPLE_KWARGS
@@ -352,21 +365,26 @@ class ProfileSimulator(TargetBaseClass):
         model.stop()
 
     def _run_get(self):
+        r"""Run get."""
         self._reusable_model.get(self._simulator_cls.EXAMPLE_STATE[0])
 
     def _run_set(self):
+        r"""Run set."""
         self._reusable_model.set(self._simulator_cls.EXAMPLE_STATE[0],
                                  self._simulator_cls.EXAMPLE_STATE[1])
 
     def _run_act(self):
+        r"""Run act."""
         self._reusable_model.act(self._simulator_cls.EXAMPLE_ACTION[0],
                                  **self._simulator_cls.EXAMPLE_ACTION[1])
 
     def _run_scrub(self):
+        r"""Run scrub."""
         self._reusable_model.scrub(self._t_half)
         self._reusable_model.scrub(-self._t_half)
 
     def _run(self):
+        r"""Run."""
         for method in self.methods:
             kws = (
                 {"iterations": 10} if method in ["scrub", "run"]

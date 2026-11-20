@@ -1,3 +1,5 @@
+r"""Data file abstractions and providers for weather, soil, and datasets."""
+
 import os
 import copy
 import uuid
@@ -33,31 +35,47 @@ FileMeta = create_registry_metaclass(
 
 
 class ParameterCalculator:
-    r"""Class for handling derived parameters.
-
-    Args:
-        name: Parameter name.
-        method: Callable for performing the calculation.
-        required: Names of parameters required for the calculation.
-        optional: Names of parameters that are optional for the
-            calculation.
-
-    """
+    r"""Class for handling derived parameters."""
 
     REGISTRY: ClassVar[Mapping[str, "ParameterCalculator"]] = {}
 
     def __init__(self, name: str, method: str, required: List[str],
                  optional: List[str] = None):
+        r"""Initialize a ParameterCalculator instance.
+
+        Args:
+            name: Parameter name.
+            method: Callable for performing the calculation.
+            required: Names of parameters required for the calculation.
+            optional: Names of parameters that are optional for the
+                calculation.
+
+        """
         self.name = name
         self.method = method
         self.required = required
         self.optional = optional
 
     @classmethod
-    def get_from_dict(cls, source, params, name, **kwargs):
+    def get_from_dict(cls, source: type, params: dict, name: str,
+                      **kwargs: Any) -> Any:
+        r"""Run a calculation drawing parameters from a dictionary.
+
+        Args:
+            source: File type that parameters belong to.
+            params: Parameter dictionary.
+            name: Parameter name to get.
+            \*\*kwargs: Keyword arguments are passed to
+                source.get_from_dict
+
+        Returns:
+            Parameter value.
+
+        """
         return source.get_from_dict(params, name, **kwargs)
 
     def __call__(self, source, prev=None, params=None, stack=None):
+        r"""Invoke the instance."""
         if not hasattr(source, self.method):
             raise KeyError(f"{self.name}: No method \"{self.method}\" "
                            f"on source {source}")
@@ -101,7 +119,7 @@ class ParameterCalculator:
             assert not isinstance(source, type)
             external = source.external_parameters(include_header=True)
         for k in cls.REGISTRY.keys():
-            if cls != ParameterNormalizer and k in external + out:
+            if cls == ParameterCalculator and k in external + out:
                 continue
             if cls.has_valid_entry(source, k, previous=(external + out),
                                    dont_recurse=dont_recurse):
@@ -137,8 +155,8 @@ class ParameterCalculator:
         if name not in cls.REGISTRY:
             return False
         excluded_next = (
-            excluded if cls == ParameterNormalizer
-            else excluded + [name]
+            excluded + [name] if cls == ParameterCalculator
+            else excluded
         )
         for x in cls.REGISTRY[name]:
             if not hasattr(source, x.method):
@@ -173,6 +191,7 @@ class ParameterCalculator:
         """
 
         def _register_method(method):
+            r"""Register the item."""
             method_name = method.__qualname__.rsplit('.', 1)[-1]
             cls.REGISTRY.setdefault(name, [])
             cls.REGISTRY[name].append(
@@ -186,6 +205,7 @@ class ParameterCalculator:
     def try_registered(cls, source, name: str,
                        stack: Optional[list] = None,
                        normalize_result: Optional[bool] = False,
+                       validate_result: Optional[bool] = False,
                        **kwargs) -> Any:
         r"""Try calculating a parameter using registered parameter
         calculators.
@@ -194,6 +214,7 @@ class ParameterCalculator:
             source: Data file providing parameters.
             name: Name of the parameter to calculate.
             normalize_result: If True, the result should be normalized.
+            validate_result: If True, the result should be validated.
             \*\*kwargs: Additional keyword arguments are passed to the
                 calculators.
 
@@ -221,6 +242,9 @@ class ParameterCalculator:
                     if normalize_result:
                         out = ParameterNormalizer.try_registered(
                             source, name, prev=out, **kwargs)
+                    if validate_result:
+                        ParameterValidator.try_registered(
+                            source, name, prev=out, **kwargs)
                     return out
                 except KeyError:
                     pass
@@ -230,22 +254,23 @@ class ParameterCalculator:
 
 
 class ParameterNormalizer(ParameterCalculator):
-    r"""Class for handling parameter normalization.
-
-    Args:
-        name: Parameter name.
-        method: Callable for performing the calculation.
-        required: Names of parameters required for the normalization,
-            not including the parameter itself.
-        optional: Names of parameters that are optional for the
-            calculation.
-
-    """
+    r"""Class for handling parameter normalization."""
 
     REGISTRY: ClassVar[Mapping[str, "ParameterNormalizer"]] = {}
 
     def __init__(self, name: str, method: str, required: List[str],
                  optional: List[str] = None):
+        r"""Initialize a ParameterNormalizer instance.
+
+        Args:
+            name: Parameter name.
+            method: Callable for performing the normalization.
+            required: Names of parameters required for the normalization,
+                not including the parameter itself.
+            optional: Names of parameters that are optional for the
+                normalization.
+
+        """
         if name not in required:
             required = [name] + list(required)
         super().__init__(name, method, required, optional=optional)
@@ -294,6 +319,78 @@ class ParameterNormalizer(ParameterCalculator):
                 except KeyError:
                     pass
         return prev
+
+
+class ValidationError(ValueError):
+    r"""Error class for use in ParameterValidator."""
+    pass
+
+
+class ParameterValidator(ParameterCalculator):
+    r"""Class for handling parameter validation."""
+
+    REGISTRY: ClassVar[Mapping[str, "ParameterValidator"]] = {}
+
+    def __init__(self, name: str, method: str, required: List[str],
+                 optional: List[str] = None):
+        r"""Initialize a ParameterValidator instance.
+
+        Args:
+            name: Parameter name.
+            method: Callable for performing the validation.
+            required: Names of parameters required for the validation,
+                not including the parameter itself.
+            optional: Names of parameters that are optional for the
+                validation.
+
+        """
+        if name not in required:
+            required = [name] + list(required)
+        super().__init__(name, method, required, optional=optional)
+
+    @classmethod
+    def try_registered(cls, source, name: str,
+                       prev: Optional[Any] = None,
+                       allow_calculate_prev: Optional[bool] = False,
+                       **kwargs) -> Any:
+        r"""Try validating a parameter using registered parameter
+        validators.
+
+        Args:
+            source: Data file providing parameters.
+            name: Name of the parameter to validate.
+            prev: Value to validate.
+            allow_calculate_prev: If True and prev not provided or set,
+                it can be calculated.
+            \*\*kwargs: Additional keyword arguments are passed to the
+                validators.
+
+        Returns:
+            Result of the validation if successful.
+
+        Raises:
+            KeyError: If the validatation fails.
+
+        """
+        name_int, name_ext = source.param_name_aliases(name)
+        if prev is None:
+            try:
+                if isinstance(source, type):
+                    assert "params" in kwargs
+                    prev = kwargs["params"][name_int]
+                else:
+                    prev = source.get(name_int)
+            except KeyError:
+                if not allow_calculate_prev:
+                    raise
+                prev = ParameterCalculator.try_registered(
+                    source, name, **kwargs)
+        for iname in set([name_int, name_ext]):
+            for validator in cls.REGISTRY.get(iname, []):
+                try:
+                    validator(source, prev=prev, **kwargs)
+                except KeyError:
+                    pass
 
 
 class BaseFile(CachedPropertyMixin, metaclass=FileMeta):
@@ -652,6 +749,7 @@ class BaseDataFile(BaseFile):
 
     @staticmethod
     def _on_registration(cls):
+        r"""Handle registration."""
         if cls.IS_BASE_CLASS:
             cls.DONT_TEST = True
         else:
@@ -743,6 +841,7 @@ class BaseDataFile(BaseFile):
             if cls.DEFAULT_EXTERNAL_TYPE is not None:
 
                 def _pconv(x):
+                    r"""Convert parameter values."""
                     x = cls.DEFAULT_EXTERNAL_TYPE.PARAMETER_ALIASES.get(
                         x, x)
                     return cls.PARAMETER_ALIASES_REV.get(x, x)
@@ -760,6 +859,7 @@ class BaseDataFile(BaseFile):
 
     @staticmethod
     def _ensure_internal_names(cls, dst, dont_include_alt=False):
+        r"""Ensure internal names."""
         for k, v in cls.PARAMETER_ALIASES.items():
             if v in dst:
                 dst[dst.index(v)] = k
@@ -774,6 +874,7 @@ class BaseDataFile(BaseFile):
 
     @staticmethod
     def _add_alternate_aliases(cls, dst):
+        r"""Add alternate aliases."""
         for k, v in cls.PARAMETER_ALIASES.items():
             if k not in dst:
                 continue
@@ -785,6 +886,7 @@ class BaseDataFile(BaseFile):
             ]
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a BaseDataFile instance."""
         self._CALCULATING = []
         super().__init__(*args, **kwargs)
 
@@ -821,6 +923,7 @@ class BaseDataFile(BaseFile):
         """
 
         def _parameter_calculation(method):
+            r"""Parameter calculation."""
             method_name = method.__qualname__.rsplit('.', 1)[-1]
             cls.PARAMETER_CALCULATORS.setdefault(name, [])
             cls.PARAMETER_CALCULATORS[name].append(
@@ -1076,6 +1179,7 @@ class BaseDataFile(BaseFile):
             return_scalar: Optional[bool] = False,
             valid_parameters: Optional[List[str]] = [],
     ) -> Any:
+        r"""Get post process."""
         if out is None:
             if default is NoDefault:
                 raise KeyError(
@@ -1087,10 +1191,14 @@ class BaseDataFile(BaseFile):
         # if name_ext in self.normalizable_parameters:
         #     out = ParameterNormalizer.try_registered(
         #         self, name_ext, out)
+        # if name_ext in self.validatable_parameters:
+        #     value = ParameterValidator.try_registered(
+        #         self, name_ext, out)
         return out
 
     @classmethod
     def _set_pre_process(cls, name_int: str, value: Any) -> Any:
+        r"""Set pre process."""
         value = cls.add_param_units(name_int, value, return_scalar=True)
         if name_int in cls.PARAMETER_PRECISION:
             value = np.round(
@@ -1230,6 +1338,9 @@ class BaseDataFile(BaseFile):
         value = self._set_pre_process(name_int, value)
         # if name_ext in self.normalizable_parameters:
         #     value = ParameterNormalizer.try_registered(
+        #         self, name_ext, value)
+        # if name_ext in self.validatable_parameters:
+        #     value = ParameterValidator.try_registered(
         #         self, name_ext, value)
         value_units = self.get_units(value)
         assert value_units is None
@@ -1496,13 +1607,24 @@ class BaseDataFile(BaseFile):
         r"""list: Parameters that can be normalized (universal names)."""
         return ParameterNormalizer.valid_entries(self)
 
-    def normalize_parameters(self):
+    @readonly_cached_property
+    def validatable_parameters(self) -> list:
+        r"""list: Parameters that can be validated (universal names)."""
+        return ParameterValidator.valid_entries(self)
+
+    def normalize_parameters(self) -> None:
         r"""Normalize the parameters in the file."""
         for k in self.normalizable_parameters:
             value = self.get(k)
             value = ParameterNormalizer.try_registered(
                 self, k, value)
             self.set(k, value)
+
+    def validate_parameters(self) -> None:
+        r"""Validate the parameters in the file."""
+        for k in self.validatable_parameters:
+            value = self.get(k)
+            ParameterValidator.try_registered(self, k, value)
 
     @classmethod
     def normalize_to_limits(cls, value: float,
@@ -1658,6 +1780,7 @@ class BaseDataFile(BaseFile):
                     dst, k, params=parameters, normalize_result=True)
             except KeyError:
                 continue
+        # TODO: Validate/normalize?
         out = {}
         for k, v in parameters.items():
             for kint in dst.internal_param_name(k, include_alt=True):
@@ -1815,6 +1938,7 @@ class BaseDataFile(BaseFile):
     @ParameterCalculator.register_method("start_date", "time")
     @classmethod
     def start_date_from_time(cls, time: float) -> datetime.date:
+        r"""Start date from time."""
         out = min(time)
         if not isinstance(out, datetime.date):
             out = out.astype(datetime.date)
@@ -1823,6 +1947,7 @@ class BaseDataFile(BaseFile):
     @ParameterCalculator.register_method("end_date", "time")
     @classmethod
     def end_date_from_time(cls, time: float) -> datetime.date:
+        r"""End date from time."""
         out = max(time)
         if not isinstance(out, datetime.date):
             out = out.astype(datetime.date)
@@ -1846,6 +1971,7 @@ class BaseDataFile(BaseFile):
     @classmethod
     def _round_location(cls, loc: float | Tuple[float, float],
                         src: Optional[type] = None):
+        r"""Round location."""
         if src is None:
             src = cls.DEFAULT_EXTERNAL_TYPE
         if src is not None and src != cls:
@@ -1861,6 +1987,7 @@ class BaseDataFile(BaseFile):
     @classmethod
     def _format_location(cls, latitude: float | Tuple[float, float],
                          longitude: float | Tuple[float, float], **kwargs):
+        r"""Format location."""
         assert latitude is not None
         assert longitude is not None
         latitude, longitude = cls._round_location((
@@ -1870,10 +1997,12 @@ class BaseDataFile(BaseFile):
     @classmethod
     def _format_time(cls, start_date: Optional[datetime.date],
                      end_date: Optional[datetime.date]):
+        r"""Format time."""
         return f"{cls._f2str(start_date)}_to_{cls._f2str(end_date)}"
 
     @classmethod
     def _file_prefix(cls) -> str:
+        r"""Get the file prefix."""
         return f"{cls.NAME}_"
 
     @classmethod
@@ -2253,6 +2382,7 @@ class BaseDataFile(BaseFile):
         for k, v in parameters.items():
             out.set(k, v, allow_add=True)
         out.normalize_parameters()
+        out.validate_parameters()
         return out
 
     @classmethod
@@ -2263,6 +2393,7 @@ class BaseDataFile(BaseFile):
             inclusive_left: Optional[bool] = True,
             inclusive_right: Optional[bool] = False,
     ) -> bool:
+        r"""Check inside range."""
         if isinstance(a, tuple):
             if a == (None, None):
                 return True
@@ -2408,6 +2539,7 @@ class BaseDataMapMixin:
     ]
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a BaseDataMapMixin instance."""
         super().__init__(*args, **kwargs)
 
     @classmethod
@@ -2473,6 +2605,7 @@ class BaseWeatherFile(BaseDataFile):
 
     @ParameterCalculator.register_method("temperature_avg", "temperature")
     def average_temperature(self, temp):
+        r"""Calculate average temperature values."""
         return utils.mean(temp)
 
 
@@ -2838,6 +2971,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("top_depth", "bottom_depth")
     @classmethod
     def top_depth_from_bottom_depth(cls, bottom_depth):
+        r"""Calculate top depth from bottom depth."""
         depth_units = cls.get_units(bottom_depth)
         if isinstance(bottom_depth, (float, rj_units.Quantity)):
             bottom_depth = [bottom_depth]
@@ -2853,6 +2987,7 @@ class BaseSoilFile(BaseDataFile):
                                          "bottom_depth")
     @classmethod
     def depths_from_split(cls, top_depth, bottom_depth):
+        r"""Calculate depths from split."""
         depth_units = None
         if utils.has_units(top_depth):
             depth_units = str(top_depth.units)
@@ -2871,6 +3006,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("depths", "thickness")
     @classmethod
     def depths_from_thickness(cls, thickness):
+        r"""Calculate depths from thickness."""
         prev_units = cls.get_units(thickness)
         out, top = [], cls.add_units(0.0, prev_units)
         # TODO: Can be reverted to basic iteration once iteration
@@ -2887,11 +3023,13 @@ class BaseSoilFile(BaseDataFile):
                                          "bottom_depth")
     @classmethod
     def thickness_from_split(cls, top_depth, bottom_depth):
+        r"""Calculate thickness from split."""
         return bottom_depth - top_depth
 
     @ParameterCalculator.register_method("thickness", "depths")
     @classmethod
     def thickness_from_depths(cls, depths):
+        r"""Calculate thickness from depths."""
         prev_units = cls.get_units(depths)
         if prev_units is not None:
             return cls.add_units(
@@ -2906,6 +3044,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("top_depth", "depths")
     @classmethod
     def top_depth_from_depths(cls, depths):
+        r"""Calculate top depth from depths."""
         if len(depths) == 0:
             return np.array([], dtype=np.float64)
         prev_units = cls.get_units(depths)
@@ -2917,6 +3056,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("bottom_depth", "depths")
     @classmethod
     def bottom_depth_from_depths(cls, depths):
+        r"""Calculate bottom depth from depths."""
         if len(depths) == 0:
             return np.array([], dtype=np.float64)
         prev_units = cls.get_units(depths)
@@ -2928,6 +3068,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("top_depth", "thickness")
     @classmethod
     def top_depth_from_thickness(cls, thickness):
+        r"""Calculate top depth from thickness."""
         prev_units = cls.get_units(thickness)
         if prev_units is not None:
             return cls.add_units(
@@ -2944,6 +3085,7 @@ class BaseSoilFile(BaseDataFile):
     @ParameterCalculator.register_method("bottom_depth", "thickness")
     @classmethod
     def bottom_depth_from_thickness(cls, thickness):
+        r"""Calculate bottom depth from thickness."""
         prev_units = cls.get_units(thickness)
         if prev_units is not None:
             return cls.add_units(
@@ -3323,10 +3465,14 @@ class BaseSoilFile(BaseDataFile):
     #    sand       20-2000 µm           50-2000 µm
     @classmethod
     def intl_clay(cls, clay: float, silt: float):
+        r"""Calculate clay fraction in the International standard
+        from clay and silt factions in the USDA standard."""
         return clay
 
     @classmethod
     def intl_silt(cls, clay: float, silt: float):
+        r"""Calculate silt fraction in the International standard
+        from clay and silt factions in the USDA standard."""
         clay_units = cls.get_units(clay)
         clay_units_type = utils.matching_unit_type(clay, silt)
         clay = cls.add_units(clay, "", return_scalar=True)
@@ -3991,6 +4137,7 @@ class ISRICSoilGridsFile(BaseSoilFile):
 
     @classmethod
     def _round_location(cls, loc: float | Tuple[float, float], **kwargs):
+        r"""Round location."""
         loc = super()._round_location(loc, **kwargs)
         if isinstance(loc, float):
             loc = np.round(loc)
@@ -4011,6 +4158,7 @@ class ISRICSoilGridsFile(BaseSoilFile):
 
     @classmethod
     def _find_layer(cls, name, contents, return_index=False):
+        r"""Find layer."""
         for i, layer in enumerate(contents["properties"]["layers"]):
             if layer["name"] == name:
                 if return_index:
@@ -4020,6 +4168,7 @@ class ISRICSoilGridsFile(BaseSoilFile):
 
     @classmethod
     def _find_top_depth(cls, depth, layer, return_index=False):
+        r"""Find top depth."""
         for i, depth in enumerate(layer["depths"]):
             if depth["range"]["top_depth"] == depth:
                 if return_index:
@@ -4166,6 +4315,7 @@ class SoilMatFile(BaseSoilFile):
 
     @staticmethod
     def _on_registration(cls):
+        r"""Handle registration."""
         cls._apsimx_names = [
             k for k in cls.PARAMETER_UNITS
             if k not in ISRICSoilGridsFile.PARAMETER_UNITS
@@ -4190,6 +4340,7 @@ class SoilMatFile(BaseSoilFile):
     @classmethod
     def _round_location(cls, loc: float | Tuple[float, float], **kwargs):
         # TODO: SoilMat is coarser than SoilGrids
+        r"""Round location."""
         return ISRICSoilGridsFile._round_location(loc, **kwargs)
 
     def _get(self, name: str) -> Any:
@@ -4710,10 +4861,20 @@ class SSURGOSoilFile(BaseSoilFile):
 
 
 class GeoTIFFWrapper:
+    r"""GeoTIFFWrapper implementation."""
 
     def __init__(self, fname: str, index: int,
                  scale: Optional[float] = 1.0,
                  units: Optional[str] = ""):
+        r"""Initialize a GeoTIFFWrapper instance.
+
+        Args:
+            fname: File name.
+            index: Index in the file of the field that should be wrapped.
+            scale: Scale factor to apply when the data is loaded.
+            units: Units that the field is in.
+
+        """
         self.fname = fname
         self.index = index
         self.scale = scale
@@ -4721,34 +4882,41 @@ class GeoTIFFWrapper:
 
     @property
     def units(self) -> Union[str, None]:
+        r"""Units for the data."""
         return self._units[-1]
 
     @units.setter
     def units(self, value: str | None) -> None:
+        r"""Units for the data."""
         self._units.append(value)
 
     def __add__(self, solf):
+        r"""Return the sum with another object."""
         if isinstance(solf, GeoTIFFWrapper):
             solf = solf.data
         return self.data + solf
 
     def __sub__(self, solf):
+        r"""Return the difference with another object."""
         if isinstance(solf, GeoTIFFWrapper):
             solf = solf.data
         return self.data - solf
 
     def __mul__(self, solf):
+        r"""Return the product with another object."""
         if isinstance(solf, GeoTIFFWrapper):
             solf = solf.data
         return self.data * solf
 
     def __truediv__(self, solf):
+        r"""Return the quotient with another object."""
         if isinstance(solf, GeoTIFFWrapper):
             solf = solf.data
         return self.data / solf
 
     @property
     def data(self) -> Union[np.ndarray, rj_units.QuantityArray]:
+        r"""Underlying data values."""
         import rasterio
         fd = rasterio.open(self.fname)
         out = rj_units.QuantityArray(
@@ -4968,6 +5136,7 @@ class EarthDataAuth(CachedPropertyMixin):
     _global_auth = None
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a EarthDataAuth instance."""
         import earthaccess
         self.earthaccess = earthaccess
         super().__init__(*args, **kwargs)
@@ -5124,6 +5293,7 @@ class NASAAppEEARSData(BaseSoilFile):
     STATIC_PARAMETERS: ClassVar[dict] = {}
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a NASAAppEEARSData instance."""
         self._results = None
         super().__init__(*args, **kwargs)
         if self.exists:
@@ -5137,6 +5307,7 @@ class NASAAppEEARSData(BaseSoilFile):
 
     @classmethod
     def _file_prefix(cls) -> str:
+        r"""Get the file prefix."""
         return f"AppEEARS_{cls.NAME}_{cls.VERSION}_"
 
     @property
@@ -5499,6 +5670,7 @@ class EarthaccessData(BaseSoilFile):
     PARAMETER_UNITS: ClassVar[Mapping[str, str]] = {}
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a EarthaccessData instance."""
         super().__init__(*args, **kwargs)
         if self.exists:
             self.download_missing()
@@ -5506,6 +5678,7 @@ class EarthaccessData(BaseSoilFile):
 
     @staticmethod
     def _on_registration(cls):
+        r"""Handle registration."""
         if cls.NAME != "earthaccess":
             assert cls.NAME.startswith("EA_")
             cls.PRODUCT = cls.NAME[3:]

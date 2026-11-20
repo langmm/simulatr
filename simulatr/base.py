@@ -1,3 +1,5 @@
+r"""Core abstractions for simulator files, engines, and environments."""
+
 import os
 import re
 import json
@@ -68,10 +70,12 @@ class SimulatorFieldInfo(FieldInfo):
                  server_default: Optional[Any] = NoDefault,
                  zero_indicates_null: Optional[bool] = NoDefault,
                  **kwargs: Any) -> None:
+        r"""Initialize a SimulatorFieldInfo instance."""
         if simulator_metadata is NoDefault:
             simulator_metadata = {}
 
         def _add_field(k, v, dst=None, in_schema=False):
+            r"""Add field."""
             if v is NoDefault:
                 return False
             if dst is None:
@@ -1599,6 +1603,7 @@ class _SimulatorEngineMeta(type(BaseModel)):
 
     def __new__(mcs, name: str, bases: Tuple[type, ...],
                 namespace: Dict[str, Any], **kwargs: Any):
+        r"""Create and return a new instance."""
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         if namespace.get("_SIMULATOR_FIELD_ANNOTATIONS", None):
             for k, v in namespace["_SIMULATOR_FIELD_ANNOTATIONS"].items():
@@ -2273,6 +2278,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
 
     @classmethod
     def _check_actions(cls, v, **kwargs):
+        r"""Check actions."""
         if isinstance(v, ModelActionSet):
             if not kwargs:
                 return v
@@ -2994,6 +3000,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
 
     @classmethod
     def _setup_plot(cls, plot: Any):
+        r"""Set up plot."""
         figure = None
         axes = False
         if not plot:
@@ -3010,6 +3017,7 @@ class BaseModelEngine(BaseModel, ABC, metaclass=_SimulatorEngineMeta):
     @classmethod
     def _finalize_plot(cls, plot: Any, figure: Any, axes: Any,
                        legend: Optional[bool] = False):
+        r"""Finalize plot."""
         if not plot:
             return
         if isinstance(plot, str):
@@ -3958,6 +3966,7 @@ class _ModelEnvMeta(type(BaseModel)):
 
     def __new__(mcs, name: str, bases: Tuple[type, ...],
                 namespace: Dict[str, Any], **kwargs: Any):
+        r"""Create and return a new instance."""
         cls = super().__new__(mcs, name, bases, namespace, **kwargs)
         simulator_engine = namespace.get('MODEL_ENGINE_CLASS', None)
         simulator_name = None

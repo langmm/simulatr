@@ -32,6 +32,16 @@ _n8n_simulator_tool_name = {
 
 
 def _default_toolname(simulator: str, endpoint: str):
+    r"""Get the default n8n tool name for a simulator endpoint.
+
+    Args:
+        simulator: Simulator name.
+        endpoint: Endpoint name.
+
+    Returns:
+        str: Default tool name.
+
+    """
     simulator = _n8n_simulator_tool_name.get(simulator, simulator)
     return f'{simulator} {endpoint} Tool'
 

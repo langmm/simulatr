@@ -1,3 +1,5 @@
+r"""Shared utility helpers, configuration, and metaclasses for simulatr."""
+
 import os
 import threading
 import subprocess
@@ -56,7 +58,17 @@ class NoDefault:
     pass
 
 
-def string_to_datetime(out, only_date: Optional[bool] = False):
+def string_to_datetime(out: Any, only_date: Optional[bool] = False):
+    r"""Convert an object to a datetime.
+
+    Args:
+        out: Object to convert.
+        only_date: If True, return a date object.
+
+    Returns:
+        Converted object.
+
+    """
     if isinstance(out, str):
         if only_date:
             return datetime.date.fromisoformat(out)
@@ -97,6 +109,7 @@ def string_to_datetime(out, only_date: Optional[bool] = False):
 
 
 def is_scalar(x):
+    r"""Check whether it is scalar."""
     if np.isscalar(x):
         return True
     return False
@@ -105,10 +118,12 @@ def is_scalar(x):
 # TODO: These can be removed once ufuncs fixed in yggdrasil_rapidjson
 
 def has_units(x):
+    r"""Check whether an instance has units."""
     return isinstance(x, (units.Quantity, units.QuantityArray))
 
 
 def matching_unit_type(*match_to):
+    r"""Matching unit type."""
     for x in match_to:
         if ((isinstance(x, list)
              or (isinstance(x, np.ndarray)
@@ -118,11 +133,13 @@ def matching_unit_type(*match_to):
 
 
 def match_unit_type(value, value_units, *match_to):
+    r"""Match unit type."""
     unit_type = matching_unit_type(*match_to)
     return unit_type(value, value_units)
 
 
 def round(x, **kwargs):
+    r"""Round."""
     if has_units(x):
         unit_type = matching_unit_type(x)
         return unit_type(np.round(x.value, **kwargs), x.units)
@@ -130,24 +147,28 @@ def round(x, **kwargs):
 
 
 def mean(x):
+    r"""Mean."""
     if has_units(x):
         return units.Quantity(np.mean(x.value), x.units)
     return np.mean(x)
 
 
 def log(x):
+    r"""Log."""
     if has_units(x) and x.is_dimensionless():
         return np.log(x.value)
     return np.log(x)
 
 
 def exp(x):
+    r"""Exp."""
     if has_units(x) and x.is_dimensionless():
         return np.exp(x.value)
     return np.exp(x)
 
 
 def pow(x, y):
+    r"""Pow."""
     if has_units(x) and x.is_dimensionless():
         return np.pow(x.value, y)
     return np.pow(x, y)
@@ -690,6 +711,7 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         def __new__(mcs, name: str, bases: Tuple[type, ...],
                     namespace: Dict[str, Any], **kwargs: Any):
+            r"""Create and return a new instance."""
             cls = super().__new__(mcs, name, bases, namespace, **kwargs)
             for k, v in noninheritable_attr.items():
                 if getattr(cls, k, v) != v and k not in namespace:
@@ -702,6 +724,7 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         @classmethod
         def _get_key(mcs, cls):
+            r"""Get key."""
             if isinstance(mcs._registry_attr, tuple):
                 return tuple([getattr(cls, k, None)
                               for k in mcs._registry_attr])
@@ -709,6 +732,7 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         @classmethod
         def _register(mcs, cls):
+            r"""Register the item."""
             if hasattr(cls, "_on_registration"):
                 cls._on_registration(cls)
             key = mcs._get_key(cls)
@@ -723,6 +747,7 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         @classmethod
         def get_registry(mcs, *partial_key: Any):
+            r"""Get the registry."""
             out = mcs._registry
             for k in partial_key:
                 out = out[k]
@@ -730,6 +755,7 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         @classmethod
         def _recurse_items(mcs, key, value):
+            r"""Recurse items."""
             if isinstance(value, OrderedDict):
                 for k, v in value.items():
                     knested = tuple(*key, k)
@@ -741,17 +767,20 @@ def create_registry_metaclass(key_attr: Optional[str | tuple] = "_NAME",
 
         @classmethod
         def items(mcs, *partial_key: Any):
+            r"""Items."""
             registry = mcs.get_registry(*partial_key)
             for k, v in mcs._recurse_items(tuple(), registry):
                 yield (k, v)
 
         @classmethod
         def keys(mcs, *partial_key: Any):
+            r"""Keys."""
             for k, v in mcs.items(*partial_key):
                 yield k
 
         @classmethod
         def values(mcs, *partial_key: Any):
+            r"""Values."""
             for k, v in mcs.items(*partial_key):
                 yield v
 

@@ -1,3 +1,5 @@
+r"""Crop-model base classes for files, engines, prompts, and environments."""
+
 import os
 import numpy as np
 import datetime
@@ -246,6 +248,14 @@ class CropModelEngine(BaseModelEngine):
         default=None,
         server_default=None,
         description="Path to a file containing soil data.")
+    dont_fetch_weather: Optional[bool] = Field(
+        default=False,
+        description="Don't fetch public weather data for the specified "
+                    "time/location")
+    dont_fetch_soil: Optional[bool] = Field(
+        default=False,
+        description="Don't fetch public soil data for the specified "
+                    "time/location")
 
     @field_validator('sow_date', 'harvest_date', mode="before")
     @classmethod
@@ -302,6 +312,8 @@ class CropModelEngine(BaseModelEngine):
         ]:
             param = f"{category}_file"
             fname = getattr(self, param)
+            if getattr(self, f"dont_fetch_{category}"):
+                continue
             if not (fname
                     or self.has_param("latitude", skip_file=True)
                     or self.has_param("longitude", skip_file=True)):

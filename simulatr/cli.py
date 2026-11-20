@@ -1,4 +1,6 @@
 # python -m simulatr run apsimx --crop-name wheat --from-example
+r"""Command-line interface for simulatr."""
+
 import os
 import json
 import argparse
@@ -17,6 +19,7 @@ class OverrideExtendAction(argparse.Action):
     r"""Action class to prevent extending default values."""
 
     def __call__(self, parser, namespace, values, option_string=None):
+        r"""Invoke the instance."""
         if getattr(self, '_overwritten', False):
             current_values = getattr(namespace, self.dest)
             current_values.extend(values)
@@ -26,6 +29,7 @@ class OverrideExtendAction(argparse.Action):
 
 
 class CliArgHandler(FieldHandler):
+    r"""Argument handler for CLI field definitions."""
 
     @cached_property
     def names(self) -> list:
@@ -163,6 +167,7 @@ def _add_args_from_engine(simulator: str,
                           root_parser: argparse.ArgumentParser,
                           include_all_crop_name: Optional[bool] = False,
                           **kwargs: Any) -> argparse.ArgumentParser:
+    r"""Add args from engine."""
     engine = get_simulator_class(simulator)
     if "crop_name" not in kwargs.get("field_specific_kwargs", {}):
         kwargs.setdefault("field_specific_kwargs", {})
@@ -184,12 +189,14 @@ CliRegistry = create_registry_metaclass("NAME")
 
 
 class SimulatrCliSubparser(metaclass=CliRegistry):
+    r"""Base class for simulatr CLI subparsers."""
 
     NAME = None
     HELP = None
     KWARGS = {}
 
     def __init__(self, subparsers):
+        r"""Initialize a SimulatrCliSubparser instance."""
         self.subparsers = {}
         self.parser = subparsers.add_parser(
             self.NAME, help=self.HELP, **self.KWARGS)
@@ -202,24 +209,44 @@ class SimulatrCliSubparser(metaclass=CliRegistry):
         self.parser.set_defaults(func=self)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         raise NotImplementedError
 
-    def add_global_arguments(self, parser):
+    def add_global_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add global arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--pdb", action="store_true",
             help="Run with Python debugger",
         )
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         pass
 
 
 class ConfigCli(SimulatrCliSubparser):
+    r"""config subparser for setting configurations options."""
 
     NAME = "config"
     HELP = "Set a configuration option"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "section", type=str,
             help="Name of the section the configuration option is in",
@@ -242,6 +269,7 @@ class ConfigCli(SimulatrCliSubparser):
         super().add_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         if args.section in ["directories", "files"]:
             args.value = os.path.abspath(os.path.expanduser(args.value))
         cfg.set(args.section, args.name, args.value)
@@ -251,15 +279,23 @@ class ConfigCli(SimulatrCliSubparser):
 
 
 class InstallCli(SimulatrCliSubparser):
+    r"""Subparser for installing a simulator."""
 
     NAME = "install"
     HELP = "Install a simulator"
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a InstallCli instance."""
         self.simulators = registered_simulators()
         super().__init__(*args, **kwargs)
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--simulator", type=str,  nargs="+", action="extend",
             choices=self.simulators,
@@ -283,6 +319,7 @@ class InstallCli(SimulatrCliSubparser):
         super().add_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         if not args.simulator:
             args.simulator = self.simulators
         if args.directory:
@@ -300,15 +337,23 @@ class InstallCli(SimulatrCliSubparser):
 
 
 class CreateModelFileCli(SimulatrCliSubparser):
+    r"""Subparser for creating a simulator input file."""
 
     NAME = "create"
     HELP = "Create a simulator input file"
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a CreateModelFileCli instance."""
         self.simulators = registered_simulators()
         super().__init__(*args, **kwargs)
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser_create_sim = parser.add_subparsers(
             dest="simulator", required=True,
             help="Name of the simulator to create an input file for",
@@ -329,7 +374,13 @@ class CreateModelFileCli(SimulatrCliSubparser):
         # )
         super().add_arguments(parser)
 
-    def add_global_arguments(self, parser):
+    def add_global_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add global arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--dst", type=str,
             help="Path to where the new file should be saved",
@@ -341,6 +392,7 @@ class CreateModelFileCli(SimulatrCliSubparser):
         super().add_global_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from . import get_simulator_class
         engine_cls = get_simulator_class(args.simulator)
         kws = {
@@ -363,15 +415,23 @@ class CreateModelFileCli(SimulatrCliSubparser):
 
 
 class RunCli(SimulatrCliSubparser):
+    r"""Subparser to run a simulator."""
 
     NAME = "run"
     HELP = "Run a simulation"
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a RunCli instance."""
         self.simulators = registered_simulators()
         super().__init__(*args, **kwargs)
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         self.subparser = parser.add_subparsers(
             dest="simulator", required=True,
             help="Name of the simulator to run")
@@ -386,7 +446,13 @@ class RunCli(SimulatrCliSubparser):
             )
         super().add_arguments(parser)
 
-    def add_global_arguments(self, parser):
+    def add_global_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add global arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--plot", type=str, nargs="?", const=True, default=False,
             help="File where results should be plot",
@@ -404,6 +470,7 @@ class RunCli(SimulatrCliSubparser):
         super().add_global_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from . import run
         kws = {
             k: v for k, v in vars(args).items()
@@ -427,16 +494,24 @@ class RunCli(SimulatrCliSubparser):
 
 
 class ServeCli(SimulatrCliSubparser):
+    r"""Subparser to run the simulatr server."""
 
     NAME = "serve"
     HELP = "Launch simulator(s) as fastapi application"
 
     def __init__(self, *args, **kwargs):
+        r"""Initialize a ServeCli instance."""
         self.installed_simulators = registered_simulators(
             only_installed=True)
         super().__init__(*args, **kwargs)
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--simulator", type=str, nargs="+",
             action=OverrideExtendAction,
@@ -473,6 +548,7 @@ class ServeCli(SimulatrCliSubparser):
         super().add_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from .server import run_server
         run_server(
             args.simulator,
@@ -484,6 +560,7 @@ class ServeCli(SimulatrCliSubparser):
 
 
 class N8NCli(SimulatrCliSubparser):
+    r"""Subparser to manage n8n tools."""
 
     NAME = "n8n"
     HELP = "Manage n8n tools for supported simulators"
@@ -492,11 +569,18 @@ class N8NCli(SimulatrCliSubparser):
         # from server import EndPointRegistry
         # self.n8n_entry_points = list(
         #     EndPointRegistry._registry.keys())
+        r"""Initialize a N8NCli instance."""
         self.simulators = registered_simulators()
         self.n8n_entry_points = ["start", "start-interactive"]
         super().__init__(*args, **kwargs)
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "simulator", type=str, choices=self.simulators,
             help="Name of the simulator to manage n8n tools for",
@@ -546,7 +630,13 @@ class N8NCli(SimulatrCliSubparser):
         )
         super().add_arguments(parser)
 
-    def add_global_arguments(self, parser):
+    def add_global_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add global arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         parser.add_argument(
             "--name", type=str, nargs="+", action="extend",
             choices=self.n8n_entry_points,
@@ -567,6 +657,7 @@ class N8NCli(SimulatrCliSubparser):
         super().add_global_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from . import n8n
         if not args.name:
             if args.utility in ["query", "remove"] and args.toolname:
@@ -622,11 +713,18 @@ class N8NCli(SimulatrCliSubparser):
 
 
 class ProfileCli(SimulatrCliSubparser):
+    r"""Subparser to profile simulatr components."""
 
     NAME = "profile"
     HELP = "Profile simulatr components"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         from . import profile
         self.subparser = parser.add_subparsers(
             dest="target", required=True,
@@ -642,6 +740,7 @@ class ProfileCli(SimulatrCliSubparser):
         super().add_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from .profile import TargetRegistry
         if args.target == "all":
             targets = TargetRegistry.registered_classes()
@@ -657,11 +756,18 @@ class ProfileCli(SimulatrCliSubparser):
 
 
 class ApsimXCli(SimulatrCliSubparser):
+    r"""Subparser to run ApsimX directly."""
 
     NAME = "apsimx"
     HELP = "Run ApsimX model directly"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: argparse.ArgumentParser):
+        r"""Add arguments to a parser.
+
+        Args:
+            parser: Parser to add arguments to.
+
+        """
         from .apsimx import ApsimXEngine
         CliArgHandler.handle_model(
             ApsimXEngine, parser,
@@ -678,6 +784,7 @@ class ApsimXCli(SimulatrCliSubparser):
         super().add_arguments(parser)
 
     def __call__(self, args):
+        r"""Invoke the instance."""
         from .apsimx import ApsimXEngine
         generated = False
         if not args.model_file:

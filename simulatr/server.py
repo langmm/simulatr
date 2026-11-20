@@ -1,3 +1,5 @@
+r"""FastAPI server for interactive simulator sessions."""
+
 import os
 import json
 import uuid

@@ -1,8 +1,11 @@
+r"""Package configuration utilities."""
+
 import os
 import sys
 import json
 from collections import OrderedDict
 from configparser import ConfigParser
+from typing import Optional
 
 
 _pkgdir = os.path.abspath(os.path.dirname(
@@ -25,19 +28,20 @@ def current_environment_dir() -> str | None:
 
 
 class PackageConfig(ConfigParser, object):
-    r"""Config parser that initializes a default for a package.
+    r"""Config parser that initializes a default for a package."""
 
-    Args:
-        package (str): Name of the package the config file is for.
-        ext (str, optional): File extension for config files.
-        schema (dict, optional): JSON schema that should be used to parse
-            the loaded result.
-        defaults (dict, optional): Default values that should be
-            preloaded.
+    def __init__(self, package: str, ext: Optional[str] = '.ini',
+                 schema: Optional[dict | None] = None,
+                 defaults: Optional[dict | None] = None):
+        r"""Initialize the package configuration.
 
-    """
+        Args:
+            package: Name of the package the config file is for.
+            ext: File extension for config files.
+            schema: JSON schema used to validate loaded options.
+            defaults: Default values to preload.
 
-    def __init__(self, package, ext='.ini', schema=None, defaults=None):
+        """
         self.package = package
         self.schema = schema
         self.defaults = defaults

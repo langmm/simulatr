@@ -1,3 +1,9 @@
+r"""Top-level simulatr package API.
+
+Provides helpers for discovering registered simulators and creating/running
+simulator engines and environments.
+"""
+
 import logging
 from typing import Optional, List, Any
 logger = logging.getLogger(__name__)
